@@ -50,15 +50,7 @@ pub fn parse(text: &str, now: DateTime<Utc>, levels: &[String]) -> Parsed {
         .and_then(|value| parse_date(value, today));
     source = date_re.replace(&source, " ").into_owned();
     let time_re=Regex::new(r"(?:(凌晨|早上|上午|中午|下午|傍晚|晚上|夜里)\s*)?(\d{1,2})(?:(?::|：|点)(\d{1,2}|半)?(?:分)?)").unwrap();
-    let implicit_time = date_match.as_deref().and_then(|value| {
-        if matches!(value.to_ascii_lowercase().as_str(), "tonight")
-            || matches!(value, "今晚" | "明晚")
-        {
-            NaiveTime::from_hms_opt(20, 0, 0)
-        } else {
-            None
-        }
-    });
+    let implicit_time = date_match.as_deref().and_then(default_time_for_date);
     let time = time_re.captures(&source).and_then(|c| {
         parse_time(
             c.get(1).map(|m| m.as_str()),
@@ -156,7 +148,15 @@ fn parse_reminder_at(
         return Some(at);
     }
     let day = parse_date(raw, now.date_naive())?;
-    utc(day.and_time(NaiveTime::MIN))
+    utc(day.and_time(default_time_for_date(raw).unwrap_or(NaiveTime::MIN)))
+}
+fn default_time_for_date(raw: &str) -> Option<NaiveTime> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "tomorrow" => NaiveTime::from_hms_opt(10, 0, 0),
+        "tonight" => NaiveTime::from_hms_opt(20, 0, 0),
+        _ if matches!(raw, "今晚" | "明晚") => NaiveTime::from_hms_opt(20, 0, 0),
+        _ => None,
+    }
 }
 fn parse_relative_duration(raw: &str) -> Option<(i64, &str)> {
     let split = raw
@@ -408,10 +408,12 @@ mod tests {
             &crate::priority::levels(),
         );
         assert_eq!(tomorrow.title, "meet the monitor seller");
+        let due = tomorrow.due.unwrap();
         assert_eq!(
-            tomorrow.due.unwrap().date_naive(),
+            due.date_naive(),
             NaiveDate::from_ymd_opt(2026, 8, 20).unwrap()
         );
+        assert_eq!((due.hour(), due.minute()), (10, 0));
 
         let next_friday = parse("Meet seller NEXT FRIDAY", now(), &crate::priority::levels());
         assert_eq!(next_friday.title, "Meet seller");
@@ -429,12 +431,27 @@ mod tests {
             &crate::priority::levels(),
         );
         assert_eq!(parsed.title, "meet the seller");
+        let reminder = crate::parse_datetime(&parsed.reminders[0].at).unwrap();
         assert_eq!(
-            crate::parse_datetime(&parsed.reminders[0].at)
-                .unwrap()
-                .date_naive(),
+            reminder.date_naive(),
             NaiveDate::from_ymd_opt(2026, 8, 20).unwrap()
         );
+        assert_eq!((reminder.hour(), reminder.minute()), (10, 0));
+    }
+
+    #[test]
+    fn explicit_time_overrides_tomorrow_default_time() {
+        let parsed = parse(
+            "meet the seller tomorrow 15:30",
+            now(),
+            &crate::priority::levels(),
+        );
+        let due = parsed.due.unwrap();
+        assert_eq!(
+            due.date_naive(),
+            NaiveDate::from_ymd_opt(2026, 8, 20).unwrap()
+        );
+        assert_eq!((due.hour(), due.minute()), (15, 30));
     }
 
     #[test]
