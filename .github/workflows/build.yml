@@ -1,0 +1,56 @@
+name: build
+
+# 三平台构建：PyInstaller 不能交叉编译，所以 Windows/macOS/Linux 各在自己的
+# runner 上构建单文件二进制。push tag（v*）时自动挂到 Release。
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+        include:
+          - os: windows-latest
+            artifact: atd-windows
+          - os: macos-latest
+            artifact: atd-macos
+          - os: ubuntu-latest
+            artifact: atd-linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pyinstaller
+
+      - name: Run tests
+        run: python -m pytest tests/ -q
+
+      - name: Build binary
+        run: python -m PyInstaller atd.spec --noconfirm --clean
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/atd*
+
+      - name: Attach to release (tag only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/atd*
+          fail_on_unmatched_files: false
