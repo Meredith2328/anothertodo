@@ -13,6 +13,13 @@ dependencies = [
     "windows-toasts>=1.0; sys_platform == 'win32'",
 ]
 
+[project.optional-dependencies]
+# 开发/测试
+dev = [
+    "pytest>=7.0",
+    "pyinstaller>=6.0",
+]
+
 [project.scripts]
 atd = "atd.cli:main"
 

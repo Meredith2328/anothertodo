@@ -1,10 +1,20 @@
 # atd 运行依赖（Python >= 3.10）
+#
+# 平台说明：
+# - windows-toasts 只装 Windows（macOS/Linux 的 toast 走 osascript / notify-send，零依赖）
+# - 其余包三端通用
+#
 # 安装：python -m pip install -r requirements.txt
+
+# ---- 运行必需（三端）----
 textual>=0.40
 rich>=13.0
+
+# ---- Windows 专属（toast 系统通知）----
 windows-toasts>=1.0; sys_platform == "win32"
 
-# 开发/测试
-pytest>=7.0
-# 打包单文件 exe（可选）
-pyinstaller>=6.0
+# ---- 开发/测试（可选）----
+# pytest>=7.0
+
+# ---- 打包单文件二进制（可选，见 docs/guide.md 第 12 章）----
+# pyinstaller>=6.0
