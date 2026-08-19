@@ -107,6 +107,15 @@ async def _drive():
         await pilot.pause()
         assert len(app.store.tasks()) == 1
 
+        # 7.5 无撤销项、非法归档天数、非法查询不应让 TUI 退出
+        app.store._atomic_write(app.store.undo_file, [])
+        await app._run_command("undo")
+        assert "没有可撤销" in app._flash_msg
+        await app._run_command("archive nope")
+        assert "invalid literal" in app._flash_msg
+        await app._run_command("list unknown:value")
+        assert "不认识的过滤器" in app._flash_msg
+
         # 8. ? 帮助面板（列表焦点触发）
         await pilot.press("question_mark")
         await pilot.pause()
@@ -167,6 +176,101 @@ async def _drive():
 
 def test_tui_flow(clean_home):
     assert asyncio.run(_drive())
+
+
+async def _drive_remaining_shortcuts():
+    """Exercise every mutation/navigation shortcut not covered by the main flow."""
+    from unittest.mock import patch
+    from atd.model import Task, new_id, utcnow
+    from atd.tui import TodoApp
+    from textual.widgets import DataTable, Input
+
+    app = TodoApp(welcome=False)
+    task = Task(id=new_id(), title="快捷键任务", tags=["工作"], entry=utcnow().isoformat())
+    app.store.save(task)
+    async with app.run_test() as pilot:
+        inp = app.query_one("#input", Input)
+        assert isinstance(app.focused, DataTable)
+
+        # 空输入框时 Enter 作用于清单：完成，再由 u 撤销。
+        await pilot.press("enter")
+        assert app.store.get(task.id).status == "done"
+        await pilot.press("u")
+        assert app.store.get(task.id).status == "todo"
+
+        # e / Esc：编辑并取消；w / u：等待和撤销；x / u：删除和撤销。
+        await pilot.press("e")
+        assert app.editing_id == task.id and isinstance(app.focused, Input)
+        await pilot.press("escape")
+        assert app.editing_id is None and isinstance(app.focused, DataTable)
+        await pilot.press("w")
+        assert app.store.get(task.id).status == "waiting"
+        await pilot.press("u")
+        assert app.store.get(task.id).status == "todo"
+        await pilot.press("x")
+        assert app.store.get(task.id) is None
+        await pilot.press("u")
+        assert app.store.get(task.id) is not None
+
+        # 1 / 2 / t / r：排序、日期显示和配置刷新。
+        await pilot.press("1")
+        assert app.mode == "levels"
+        await pilot.press("2")
+        assert app.mode == "urgency"
+        old_format = app.date_format
+        await pilot.press("t")
+        assert app.date_format != old_format
+        await pilot.press("r")
+        assert app.mode in ("levels", "urgency")
+
+        # i / Tab：输入焦点与标签补全；Ctrl+F：搜索输入。
+        await pilot.press("i")
+        inp.value = "新任务 #"
+        await pilot.press("tab")
+        assert inp.value.endswith("#工作 ")
+        await pilot.press("escape")
+        await pilot.press("ctrl+f")
+        assert inp.value == "/" and isinstance(app.focused, Input)
+        await pilot.press("escape")
+
+        await pilot.press("f1")
+        from atd.tui import HelpScreen
+        assert isinstance(app.screen, HelpScreen)
+        await pilot.press("escape")
+
+        # Ctrl+S uses the same command path but is mocked to avoid real git I/O.
+        with patch("atd.tui.sync.sync", return_value="同步测试完成"):
+            await pilot.press("ctrl+s")
+            await pilot.pause()
+        assert app._flash_msg == "同步测试完成"
+
+        # Q exits exactly like its documented uppercase shortcut.
+        await pilot.press("Q")
+    return True
+
+
+def test_tui_remaining_shortcuts(clean_home):
+    assert asyncio.run(_drive_remaining_shortcuts())
+
+
+async def _drive_ctrl_q():
+    from atd.tui import TodoApp
+
+    app = TodoApp(welcome=False)
+    async with app.run_test() as pilot:
+        await pilot.press("ctrl+q")
+    return True
+
+
+def test_tui_ctrl_q_quits(clean_home):
+    assert asyncio.run(_drive_ctrl_q())
+
+
+def test_banner_uses_a_stable_variant_at_each_width():
+    from atd.tui import BANNER_FULL, BANNER_SMALL, _banner_text
+
+    assert str(_banner_text(140)).count("\n") >= len(BANNER_FULL)
+    assert str(_banner_text(40)).count("\n") >= len(BANNER_SMALL)
 
 
 if __name__ == "__main__":

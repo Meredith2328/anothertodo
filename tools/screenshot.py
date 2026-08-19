@@ -1,6 +1,7 @@
-"""TUI 截图工具：无头模式跑 TodoApp 并导出 PNG，用于快速验证视觉效果。
+"""TUI 截图工具：无头模式跑 TodoApp 并导出 SVG 布局快照。
 
-用法：python tools/screenshot.py [输出.png] [--wide]
+Textual 原生只输出 SVG；不要把它重命名为 PNG 再用不同字体转换，否则 ASCII
+横幅的斜线可能出现视觉错位。用法：python tools/screenshot.py [输出.svg] [--wide]
 """
 import asyncio
 import os
@@ -44,19 +45,16 @@ async def main(out: str, wide: bool) -> None:
                         reminders=[r.to_dict() for r in p.reminders],
                         entry=utcnow().isoformat(timespec="seconds")))
 
-    app = TodoApp()
+    # 截图应展示主界面；首次启动引导另有 TUI 测试覆盖。
+    app = TodoApp(welcome=False)
     size = (140, 40) if wide else (100, 34)
     async with app.run_test(size=size) as pilot:
         await pilot.pause()
-        app.save_screenshot(out)
-        svg = str(Path(out).with_suffix(".svg"))
-        try:
-            app.save_screenshot(svg)
-        except Exception as e:
-            print(f"(svg export skipped: {e})")
-    print(f"saved: {out}")
+        out_path = Path(out).with_suffix(".svg")
+        app.save_screenshot(str(out_path))
+    print(f"saved: {out_path}")
 
 
 if __name__ == "__main__":
-    out = sys.argv[1] if len(sys.argv) > 1 else "shot.png"
+    out = sys.argv[1] if len(sys.argv) > 1 else "shot.svg"
     asyncio.run(main(out, "--wide" in sys.argv))
