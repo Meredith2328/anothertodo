@@ -1,0 +1,26 @@
+[package]
+name = "atd"
+version = "0.1.0"
+edition = "2021"
+description = "anothertodo task manager"
+
+[[bin]]
+name = "atd"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde", "clock"] }
+clap = { version = "4", features = ["derive"] }
+crossterm = "0.28"
+notify-rust = "4"
+ratatui = "0.29"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+uuid = { version = "1", features = ["v4"] }
+fs2 = "0.4"
+
+[dev-dependencies]
+tempfile = "3"

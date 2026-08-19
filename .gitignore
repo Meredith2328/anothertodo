@@ -4,6 +4,9 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 
+# Rust
+/target/
+
 # 构建产物
 build/
 build_pyinst/
