@@ -56,15 +56,11 @@ jobs:
         if: matrix.artifact == 'linux'
         run: |
           docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src \
-            ubuntu:20.04 /bin/bash -lc '
-              export DEBIAN_FRONTEND=noninteractive &&
-              apt-get update && apt-get install -y curl software-properties-common &&
-              add-apt-repository -y ppa:deadsnakes/ppa && apt-get update &&
-              apt-get install -y python3.10 python3.10-dev python3.10-venv &&
-              curl -sS https://bootstrap.pypa.io/get-pip.py | python3.10 &&
-              python3.10 -m pip install -r requirements.txt pytest pyinstaller &&
-              python3.10 -m pytest tests/ -q &&
-              python3.10 -m PyInstaller atd.spec --noconfirm --clean
+            python:3.10-focal /bin/bash -lc '
+              python -m pip install --upgrade pip &&
+              python -m pip install -r requirements.txt pytest pyinstaller &&
+              python -m pytest tests/ -q &&
+              python -m PyInstaller atd.spec --noconfirm --clean
             '
 
       # 三个平台产物同名（atd/atd.exe），上传 Release 前按平台重命名防止覆盖
