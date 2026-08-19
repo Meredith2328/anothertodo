@@ -14,12 +14,16 @@ pub struct Parsed {
     pub parent: Option<String>,
     pub wait: Option<NaiveDate>,
     pub reminders: Vec<Reminder>,
+    pub reminders_disabled: bool,
 }
 
 pub fn parse(text: &str, now: DateTime<Utc>, levels: &[String]) -> Parsed {
     let today = now.date_naive();
     let mut source = text.trim().to_owned();
     let mut parsed = Parsed::default();
+    let reminder_opt_out_re = Regex::new(r"(?i)(?:@(?:none|off)\b|\bno\s+reminders?\b)").unwrap();
+    parsed.reminders_disabled = reminder_opt_out_re.is_match(&source);
+    source = reminder_opt_out_re.replace_all(&source, " ").into_owned();
     extract_all(&mut source, r"#([^\s#，,：:]+)", |v| parsed.tags.push(v));
     parsed.project = extract_one(&mut source, r"(?:proj|project|项目)[:：]([^\s，,]+)");
     parsed.parent = extract_one(&mut source, r"\^([A-Za-z0-9_-]{3,})");
@@ -69,6 +73,20 @@ pub fn parse(text: &str, now: DateTime<Utc>, levels: &[String]) -> Parsed {
                 hooks: hooks
                     .map(|value| value.split(',').map(str::to_lowercase).collect())
                     .unwrap_or_else(|| vec!["toast".into()]),
+                ..Default::default()
+            });
+        }
+    }
+    if parsed.reminders.is_empty() && !parsed.reminders_disabled {
+        if let Some(due) = parsed.due.filter(|due| *due > now) {
+            let advance = if due - now > Duration::days(1) {
+                Duration::days(1)
+            } else {
+                Duration::minutes(15)
+            };
+            parsed.reminders.push(Reminder {
+                at: (due - advance).to_rfc3339(),
+                hooks: vec!["toast".into()],
                 ..Default::default()
             });
         }
@@ -359,7 +377,9 @@ pub fn apply(task: &mut Task, parsed: &Parsed) {
     if parsed.wait.is_some() {
         task.wait = parsed.wait
     }
-    if !parsed.reminders.is_empty() {
+    if parsed.reminders_disabled {
+        task.reminders.clear()
+    } else if !parsed.reminders.is_empty() {
         task.reminders = parsed.reminders.clone()
     }
     task.normalize();
@@ -452,6 +472,67 @@ mod tests {
             NaiveDate::from_ymd_opt(2026, 8, 20).unwrap()
         );
         assert_eq!((due.hour(), due.minute()), (15, 30));
+    }
+
+    #[test]
+    fn creates_default_reminders_based_on_time_until_due() {
+        let far = parse(
+            "meet the seller tomorrow",
+            now(),
+            &crate::priority::levels(),
+        );
+        let far_due = far.due.unwrap();
+        let far_reminder = crate::parse_datetime(&far.reminders[0].at).unwrap();
+        assert_eq!(far_due - far_reminder, Duration::days(1));
+
+        let near = parse(
+            "meet the seller today 12:00",
+            now(),
+            &crate::priority::levels(),
+        );
+        let near_due = near.due.unwrap();
+        let near_reminder = crate::parse_datetime(&near.reminders[0].at).unwrap();
+        assert_eq!(near_due - near_reminder, Duration::minutes(15));
+    }
+
+    #[test]
+    fn explicit_reminders_override_defaults_and_can_be_disabled() {
+        let explicit = parse(
+            "meet the seller tomorrow @30m",
+            now(),
+            &crate::priority::levels(),
+        );
+        assert_eq!(explicit.reminders.len(), 1);
+        assert_eq!(
+            crate::parse_datetime(&explicit.reminders[0].at).unwrap() - now(),
+            Duration::minutes(30)
+        );
+
+        for text in [
+            "meet the seller tomorrow @none",
+            "meet the seller tomorrow @off",
+            "meet the seller tomorrow no reminder",
+        ] {
+            let parsed = parse(text, now(), &crate::priority::levels());
+            assert!(parsed.reminders_disabled);
+            assert!(parsed.reminders.is_empty());
+            assert_eq!(parsed.title, "meet the seller");
+        }
+    }
+
+    #[test]
+    fn opt_out_clears_existing_reminders_when_applied() {
+        let mut task = Task {
+            reminders: vec![Reminder {
+                at: now().to_rfc3339(),
+                hooks: vec!["toast".into()],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let parsed = parse("updated task @none", now(), &crate::priority::levels());
+        apply(&mut task, &parsed);
+        assert!(task.reminders.is_empty());
     }
 
     #[test]
