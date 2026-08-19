@@ -3,8 +3,12 @@ from __future__ import annotations
 
 import os
 import re
-import tomllib
 from pathlib import Path
+
+try:  # Python 3.11+
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10 (the project's documented minimum)
+    import tomli as tomllib
 
 DEFAULT_CONFIG = """\
 # atd 配置文件。手工编辑保存即可，下次操作生效。

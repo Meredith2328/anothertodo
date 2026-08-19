@@ -10,6 +10,7 @@ requires-python = ">=3.10"
 dependencies = [
     "textual>=0.40",
     "rich>=13.0",
+    "tomli>=2.0; python_version < '3.11'",
     "windows-toasts>=1.0; sys_platform == 'win32'",
 ]
 
