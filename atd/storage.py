@@ -104,7 +104,7 @@ class Store:
         with open(self.undo_file, "a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
-    def save(self, task: Task, before: Task | None = None) -> Task:
+    def save(self, task: Task, before: Task | None = None, *, record_undo: bool = True) -> Task:
         """新增或更新一个任务（整行替换），写 undo 日志。"""
         with self._locked():
             objs = self._read_objs()
@@ -114,16 +114,15 @@ class Store:
             if not task.id:
                 task.id = new_id()
             new_line = task.to_line()
-            replaced = False
-            for i, obj in enumerate(objs):
-                if obj.get("id") == task.id:
-                    objs[i] = json.loads(new_line)
-                    replaced = True
-                    break
-            if not replaced:
-                objs.append(json.loads(new_line))
+            # A damaged/manual JSONL file can contain several versions of one
+            # task. ``tasks()`` exposes the last one, so replacing the first
+            # record used to make edits appear to succeed but leave the visible
+            # task unchanged. Saving is also an opportunity to canonicalize it.
+            objs = [obj for obj in objs if obj.get("id") != task.id]
+            objs.append(json.loads(new_line))
             self._atomic_write(self.tasks_file, [json.dumps(o, ensure_ascii=False) for o in objs])
-            self._append_undo(before.to_dict() if before else None, task.to_dict())
+            if record_undo:
+                self._append_undo(before.to_dict() if before else None, task.to_dict())
         return task
 
     def delete(self, task_id: str) -> None:
@@ -136,13 +135,8 @@ class Store:
             if cur is None:
                 raise SystemExit(f"找不到任务 {task_id}")
             ts = utcnow().isoformat(timespec="seconds")
-            new_objs = []
-            for obj in objs:
-                if obj.get("id") == task_id:
-                    if not obj.get("deleted"):
-                        new_objs.append(tombstone(task_id))
-                else:
-                    new_objs.append(obj)
+            new_objs = [obj for obj in objs if obj.get("id") != task_id]
+            new_objs.append(tombstone(task_id))
             self._atomic_write(self.tasks_file, [json.dumps(o, ensure_ascii=False) for o in new_objs])
             self._append_undo(cur, None)
 
@@ -234,10 +228,10 @@ class Store:
                 restored.pop("deleted", None)
                 restored["status"] = "todo"
             # 从归档移除，加回 tasks.jsonl（同 id 已存在则替换）
-            archive_objs = [o for o in archive_objs if o.get("id") != task_id]
+            archive_objs = [o for o in archive_objs if o.get("id") != restored["id"]]
             replaced = False
             for i, o in enumerate(objs):
-                if o.get("id") == task_id:
+                if o.get("id") == restored["id"]:
                     objs[i] = restored
                     replaced = True
                     break

@@ -120,6 +120,18 @@ class TestStore:
         store.save(t)
         assert store.find(t.id[:4]).id == t.id
 
+    def test_save_canonicalizes_duplicate_records(self, store):
+        """An edit must update the version that ``tasks()`` actually exposes."""
+        t = mk(id="duplicate", title="old")
+        newer = t.to_dict()
+        newer["title"] = "visible old"
+        store._atomic_write(store.tasks_file, [t.to_line(), json.dumps(newer, ensure_ascii=False)])
+        current = store.get(t.id)
+        current.title = "updated"
+        store.save(current, before=Task.from_dict(newer))
+        assert store.get(t.id).title == "updated"
+        assert sum(1 for row in store._read_objs() if row["id"] == t.id) == 1
+
     def test_reminder_persist(self, store):
         t = mk(title="带提醒", reminders=[{"at": "2026-08-18T18:00", "hooks": ["toast"], "fired": False}])
         store.save(t)
@@ -173,6 +185,13 @@ class TestStore:
         assert "deleted" not in restored
         assert restored["status"] == "todo"
         assert store.get(t.id).status == "todo"
+
+    def test_archive_restore_prefix_removes_archived_record(self, store):
+        old = mk(id="abcdef12", title="prefix restore", status="done")
+        store.archive_file.write_text(old.to_line() + "\n", encoding="utf-8")
+        store.restore("abcd")
+        assert store.get(old.id).title == "prefix restore"
+        assert store.archived() == []
 
     def test_reopen(self, store):
         t = mk(title="完成的任务", status="done", end="2026-08-18T10:00:00+00:00")
@@ -272,6 +291,26 @@ class TestToastsCrossPlatform:
         from atd.remind import hooks
         with unittest.mock.patch.object(hooks.subprocess, "run", side_effect=FileNotFoundError):
             hooks._toast_linux("x")  # 不应抛异常
+
+
+class TestReminderDelivery:
+    def test_finished_tasks_are_skipped_and_delivery_is_not_undoable(self, store):
+        from unittest.mock import patch
+        from atd.remind import watcher
+
+        past = (datetime.now() - timedelta(minutes=1)).isoformat(timespec="minutes")
+        active = mk(title="待办提醒", reminders=[{"at": past, "hooks": ["toast"], "fired": False}])
+        finished = mk(title="完成提醒", status="done", reminders=[{"at": past, "hooks": ["toast"], "fired": False}])
+        store.save(active)
+        store.save(finished)
+        store._atomic_write(store.undo_file, [])
+        with patch("atd.remind.watcher.hookmod.fire", return_value=True) as fire:
+            assert watcher.check_once(store, quiet=True) == 1
+        assert fire.call_count == 1
+        assert store.get(active.id).reminders[0]["fired"] is True
+        assert store.get(finished.id).reminders[0]["fired"] is False
+        with pytest.raises(SystemExit, match="没有可撤销"):
+            store.undo()
 
 
 if __name__ == "__main__":

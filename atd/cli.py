@@ -9,12 +9,15 @@ from . import config, sync
 from .model import Task, new_id, utcnow
 from .parse import parse, preview as parse_preview, task_to_input
 from .priority import sort_tasks, urgency
+from .runtime import configure_utf8_output
 from .storage import Store
+from .task_ops import apply_parsed_update
 
 # rich 是 textual 的依赖，这里直接用于 CLI 着色输出
 from rich.console import Console
 from rich.table import Table
 
+configure_utf8_output()
 console = Console()
 
 
@@ -142,20 +145,7 @@ def cmd_edit(argv: list[str]) -> int:
     before = Task.from_dict(t.to_dict())
     cfg, levels = _now_levels()
     p = parse(raw, levels=levels)
-    if p.title:
-        t.title = p.title
-    if p.due is not None:
-        t.due = p.due
-    if p.priority:
-        t.priority = p.priority
-    if p.tags:
-        t.tags = p.tags
-    if p.project is not None:
-        t.project = p.project
-    if p.wait is not None:
-        t.wait = p.wait
-    if p.reminders:
-        t.reminders = [r.to_dict() for r in p.reminders]
+    apply_parsed_update(t, p)
     store.save(t, before=before)
     console.print(f"[green]已更新[/green] {t.title}")
     return 0

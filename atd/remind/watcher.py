@@ -15,7 +15,7 @@ import time
 from datetime import datetime
 
 from .. import config
-from ..model import Task, load_jsonl
+from ..model import ACTIVE_STATES, Task, load_jsonl
 from ..storage import Store
 from . import hooks as hookmod
 
@@ -26,6 +26,8 @@ def _iter_reminders(store: Store) -> list[tuple[Task, dict, int]]:
     """返回 (task, reminder, index)，只含未触发的。"""
     out = []
     for t in store.tasks():
+        if t.status not in ACTIVE_STATES:
+            continue
         for i, r in enumerate(t.reminders or []):
             if not r.get("fired"):
                 out.append((t, r, i))
@@ -49,7 +51,8 @@ def check_once(store: Store, *, cfg: dict | None = None, quiet: bool = False) ->
         if not quiet:
             print(f"触发提醒：{msg} -> {rem.get('hooks') or ['toast']}")
         names = rem.get("hooks") or ["toast"]
-        all_ok = all(hookmod.fire(n, task, msg) for n in names)
+        for name in names:
+            hookmod.fire(name, task, msg)
         # 无论成功与否都标记 fired，避免每轮重发；失败信息已由 fire 打印
         _mark_fired(store, task, idx)
         fired += 1
@@ -59,7 +62,9 @@ def check_once(store: Store, *, cfg: dict | None = None, quiet: bool = False) ->
 def _mark_fired(store: Store, task: Task, idx: int) -> None:
     before = Task.from_dict(task.to_dict())
     task.reminders[idx]["fired"] = True
-    store.save(task, before=before)
+    # Reminder delivery is operational state, not a user edit. It must not
+    # consume the next undo slot.
+    store.save(task, before=before, record_undo=False)
 
 
 def snooze(store: Store, task_id: str, minutes: int) -> None:

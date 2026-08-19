@@ -103,11 +103,14 @@ def fire_user_hook(name: str, task: Task, message: str) -> None:
         if p.exists():
             payload = json.dumps({"task": task.to_dict(), "message": message}, ensure_ascii=False)
             if p.suffix.lower() == ".py":
-                subprocess.run([sys.executable, str(p)], input=payload,
-                               capture_output=True, text=True, encoding="utf-8", timeout=60)
+                result = subprocess.run([sys.executable, str(p)], input=payload,
+                                        capture_output=True, text=True, encoding="utf-8", timeout=60)
             else:
-                subprocess.run([str(p)], input=payload,
-                               capture_output=True, text=True, encoding="utf-8", timeout=60)
+                result = subprocess.run([str(p)], input=payload,
+                                        capture_output=True, text=True, encoding="utf-8", timeout=60)
+            if result.returncode != 0:
+                detail = result.stderr.strip() or result.stdout.strip()
+                raise RuntimeError(f"用户 hook {name} 退出码 {result.returncode}: {detail}")
             return
     raise KeyError(f"找不到用户 hook：{name}")
 

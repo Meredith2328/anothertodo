@@ -35,6 +35,7 @@ from .agenda import DATE_FORMATS, DATE_FORMAT_LABEL, format_date, groups
 from .model import Task, new_id, utcnow
 from .parse import parse, preview as parse_preview, task_to_input
 from .storage import Store
+from .task_ops import apply_parsed_update
 
 MODE_LABEL = {"levels": "档位", "urgency": "urgency"}
 
@@ -210,7 +211,7 @@ class TodoApp(App):
     # dark 主题是 textual 默认；配上面的配色表
     CSS = f"""
     #banner {{ height: auto; padding: 0 1; }}
-    #banner-art {{ width: auto; padding: 0 1; }}
+    #banner-art {{ width: 100%; height: auto; padding: 0 1; overflow: hidden; }}
     #banner-info {{ width: 100%; text-align: right; color: {C['dim']}; padding: 0 1; }}
     #table-wrap {{ border: round {C['border']}; height: 1fr; padding: 0 1; background: #10101a; }}
     DataTable {{ border: none; background: #10101a; }}
@@ -364,7 +365,9 @@ class TodoApp(App):
         table.add_column("状态", width=8)
         table.add_column("标签 / 提醒")
         self._row_map = []
-        sel = 0
+        # 分组标题不是可操作任务。首次打开时选中第一条任务，避免
+        # d/x/e/w 等快捷键看起来“没反应”；keep_id 则优先恢复原任务。
+        sel: int | None = None
         for g in gs:
             if not g.tasks:
                 continue
@@ -381,9 +384,11 @@ class TodoApp(App):
                 self._row_map.append(t.id)
                 if keep_id and t.id == keep_id:
                     sel = len(self._row_map) - 1
-        if self._row_map:
+                elif sel is None:
+                    sel = len(self._row_map) - 1
+        if sel is not None:
             try:
-                table.move_cursor(row=min(sel, len(self._row_map) - 1))
+                table.move_cursor(row=sel)
             except Exception:
                 pass
         self._update_banner()
@@ -456,20 +461,7 @@ class TodoApp(App):
             if task:
                 before = Task.from_dict(task.to_dict())
                 p = parse(val, levels=self.levels)
-                if p.title:
-                    task.title = p.title
-                if p.due is not None:
-                    task.due = p.due
-                if p.priority:
-                    task.priority = p.priority
-                if p.tags:
-                    task.tags = p.tags
-                if p.project is not None:
-                    task.project = p.project
-                if p.wait is not None:
-                    task.wait = p.wait
-                if p.reminders:
-                    task.reminders = [r.to_dict() for r in p.reminders]
+                apply_parsed_update(task, p)
                 self.store.save(task, before=before)
                 self._flash_msg = f"已更新：{task.title}"
                 self.refresh_table(keep_id=task.id)
@@ -498,39 +490,42 @@ class TodoApp(App):
     async def _run_command(self, cmd: str) -> None:
         if not cmd:
             return
-        parts = cmd.split()
-        name = parts[0].lower()
-        if name in ("list", "ls"):
-            self.query = " ".join(parts[1:])
-            self.refresh_table()
-            self._flash_msg = f"过滤：{self.query}" if self.query else "已清除过滤"
-        elif name == "undo":
-            self._flash_msg = self.store.undo()
-            self.refresh_table()
-        elif name == "sync":
-            self._flash_msg = "同步中..."
-            self._render_preview()
-            try:
-                self._flash_msg = sync.sync()
-            except Exception as e:
-                self._flash_msg = f"同步失败：{e}"
-            self.refresh_table()
-        elif name == "mode":
-            arg = parts[1] if len(parts) > 1 else ""
-            if arg in ("levels", "urgency"):
-                self.mode = arg
+        try:
+            parts = cmd.split()
+            name = parts[0].lower()
+            if name in ("list", "ls"):
+                self.query = " ".join(parts[1:])
                 self.refresh_table()
-                self._flash_msg = f"排序模式：{MODE_LABEL[arg]}"
+                self._flash_msg = f"过滤：{self.query}" if self.query else "已清除过滤"
+            elif name == "undo":
+                self._flash_msg = self.store.undo()
+                self.refresh_table()
+            elif name == "sync":
+                self._flash_msg = "同步中..."
+                self._render_preview()
+                try:
+                    self._flash_msg = sync.sync()
+                except Exception as e:
+                    self._flash_msg = f"同步失败：{e}"
+                self.refresh_table()
+            elif name == "mode":
+                arg = parts[1] if len(parts) > 1 else ""
+                if arg in ("levels", "urgency"):
+                    self.mode = arg
+                    self.refresh_table()
+                    self._flash_msg = f"排序模式：{MODE_LABEL[arg]}"
+                else:
+                    self._flash_msg = "用法：mode levels|urgency"
+            elif name == "archive":
+                n = self.store.archive(int(parts[1]) if len(parts) > 1 else 14)
+                self._flash_msg = f"归档 {n} 行"
+                self.refresh_table()
+            elif name in ("quit", "q", "exit"):
+                self.exit()
             else:
-                self._flash_msg = "用法：mode levels|urgency"
-        elif name == "archive":
-            n = self.store.archive(int(parts[1]) if len(parts) > 1 else 14)
-            self._flash_msg = f"归档 {n} 行"
-            self.refresh_table()
-        elif name in ("quit", "q", "exit"):
-            self.exit()
-        else:
-            self._flash_msg = f"未知命令：{name}"
+                self._flash_msg = f"未知命令：{name}"
+        except (SystemExit, ValueError) as e:
+            self._flash_msg = str(e) or "命令未执行"
         self._render_preview()
 
     # ------------------------------------------------ 快捷键
@@ -549,6 +544,14 @@ class TodoApp(App):
                 flag.write_text("1", encoding="utf-8")
             except Exception:
                 pass
+
+    def on_resize(self, event) -> None:
+        """Keep the fixed-cell banner aligned when a terminal is resized."""
+        try:
+            self.query_one("#banner-art", Static).update(_banner_text(event.size.width))
+        except Exception:
+            # Resize may arrive before composition has completed.
+            pass
 
     def _tick_clock(self) -> None:
         # 只更新横幅时钟/统计，不动表格
@@ -703,6 +706,13 @@ class TodoApp(App):
             return
         # 其它任意键解除 Esc 退出待命
         self._esc_armed_at = 0.0
+        # Input 会自行处理 Tab（通常切换焦点），所以必须在“输入区直接
+        # 返回”的分支前截获，才能兑现文档中的标签/项目补全快捷键。
+        if inp.has_focus and event.key == "tab":
+            self._complete()
+            event.prevent_default()
+            event.stop()
+            return
         if inp.has_focus:
             return
         # 表格态：打字即进输入栏（type-to-add）；单字母快捷键与 / : 除外（走预填分支）
