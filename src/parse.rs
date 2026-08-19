@@ -27,7 +27,7 @@ pub fn parse(text: &str, now: DateTime<Utc>, levels: &[String]) -> Parsed {
         parsed.wait = parse_date(&raw, today);
     }
     let reminder_re = Regex::new(
-        r"@(?P<value>(?:\d{1,2}:\d{2})|(?:\d+(?:m|h|d|分钟|小时|天)?)|(?:今晚|明晚|今天|明天|后天|大后天|周末|(?:上|本|这|下)?月(?:初|末|底)|月初|月末|月底|(?:本|这|下)?(?:周|星期|礼拜)[一二三四五六日天]|元旦|春节|清明节?|劳动节|五一|端午节?|中秋节?|国庆节?|\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?|\d{1,2}月\d{1,2}日))(?::(?P<hooks>[A-Za-z][A-Za-z0-9_,-]*))?",
+        r"(?i)@(?P<value>(?:\d{1,2}:\d{2})|(?:\d+(?:m|h|d|分钟|小时|天)?)|(?:day\s+after\s+tomorrow|this\s+weekend|next\s+(?:mon|tues?|wed(?:nes)?|thu(?:rs)?|fri|sat(?:ur)?|sun)(?:day)?|today|tonight|tomorrow|今晚|明晚|今天|明天|后天|大后天|周末|(?:上|本|这|下)?月(?:初|末|底)|月初|月末|月底|(?:本|这|下)?(?:周|星期|礼拜)[一二三四五六日天]|元旦|春节|清明节?|劳动节|五一|端午节?|中秋节?|国庆节?|\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?|\d{1,2}月\d{1,2}日))(?::(?P<hooks>[A-Za-z][A-Za-z0-9_,-]*))?",
     )
     .unwrap();
     let reminder_specs: Vec<(String, Option<String>)> = reminder_re
@@ -40,16 +40,24 @@ pub fn parse(text: &str, now: DateTime<Utc>, levels: &[String]) -> Parsed {
         })
         .collect();
     source = reminder_re.replace_all(&source, " ").into_owned();
-    let date_re=Regex::new(r"(?x)(今晚|明晚|今天|明天|后天|大后天|周末|(?:上|本|这|下)?月(?:初|末|底)|月初|月末|月底|元旦|春节|清明节?|劳动节|五一|端午节?|中秋节?|国庆节?|(?:本|这|下)?(?:周|星期|礼拜)[一二三四五六日天]|\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?|\d{1,2}月\d{1,2}日)").unwrap();
+    let date_re = Regex::new(
+        r"(?ix)(\bday\s+after\s+tomorrow\b|\bthis\s+weekend\b|\bnext\s+(?:mon|tues?|wed(?:nes)?|thu(?:rs)?|fri|sat(?:ur)?|sun)(?:day)?\b|\btoday\b|\btonight\b|\btomorrow\b|今晚|明晚|今天|明天|后天|大后天|周末|(?:上|本|这|下)?月(?:初|末|底)|月初|月末|月底|元旦|春节|清明节?|劳动节|五一|端午节?|中秋节?|国庆节?|(?:本|这|下)?(?:周|星期|礼拜)[一二三四五六日天]|\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?|\d{1,2}月\d{1,2}日)",
+    )
+    .unwrap();
     let date_match = date_re.find(&source).map(|m| m.as_str().to_owned());
     let date = date_match
         .as_deref()
         .and_then(|value| parse_date(value, today));
     source = date_re.replace(&source, " ").into_owned();
     let time_re=Regex::new(r"(?:(凌晨|早上|上午|中午|下午|傍晚|晚上|夜里)\s*)?(\d{1,2})(?:(?::|：|点)(\d{1,2}|半)?(?:分)?)").unwrap();
-    let implicit_time = date_match.as_deref().and_then(|value| match value {
-        "今晚" | "明晚" => NaiveTime::from_hms_opt(20, 0, 0),
-        _ => None,
+    let implicit_time = date_match.as_deref().and_then(|value| {
+        if matches!(value.to_ascii_lowercase().as_str(), "tonight")
+            || matches!(value, "今晚" | "明晚")
+        {
+            NaiveTime::from_hms_opt(20, 0, 0)
+        } else {
+            None
+        }
     });
     let time = time_re.captures(&source).and_then(|c| {
         parse_time(
@@ -165,6 +173,20 @@ pub fn scan_date(raw: &str, today: NaiveDate) -> Option<NaiveDate> {
 }
 
 fn parse_date(raw: &str, today: NaiveDate) -> Option<NaiveDate> {
+    let english = raw.trim().to_ascii_lowercase();
+    match english.as_str() {
+        "today" | "tonight" => return Some(today),
+        "tomorrow" => return Some(today + Duration::days(1)),
+        "day after tomorrow" => return Some(today + Duration::days(2)),
+        "this weekend" => {
+            let delta = 5 - today.weekday().num_days_from_monday() as i64;
+            return Some(today + Duration::days(if delta < 0 { 7 } else { delta }));
+        }
+        value if value.starts_with("next ") => {
+            return next_english_weekday(value.trim_start_matches("next "), today);
+        }
+        _ => {}
+    }
     match raw {
         "今天" => Some(today),
         "今晚" => Some(today),
@@ -219,6 +241,22 @@ fn parse_date(raw: &str, today: NaiveDate) -> Option<NaiveDate> {
         }
     }
 }
+fn next_english_weekday(raw: &str, today: NaiveDate) -> Option<NaiveDate> {
+    let target = match raw.trim_end_matches("day") {
+        "mon" => 0,
+        "tue" | "tues" => 1,
+        "wed" | "wednes" => 2,
+        "thu" | "thur" | "thurs" => 3,
+        "fri" => 4,
+        "sat" | "satur" => 5,
+        "sun" => 6,
+        _ => return None,
+    };
+    let current = today.weekday().num_days_from_monday() as i64;
+    let delta = (target - current + 7) % 7 + 7;
+    Some(today + Duration::days(delta))
+}
+
 fn month_edge(today: NaiveDate, offset: i32, end: bool) -> Option<NaiveDate> {
     let month_index = today.year() * 12 + today.month0() as i32 + offset;
     let year = month_index.div_euclid(12);
@@ -362,6 +400,43 @@ mod tests {
         assert_eq!(p.tags, vec!["工作"]);
         assert_eq!(p.due.unwrap().hour(), 15);
     }
+    #[test]
+    fn parses_english_relative_dates_and_removes_them_from_title() {
+        let tomorrow = parse(
+            "meet the monitor seller tomorrow",
+            now(),
+            &crate::priority::levels(),
+        );
+        assert_eq!(tomorrow.title, "meet the monitor seller");
+        assert_eq!(
+            tomorrow.due.unwrap().date_naive(),
+            NaiveDate::from_ymd_opt(2026, 8, 20).unwrap()
+        );
+
+        let next_friday = parse("Meet seller NEXT FRIDAY", now(), &crate::priority::levels());
+        assert_eq!(next_friday.title, "Meet seller");
+        assert_eq!(
+            next_friday.due.unwrap().date_naive(),
+            NaiveDate::from_ymd_opt(2026, 8, 28).unwrap()
+        );
+    }
+
+    #[test]
+    fn parses_english_date_reminders() {
+        let parsed = parse(
+            "meet the seller @tomorrow",
+            now(),
+            &crate::priority::levels(),
+        );
+        assert_eq!(parsed.title, "meet the seller");
+        assert_eq!(
+            crate::parse_datetime(&parsed.reminders[0].at)
+                .unwrap()
+                .date_naive(),
+            NaiveDate::from_ymd_opt(2026, 8, 20).unwrap()
+        );
+    }
+
     #[test]
     fn parses_relative_reminder() {
         let p = parse("喝水 @2h:toast", now(), &crate::priority::levels());
