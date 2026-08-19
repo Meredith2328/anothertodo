@@ -21,11 +21,11 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
         include:
           - os: windows-latest
-            artifact: atd-windows
+            artifact: windows
           - os: macos-latest
-            artifact: atd-macos
+            artifact: macos
           - os: ubuntu-latest
-            artifact: atd-linux
+            artifact: linux
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -46,15 +46,26 @@ jobs:
       - name: Build binary
         run: python -m PyInstaller atd.spec --noconfirm --clean
 
+      # 三个平台产物同名（atd/atd.exe），上传 Release 前按平台重命名防止覆盖
+      - name: Rename binary per platform
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            mv dist/atd.exe "dist/atd-${{ matrix.artifact }}.exe"
+          else
+            mv dist/atd "dist/atd-${{ matrix.artifact }}"
+          fi
+          ls -la dist/
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: dist/atd*
+          path: dist/atd-*
 
       - name: Attach to release (tag only)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/atd*
+          files: dist/atd-*
           fail_on_unmatched_files: false
