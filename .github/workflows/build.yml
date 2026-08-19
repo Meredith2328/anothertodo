@@ -56,7 +56,8 @@ jobs:
         if: matrix.artifact == 'linux'
         run: |
           docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src \
-            python:3.10-focal /bin/bash -lc '
+            python:3.10-slim-bullseye /bin/bash -lc '
+              apt-get update && apt-get install -y binutils &&
               python -m pip install --upgrade pip &&
               python -m pip install -r requirements.txt pytest pyinstaller &&
               python -m pytest tests/ -q &&
