@@ -1,0 +1,10 @@
+# atd 运行依赖（Python >= 3.10）
+# 安装：python -m pip install -r requirements.txt
+textual>=0.40
+rich>=13.0
+windows-toasts>=1.0; sys_platform == "win32"
+
+# 开发/测试
+pytest>=7.0
+# 打包单文件 exe（可选）
+pyinstaller>=6.0

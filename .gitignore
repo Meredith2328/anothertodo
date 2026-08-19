@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# 构建产物
+build/
+build_pyinst/
+dist/
+*.spec.bak
+
+# 测试临时数据（tests/ 下真实生成的 jsonl/截图）
+tests/tmpdata/
+tests/tui-data/
+tests/shot-data/
+shot-*.png
+shot-*.svg
+
+# 本地环境
+.venv/
+venv/
+
+# 编辑器
+.vscode/
+.idea/
+
+# 扫描工具产物
+.mimosa/
