@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import unittest
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -232,6 +233,45 @@ class TestSyncMerge:
         theirs = [json.dumps({"id": "a", "title": "旧编辑", "modified": "2026-08-18T11:00:00+00:00"})]
         merged = _merge_union(ours, theirs)
         assert json.loads(merged[0]).get("deleted") is True  # 删除优先，即使远端更新
+
+
+class TestToastsCrossPlatform:
+    """toast 三端适配：macOS osascript / Linux notify-send / Windows winrt 分流。"""
+
+    def test_macos_osascript_escaping(self):
+        from atd.remind import hooks
+        with unittest.mock.patch.object(hooks.subprocess, "run") as m:
+            hooks._toast_macos('他说"好的"')
+            args = m.call_args[0][0]
+        assert args[0] == "osascript"
+        assert '\\"好的\\"' in args[2]
+
+    def test_linux_notify_send(self):
+        from atd.remind import hooks
+        with unittest.mock.patch.object(hooks.subprocess, "run") as m:
+            hooks._toast_linux("测试提醒")
+            args = m.call_args[0][0]
+        assert args[0] == "notify-send"
+        assert args[2] == "测试提醒"
+
+    def test_platform_dispatch(self):
+        from atd.remind import hooks
+        from atd.model import Task
+        t = Task(id="x", title="t")
+        with unittest.mock.patch.object(hooks, "_toast_windows") as w, \
+             unittest.mock.patch.object(hooks, "_toast_macos") as mac, \
+             unittest.mock.patch.object(hooks, "_toast_linux") as lnx:
+            with unittest.mock.patch.object(sys, "platform", "win32"):
+                hooks.fire_toast(t, "m"); assert w.called
+            with unittest.mock.patch.object(sys, "platform", "darwin"):
+                hooks.fire_toast(t, "m"); assert mac.called
+            with unittest.mock.patch.object(sys, "platform", "linux"):
+                hooks.fire_toast(t, "m"); assert lnx.called
+
+    def test_notify_missing_degrades(self):
+        from atd.remind import hooks
+        with unittest.mock.patch.object(hooks.subprocess, "run", side_effect=FileNotFoundError):
+            hooks._toast_linux("x")  # 不应抛异常
 
 
 if __name__ == "__main__":

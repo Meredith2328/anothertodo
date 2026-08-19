@@ -29,8 +29,19 @@ def available_hooks() -> list[str]:
 
 
 # ---------------------------------------------------------------- 内置 toast
+# 三端系统通知：Windows 用 winrt toast，macOS 用 osascript，Linux 用 notify-send。
+# toast 名字三端通用，hooks 里写 @18:00:toast 即可。
 
 def fire_toast(task: Task, message: str) -> None:
+    if sys.platform == "win32":
+        _toast_windows(message)
+    elif sys.platform == "darwin":
+        _toast_macos(message)
+    else:
+        _toast_linux(message)
+
+
+def _toast_windows(message: str) -> None:
     try:
         from windows_toasts import Toast, WindowsToaster
     except ImportError:
@@ -38,6 +49,27 @@ def fire_toast(task: Task, message: str) -> None:
         return
     t = Toast(text_fields=["atd 提醒", message])
     WindowsToaster("anothertodo").show_toast(t)
+
+
+def _toast_macos(message: str) -> None:
+    """macOS 系统通知（osascript，零依赖）。"""
+    # osascript 字符串里的引号/反斜杠需转义，防止脚本注入
+    safe = message.replace("\\", "\\\\").replace('"', '\\"')
+    script = f'display notification "{safe}" with title "atd 提醒"'
+    try:
+        subprocess.run(["osascript", "-e", script], check=True,
+                       capture_output=True, text=True, timeout=15)
+    except (subprocess.SubprocessError, FileNotFoundError, OSError) as e:
+        print(f"atd: macOS toast 失败：{e}", file=sys.stderr)
+
+
+def _toast_linux(message: str) -> None:
+    """Linux 桌面通知（notify-send，零依赖）。"""
+    try:
+        subprocess.run(["notify-send", "atd 提醒", message], check=True,
+                       capture_output=True, text=True, timeout=15)
+    except (subprocess.SubprocessError, FileNotFoundError, OSError) as e:
+        print(f"atd: Linux toast 失败：{e}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------- 内置 email
