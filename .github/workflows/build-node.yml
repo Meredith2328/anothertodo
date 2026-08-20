@@ -61,7 +61,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          output="$("${{ matrix.exe }}" --help 2>&1)"
+          output="$(./"${{ matrix.exe }}" --help 2>&1)"
           code=$?
           echo "$output"
           echo "smoke exit code: $code"
