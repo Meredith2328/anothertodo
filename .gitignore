@@ -8,6 +8,8 @@ __pycache__/
 build/
 build_pyinst/
 dist/
+dist-node/
+.archive.txn.json
 *.spec.bak
 
 # 测试临时数据（tests/ 下真实生成的 jsonl/截图）
@@ -27,3 +29,7 @@ venv/
 
 # 扫描工具产物
 .mimosa/
+
+# Node.js
+node_modules/
+*.tsbuildinfo
