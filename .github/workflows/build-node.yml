@@ -54,14 +54,18 @@ jobs:
           npx postject "${{ matrix.exe }}" NODE_SEA_BLOB dist-sea/sea-prep.blob \
             --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
           if [[ "${{ runner.os }}" == "macOS" ]]; then
-            codesign --sign - "${{ matrix.exe }}"
+            codesign --force --sign - "${{ matrix.exe }}"
           fi
           chmod +x "${{ matrix.exe }}"
       - name: Smoke test executable
         shell: bash
         run: |
-          "./${{ matrix.exe }}" --help | grep -q "Usage: atd"
-          echo "SEA executable smoke passed"
+          set +e
+          output="$("${{ matrix.exe }}" --help 2>&1)"
+          code=$?
+          echo "$output"
+          echo "smoke exit code: $code"
+          test "$code" -eq 0 && echo "$output" | grep -q "Usage: atd"
 
       # ---- 便携 tar 包（面向已装 Node 的环境，npm tarball 之外的裸发行） ----
       - name: Package portable artifact
