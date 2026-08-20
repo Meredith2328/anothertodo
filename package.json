@@ -1,6 +1,6 @@
 {
   "name": "anothertodo",
-  "version": "0.1.0-next.1",
+  "version": "0.2.0",
   "private": false,
   "main": "dist-node/cli.js",
   "files": [
@@ -23,6 +23,7 @@
   "scripts": {
     "dev": "tsx src/cli.ts",
     "build": "tsup src/cli.ts --format esm --platform node --out-dir dist-node --clean",
+    "build:sea": "node tools/build-sea.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
@@ -41,6 +42,7 @@
     "@types/react": "^18.3.12",
     "eslint": "^9.17.0",
     "ink-testing-library": "^4.0.0",
+    "postject": "1.0.0-alpha.6",
     "tsup": "^8.3.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",

@@ -33,3 +33,8 @@ venv/
 # Node.js
 node_modules/
 *.tsbuildinfo
+
+# SEA 构建产物
+dist-sea/
+atd-test.exe
+atd*.exe
