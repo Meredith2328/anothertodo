@@ -104,13 +104,34 @@ export const main = async (argv = process.argv.slice(2)): Promise<number> => {
   const program = buildProgram();
   if (argv.includes("--watch-daemon")) { await runForever(store()); return 0; }
   if (!argv.length) {
-    const [{ render }, React, { TuiApp }] = await Promise.all([import("ink"), import("react"), import("./tui/app.js")]);
-    const instance = render(React.createElement(TuiApp, { store: store() }));
-    await instance.waitUntilExit();
+    const [{ render }, React, { TuiApp }, { createMouseBridge }] = await Promise.all([import("ink"), import("react"), import("./tui/app.js"), import("./tui/mouse.js")]);
+    const interactive = process.stdin.isTTY === true;
+    const bridge = interactive ? createMouseBridge(process.stdin as NodeJS.ReadStream & { fd: number }, process.stdout) : undefined;
+    // 备用屏幕：TUI 独占整屏，退出后恢复终端原内容；鼠标坐标也与
+    // 渲染行号精确对齐（每帧从 1,1 重绘）
+    if (interactive) process.stdout.write("\x1b[?1049h");
+    try {
+      const instance = render(
+        React.createElement(TuiApp, { store: store(), welcome: true }),
+        bridge ? { stdin: bridge.stream as unknown as NodeJS.ReadStream, exitOnCtrlC: true } : { exitOnCtrlC: true },
+      );
+      bridge?.enable();
+      await instance.waitUntilExit();
+    } finally {
+      bridge?.disable();
+      if (interactive) process.stdout.write("\x1b[?1049l");
+    }
     return 0;
   }
   try { await program.parseAsync(["node", "atd", ...argv]); return 0; }
   catch (error) { console.error(error instanceof Error ? error.message : String(error)); return 1; }
 };
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) process.exitCode = await main();
+// SEA 单文件入口通过 ATD_SEA 标记跳过直跑判断；try/catch 兜底 __filename 缺失等环境差异
+const invokedDirectly = (() => {
+  if ((globalThis as { ATD_SEA?: boolean }).ATD_SEA) return false;
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try { return import.meta.url === pathToFileURL(entry).href; } catch { return false; }
+})();
+if (invokedDirectly) main().then((code) => { process.exitCode = code; }, (error: unknown) => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; });

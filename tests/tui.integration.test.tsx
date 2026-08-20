@@ -94,4 +94,47 @@ describe("stage 7 Ink TUI integration", () => {
     expect((await store.get(task.id))?.status).toBe("waiting");
     expect((await store.get(task.id))?.wait).toBe(tomorrow());
   });
+
+  it("opens the help modal with ? and closes with any key (no crash)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atd-ink-"));
+    const store = new Store(dir);
+    const signals = createSignals();
+    const app = render(<TuiApp store={store} testSignals={signals.signals} />);
+    await signals.ready();
+    await signals.data();
+    const helpAction = signals.action();
+    app.stdin.write("?");
+    await helpAction;
+    // 弹窗渲染不闪退：帮助面板出现、主界面隐藏（回归：钩子顺序曾致 React 崩溃退出）
+    expect(app.lastFrame()).toContain("atd 帮助");
+    expect(app.lastFrame()).toContain("清单区（默认焦点，光标在任务列表）");
+    const closeAction = signals.action();
+    app.stdin.write("x");
+    await closeAction;
+    expect(app.lastFrame()).toContain("标签 / 提醒");
+    expect(app.lastFrame()).not.toContain("atd 帮助");
+  });
+
+  it("a single Esc returns from the input area to the list", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atd-ink-"));
+    const store = new Store(dir);
+    const signals = createSignals();
+    const app = render(<TuiApp store={store} testSignals={signals.signals} />);
+    await signals.ready();
+    await signals.data();
+    const addAction = signals.action();
+    app.stdin.write("i");
+    await addAction;
+    const textAction = signals.action();
+    app.stdin.write("临时");
+    await textAction;
+    expect(app.lastFrame()).toContain("临时");
+    const escAction = signals.action();
+    app.stdin.write("\u001b");
+    await escAction;
+    // 一次 Esc 即回清单区：输入清空、提示行是清单区文案
+    const frame = app.lastFrame();
+    expect(frame).toContain("清单区：j/k 移动");
+    expect(frame).not.toContain("临时");
+  });
 });

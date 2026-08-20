@@ -21,6 +21,8 @@ npm link
 
 Node 发布使用 `node-v*` tag；Python 兼容发布使用 `legacy-v*` tag。
 
+**独立可执行文件（推荐，无需安装任何东西）**：从 GitHub Releases（`node-v*` tag）下载对应平台的单文件程序——Windows 直接双击 `atd-windows.exe` 进入 TUI；macOS/Linux `chmod +x` 后运行。数据仍存 `~/.atd`，与其他安装方式互通。
+
 **Python 兼容回退（Python 3.10+）**：
 
 ```bash
@@ -112,7 +114,15 @@ python -m pytest tests/ -q        # 41 项测试
 python -m PyInstaller atd.spec    # 本地打单文件（Windows）
 ```
 
-Python 兼容三平台二进制由 GitHub Actions 自动构建：push `legacy-v*` tag；Node 发布使用 `node-v*` tag，产物是需要 Node.js 22+ 的可安装包，不是原生 exe。
+Python 兼容三平台二进制由 GitHub Actions 自动构建：push `legacy-v*` tag；Node 发布使用 `node-v*` tag，产物包含三平台**独立可执行文件**（Node SEA 单文件程序，无需安装 Node，Windows 双击即用）和面向已装 Node 22+ 环境的便携 tar 包。本地重打包可执行文件：
+
+```bash
+npm run build:sea                                  # 产出 dist-sea/sea-entry.cjs
+node --experimental-sea-config sea-config.json    # 生成 dist-sea/sea-prep.blob
+cp "$(command -v node)" atd.exe
+npx postject atd.exe NODE_SEA_BLOB dist-sea/sea-prep.blob \
+  --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
+```
 
 # TypeScript / Node.js migration
 

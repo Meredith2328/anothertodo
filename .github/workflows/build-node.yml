@@ -17,10 +17,13 @@ jobs:
         include:
           - os: windows-latest
             artifact: windows
+            exe: atd-windows.exe
           - os: macos-latest
             artifact: macos
+            exe: atd-macos
           - os: ubuntu-latest
             artifact: linux
+            exe: atd-linux
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -34,7 +37,34 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: node tools/smoke-node.mjs
-      - name: Package artifact
+
+      # ---- 独立可执行文件（Node SEA）：无需安装 Node，双击/直接运行即进 TUI ----
+      - name: Build SEA bundle
+        shell: bash
+        run: |
+          npm run build:sea
+          node --experimental-sea-config sea-config.json
+      - name: Inject SEA blob into node binary
+        shell: bash
+        run: |
+          cp "$(command -v node)" "${{ matrix.exe }}"
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            codesign --remove-signature "${{ matrix.exe }}"
+          fi
+          npx postject "${{ matrix.exe }}" NODE_SEA_BLOB dist-sea/sea-prep.blob \
+            --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            codesign --sign - "${{ matrix.exe }}"
+          fi
+          chmod +x "${{ matrix.exe }}"
+      - name: Smoke test executable
+        shell: bash
+        run: |
+          "./${{ matrix.exe }}" --help | grep -q "Usage: atd"
+          echo "SEA executable smoke passed"
+
+      # ---- 便携 tar 包（面向已装 Node 的环境，npm tarball 之外的裸发行） ----
+      - name: Package portable artifact
         shell: bash
         run: |
           mkdir -p release
@@ -43,7 +73,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: node-${{ matrix.artifact }}
-          path: atd-node-${{ matrix.artifact }}.tar.gz
+          path: |
+            ${{ matrix.exe }}
+            atd-node-${{ matrix.artifact }}.tar.gz
 
   release:
     if: startsWith(github.ref, 'refs/tags/node-v')
@@ -57,5 +89,19 @@ jobs:
           path: release
       - uses: softprops/action-gh-release@v2
         with:
-          files: release/*.tar.gz
+          files: |
+            release/atd-windows.exe
+            release/atd-macos
+            release/atd-linux
+            release/*.tar.gz
           fail_on_unmatched_files: true
+          body: |
+            下载对应平台的独立可执行文件即可使用，无需安装 Node：
+
+            - **Windows**: `atd-windows.exe`（双击或在终端运行，直接进入 TUI）
+            - **macOS**: `atd-macos`（`chmod +x atd-macos && ./atd-macos`）
+            - **Linux**: `atd-linux`（`chmod +x atd-linux && ./atd-linux`）
+
+            另附面向已安装 Node 22+ 环境的便携包 `atd-node-*.tar.gz`。
+
+            数据与配置仍存放在 `~/.atd`，与 Python 版完全互通。
