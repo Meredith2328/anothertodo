@@ -1,0 +1,20 @@
+[
+  {
+    "name": "union and newer modified wins",
+    "ours": [
+      {"id": "00000041", "title": "A-v2", "modified": "2026-08-18T10:00:00Z"},
+      {"id": "00000042", "title": "B-local", "modified": "2026-08-18T09:00:00Z"}
+    ],
+    "theirs": [
+      {"id": "00000041", "title": "A-v1", "modified": "2026-08-18T08:00:00Z"},
+      {"id": "00000043", "title": "C-remote", "modified": "2026-08-18T09:30:00Z"}
+    ],
+    "expected": {"00000041": "A-v2", "00000042": "B-local", "00000043": "C-remote"}
+  },
+  {
+    "name": "tombstone beats newer edit",
+    "ours": [{"id": "00000044", "deleted": true, "modified": "2026-08-18T10:00:00Z"}],
+    "theirs": [{"id": "00000044", "title": "旧编辑", "modified": "2026-08-18T11:00:00Z"}],
+    "expected": {"00000044": {"deleted": true}}
+  }
+]

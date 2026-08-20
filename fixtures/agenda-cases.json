@@ -1,0 +1,16 @@
+{
+  "today": "2026-08-18",
+  "config": {"week_days": 7},
+  "tasks": [
+    {"id": "00000021", "title": "逾期任务", "status": "todo", "due": "2026-08-17T09:00:00"},
+    {"id": "00000022", "title": "今天任务", "status": "todo", "due": "2026-08-18T09:00:00"},
+    {"id": "00000023", "title": "等待中", "status": "waiting", "wait": "2026-08-21"},
+    {"id": "00000024", "title": "已完成", "status": "done"},
+    {"id": "00000025", "title": "无日期", "status": "todo"}
+  ],
+  "expected": {
+    "defaultGroupTaskIds": {"逾期": ["00000021"], "今天": ["00000022"], "无日期": ["00000025"]},
+    "finishedQueryGroup": {"query": "status:done", "name": "已完成/已取消", "taskIds": ["00000024"]},
+    "dateFormats": {"auto": "昨天", "md": "8/17", "full": "2026-08-17"}
+  }
+}

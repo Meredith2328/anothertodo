@@ -1,0 +1,61 @@
+name: Node build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "node-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: windows
+          - os: macos-latest
+            artifact: macos
+          - os: ubuntu-latest
+            artifact: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: node tools/smoke-node.mjs
+      - name: Package artifact
+        shell: bash
+        run: |
+          mkdir -p release
+          cp -R dist-node bin docs README.md package.json package-lock.json release/
+          tar -czf "atd-node-${{ matrix.artifact }}.tar.gz" release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: node-${{ matrix.artifact }}
+          path: atd-node-${{ matrix.artifact }}.tar.gz
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/node-v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: node-*
+          merge-multiple: true
+          path: release
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.tar.gz
+          fail_on_unmatched_files: true

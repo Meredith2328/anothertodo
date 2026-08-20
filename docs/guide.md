@@ -20,19 +20,32 @@
 9. [配置详解](#9-配置详解)
 10. [数据管理（undo / 归档 / 直接编辑）](#10-数据管理)
 11. [架构与扩展（Web 端规划）](#11-架构与扩展)
-12. [打包二进制（三平台分发）](#12-打包二进制给没有-python-的人用三平台)
+12. [兼容二进制与 Node 分发](#12-兼容二进制与-node-分发)
 
 ---
 
 ## 1. 安装与首次运行
 
-**需要 Python 3.10+（任意环境：系统 Python、venv、conda 都行）**。源码安装：
+**Node.js 迁移候选实现需要 Node.js 22+**。源码安装：
+
+```bash
+npm ci
+npm run build
+npm link
+```
+
+安装 Node wrapper 后 `atd` 默认走 Node 实现；项目级正式切换仍等待三端 sign-off，数据目录和命令语义保持不变。
+
+兼容期内仍可安装旧 Python 实现：
 
 ```bash
 git clone <本仓库> && cd anothertodo
 python -m pip install -r requirements.txt   # 运行依赖（textual/rich/windows-toasts）
-python -m pip install -e .                  # 装上 atd 命令
+python -m pip install -e .                  # 安装 Python 兼容命令
 ```
+
+仅安装 Python 包时使用 `python -m atd.cli ...`；通过 Node wrapper 运行时可用
+`ATD_ENGINE=python atd ...` 显式选择 Python 回退。不要让两个实现同时写同一个数据目录。
 
 装好后命令叫 `atd`，入口在你的 Python 的 `Scripts` 目录（建议加进 PATH，
 之后在任何位置都能直接敲 `atd`）。
@@ -270,7 +283,7 @@ atd watch --once         # 只扫一轮（调试 / 手动触发用）
 - 每 30 秒扫描 `tasks.jsonl`，发现 `at <= 现在` 且未触发的提醒就逐个调 hook。
 - **错过的提醒会补发**：比如电脑 8:00 关机、10:00 开机，watcher 启动时发现
   8:00 的提醒没发，会立即补发，消息前缀 `[错过]`。超过 5 分钟未触发即算"错过"。
-- 提醒无论 hook 成败都标记 fired，避免每 30 秒重发；失败详情会打到 watcher 日志。
+- hook 全部失败时不会标记 fired，而是记录 attempts 并指数退避重试；达到 3 次后进入 dead-letter，避免无限重试。部分成功会标记完成，同时把失败 hook 写入 watcher 日志。
 - `atd done` 之后任务的未触发提醒自然不会再弹（任务已不在待办）。
 
 ### 4.2 内置 hook
@@ -709,12 +722,18 @@ remind/       watcher 守护进程 + hook 注册表
 读写同一份 `~/.atd/tasks.jsonl`（有文件锁，与 TUI/watcher 并发安全），
 从而做到"手机浏览器改一条，桌面 TUI 30 秒内自动刷新"。
 
-测试：`python -m pytest tests/ -q`（33 项，覆盖解析全表、urgency、查询、
+Python 兼容测试：`python -m pytest tests/ -q`（47 项，覆盖解析全表、urgency、查询、
 存储 undo、双端同步合并、TUI 无头流程）。
+Node 测试与构建门禁见 `docs/node-usage.md` 和 `docs/ts-migration-plan.md`。
 
 ---
 
-## 12. 打包二进制（给没有 Python 的人用，三平台）
+## 12. 兼容二进制与 Node 分发
+
+Node 版本优先通过 npm 分发：`npm ci && npm run build && npm link`。
+Node 发布使用 `node-v*` tag，三端产物是需要 Node.js 22+ 的可安装 Node 包，不是原生二进制。
+
+下面的 PyInstaller 流程仅用于兼容期的 Python 回退二进制（`legacy-v*` tag）。
 
 单文件二进制把解释器和全部依赖打进去，别人拿到**双击即用**，不需要装 Python。
 
@@ -728,7 +747,7 @@ python -m PyInstaller atd.spec --noconfirm --clean
 macOS 的 dmg/可执行文件只能在 macOS 上构建，Linux 同理。所以仓库配好了
 三平台 CI 矩阵 `.github/workflows/build.yml`：
 
-- 每次 `git push` 一个 `v*` 开头的 tag（如 `v0.1.0`），GitHub Actions 会在
+- 每次 `git push` 一个 `legacy-v*` 开头的 tag（如 `legacy-v0.1.0`），GitHub Actions 会在
   Windows / macOS / Ubuntu 三个 runner 上并行构建，测试通过后自动挂到 Release 页；
 - 也可以手动触发（workflow_dispatch）。
 

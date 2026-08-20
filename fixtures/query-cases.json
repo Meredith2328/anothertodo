@@ -1,0 +1,17 @@
+{
+  "today": "2026-08-18",
+  "tasks": [
+    {"id": "00000001", "title": "读书笔记", "status": "todo", "due": "2026-08-17T10:00:00", "tags": ["会议"], "project": "读书"},
+    {"id": "00000002", "title": "整理笔记", "status": "todo", "due": "2026-08-19T10:00:00", "priority": "高"},
+    {"id": "00000003", "title": "修车", "status": "waiting", "wait": "2026-08-21"}
+  ],
+  "cases": [
+    {"query": "overdue", "expectedIds": ["00000001"]},
+    {"query": "due:tomorrow", "expectedIds": ["00000002"]},
+    {"query": "+会议", "expectedIds": ["00000001"]},
+    {"query": "project:读书", "expectedIds": ["00000001"]},
+    {"query": "status:waiting", "expectedIds": ["00000003"]},
+    {"query": "/整理", "expectedIds": ["00000002"]},
+    {"query": "-高", "expectedIds": ["00000001", "00000003"]}
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "canonicalization": {
+    "inputLines": [
+      "{\"id\":\"00000031\",\"title\":\"旧版本\",\"status\":\"todo\",\"entry\":\"2026-08-18T10:00:00Z\",\"modified\":\"2026-08-18T10:00:00Z\"}",
+      "{\"id\":\"00000031\",\"title\":\"最终版本\",\"status\":\"todo\",\"entry\":\"2026-08-18T10:00:00Z\",\"modified\":\"2026-08-18T11:00:00Z\"}",
+      "not-json"
+    ],
+    "lastRecordWins": true,
+    "malformedLinesSkipped": true,
+    "expectedTaskIds": ["00000031"]
+  },
+  "tombstone": {
+    "taskId": "00000032",
+    "line": "{\"id\":\"00000032\",\"deleted\":true,\"modified\":\"2026-08-18T12:00:00Z\"}",
+    "deletionWinsOverEdit": true
+  },
+  "legacyRecord": {
+    "id": "legacy-time",
+    "title": "旧时区任务",
+    "status": "CUSTOM",
+    "due": "2026-08-22T14:30:00.123456+08:00",
+    "entry": "",
+    "modified": ""
+  },
+  "atomicWrite": {"temporaryFileMustShareDirectory": true, "renameIsAtomic": true}
+}

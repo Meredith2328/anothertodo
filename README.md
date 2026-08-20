@@ -8,9 +8,20 @@
 
 ## 安装
 
-**免环境（推荐）**：从 [Releases](https://github.com/Meredith2328/anothertodo/releases) 下载对应平台二进制（Windows `atd-windows.exe` / macOS `atd-macos` / Linux `atd-linux`），直接运行。
+**Node.js（迁移候选实现）**：需要 Node.js 22+，从源码安装：
 
-**源码（Python 3.10+）**：
+```bash
+npm ci
+npm run build
+npm link
+```
+
+安装 Node wrapper 后，`atd` 默认使用 Node 实现；项目级正式默认仍需完成三端 sign-off。兼容期内如需旧 Python 实现，可在 Node wrapper
+下显式运行 `ATD_ENGINE=python atd ...`；旧版三平台二进制仍属于 Python 回退发布物。
+
+Node 发布使用 `node-v*` tag；Python 兼容发布使用 `legacy-v*` tag。
+
+**Python 兼容回退（Python 3.10+）**：
 
 ```bash
 python -m pip install -r requirements.txt && python -m pip install -e .
@@ -101,4 +112,22 @@ python -m pytest tests/ -q        # 41 项测试
 python -m PyInstaller atd.spec    # 本地打单文件（Windows）
 ```
 
-三平台二进制由 GitHub Actions 自动构建：push `v*` tag 即在 Windows/macOS/Linux 各跑测试 + 打包，产物挂到 Release（PyInstaller 不能交叉编译，故三端各自构建）。
+Python 兼容三平台二进制由 GitHub Actions 自动构建：push `legacy-v*` tag；Node 发布使用 `node-v*` tag，产物是需要 Node.js 22+ 的可安装包，不是原生 exe。
+
+# TypeScript / Node.js migration
+
+The Node implementation is available under `src/` and preserves the existing
+`~/.atd` JSONL data directory. Build and use it with:
+
+```powershell
+npm ci
+npm run build
+npm link
+atd add "明天 采购复盘"
+atd list
+```
+
+See [docs/node-usage.md](docs/node-usage.md) and
+[docs/ts-migration-plan.md](docs/ts-migration-plan.md) for compatibility rules
+and the staged migration status. The Python implementation remains available
+until the stable compatibility period required by `DESIGN.md` is complete.

@@ -1,0 +1,81 @@
+[
+  {
+    "name": "relative date, time, priority, tags, and hooks",
+    "input": "后天 下午2点半 复盘 特急 #重要 @14:00:toast,email",
+    "now": "2026-08-20T10:00:00",
+    "levels": ["低", "中", "高"],
+    "expected": {
+      "title": "复盘",
+      "due": "2026-08-22T14:30:00",
+      "priority": "高",
+      "tags": ["重要"],
+      "project": null,
+      "parent": null,
+      "wait": null,
+      "reminders": [{"at": "2026-08-22T14:00", "hooks": ["toast", "email"], "fired": false}]
+    }
+  },
+  {
+    "name": "relative day",
+    "input": "今天 收尾",
+    "now": "2026-08-20T10:00:00",
+    "levels": ["低", "中", "高"],
+    "expected": {"title": "收尾", "due": "2026-08-20T00:00:00", "priority": null, "tags": [], "project": null, "parent": null, "wait": null, "reminders": []}
+  },
+  {
+    "name": "evening time",
+    "input": "明天 晚上8点 开会",
+    "now": "2026-08-20T10:00:00",
+    "levels": ["低", "中", "高"],
+    "expected": {"title": "开会", "due": "2026-08-21T20:00:00", "priority": null, "tags": [], "project": null, "parent": null, "wait": null, "reminders": []}
+  },
+  {
+    "name": "weekday and month boundary",
+    "input": "月底 盘点",
+    "now": "2026-08-20T10:00:00",
+    "levels": ["低", "中", "高"],
+    "expected": {"title": "盘点", "due": "2026-08-31T00:00:00", "priority": null, "tags": [], "project": null, "parent": null, "wait": null, "reminders": []}
+  },
+  {
+    "name": "holiday",
+    "input": "十一 出游",
+    "now": "2026-08-20T10:00:00",
+    "levels": ["低", "中", "高"],
+    "expected": {"title": "出游", "due": "2026-10-01T00:00:00", "priority": null, "tags": [], "project": null, "parent": null, "wait": null, "reminders": []}
+  },
+  {
+    "name": "past numeric date stays literal date",
+    "input": "8-17 复盘",
+    "now": "2026-08-20T10:00:00",
+    "levels": ["低", "中", "高"],
+    "expected": {"title": "复盘", "due": "2026-08-17T00:00:00", "priority": null, "tags": [], "project": null, "parent": null, "wait": null, "reminders": []}
+  },
+  {
+    "name": "relative reminder",
+    "input": "交笔记 @30m",
+    "now": "2026-08-20T10:00:00",
+    "levels": ["低", "中", "高"],
+    "expected": {"title": "交笔记", "due": null, "priority": null, "tags": [], "project": null, "parent": null, "wait": null, "reminders": [{"at": "2026-08-20T10:30", "hooks": ["toast"], "fired": false}]}
+  },
+  {
+    "name": "waiting, parent, and project",
+    "input": "修车回复 ~周五 proj:车辆 ^ab12cd34",
+    "now": "2026-08-20T10:00:00",
+    "levels": ["低", "中", "高"],
+    "expected": {"title": "修车回复", "due": null, "priority": null, "tags": [], "project": "车辆", "parent": "ab12cd34", "wait": "2026-08-21", "reminders": []}
+  },
+  {
+    "name": "custom priority level",
+    "input": "买牛奶 Sol",
+    "now": "2026-08-20T10:00:00",
+    "levels": ["Terra", "Sol"],
+    "expected": {"title": "买牛奶", "due": null, "priority": "Sol", "tags": [], "project": null, "parent": null, "wait": null, "reminders": []}
+  },
+  {
+    "name": "empty input",
+    "input": "   ",
+    "now": "2026-08-20T10:00:00",
+    "levels": ["低", "中", "高"],
+    "expected": {"title": "", "due": null, "priority": null, "tags": [], "project": null, "parent": null, "wait": null, "reminders": []}
+  }
+]
