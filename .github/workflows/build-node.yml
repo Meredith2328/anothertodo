@@ -50,11 +50,14 @@ jobs:
           cp "$(command -v node)" "${{ matrix.exe }}"
           if [[ "${{ runner.os }}" == "macOS" ]]; then
             codesign --remove-signature "${{ matrix.exe }}"
-          fi
-          npx postject "${{ matrix.exe }}" NODE_SEA_BLOB dist-sea/sea-prep.blob \
-            --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
-          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            # macOS 必须指定 Mach-O 段名，否则 blob 注入位置错误会导致段错误
+            npx postject "${{ matrix.exe }}" NODE_SEA_BLOB dist-sea/sea-prep.blob \
+              --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 \
+              --macho-segment-name NODE_SEA
             codesign --force --sign - "${{ matrix.exe }}"
+          else
+            npx postject "${{ matrix.exe }}" NODE_SEA_BLOB dist-sea/sea-prep.blob \
+              --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
           fi
           chmod +x "${{ matrix.exe }}"
       - name: Smoke test executable
