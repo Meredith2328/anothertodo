@@ -9,7 +9,7 @@ import { ApplicationService } from "../app/service.js";
 import { formatDate, groups, nestTasks } from "../core/agenda.js";
 import { setConfigValue } from "../core/config.js";
 import type { Config, Task } from "../contracts.js";
-import { describeRecur, preview } from "../core/parse.js";
+import { describeRecur, preview, scanDate } from "../core/parse.js";
 import { isOverdue, localDate, localNow } from "../core/task.js";
 import { taskToInput } from "../core/task-ops.js";
 import { displayWidth, padDisplay, truncateDisplay, truncateWithEllipsis } from "../core/width.js";
@@ -130,9 +130,10 @@ const GroupSeparator = ({ name, count }: { name: string; count: number }): React
   );
 };
 
-const TaskRow = ({ task, selected, today, dateFormat, levels, titleWidth, depth = 0 }: {
+const TaskRow = ({ task, selected, marked = false, today, dateFormat, levels, titleWidth, depth = 0 }: {
   task: Task;
   selected: boolean;
+  marked?: boolean;
   today: string;
   dateFormat: "auto" | "md" | "full";
   levels: string[];
@@ -141,8 +142,9 @@ const TaskRow = ({ task, selected, today, dateFormat, levels, titleWidth, depth 
 }): React.ReactElement => {
   // 子任务缩进后可用的标题宽度也跟着变窄，否则会挤掉右边的列
   const indent = depth > 0 ? `${"  ".repeat(depth - 1)}↳ ` : "";
-  const room = Math.max(4, titleWidth - displayWidth(indent));
-  const title = `${indent}${truncateWithEllipsis(task.title, room)}`;
+  const check = marked ? "◉ " : "";
+  const room = Math.max(4, titleWidth - displayWidth(indent) - displayWidth(check));
+  const title = `${indent}${check}${truncateWithEllipsis(task.title, room)}`;
   const date = dateCell(task, today, dateFormat);
   const priority = priorityCell(task, levels);
   const status = statusCell(task);
@@ -171,11 +173,12 @@ const Banner = ({ columns }: { columns: number | undefined }): React.ReactElemen
   );
 };
 
-const BannerInfo = ({ query, sortMode, tasks, clock }: {
+const BannerInfo = ({ query, sortMode, tasks, clock, marked = 0 }: {
   query: string;
   sortMode: "levels" | "urgency";
   tasks: Task[];
   clock: Date;
+  marked?: number;
 }): React.ReactElement => {
   const today = nowLocal().slice(0, 10);
   const overdue = tasks.filter((task) => isOverdue(task, today)).length;
@@ -185,6 +188,7 @@ const BannerInfo = ({ query, sortMode, tasks, clock }: {
   return (
     <Box justifyContent="flex-end" paddingLeft={1} paddingRight={1}>
       <Text>
+        {marked ? <Text bold color={C.hot}>{`◉${marked} `}</Text> : null}
         {query ? <Text color={C.dim}>过滤 </Text> : null}
         {query ? <Text color={C.yellow}>{query}</Text> : null}
         {query ? <Text color={C.dim}>{"   "}</Text> : null}
@@ -208,12 +212,12 @@ const PreviewLine = ({ state, levels }: { state: TuiState; levels: string[] }): 
   if (!state.input) {
     if (state.flashMessage) return <Text color={C.flash}>{`› ${state.flashMessage}`}</Text>;
     const hint = state.mode.kind === "list"
-      ? "清单区：j/k 移动 · d 完成 · 打字即添加 · : 命令"
+      ? "清单区：j/k 移动 · d 完成 · l 详情 · 空格多选 · 打字即添加 · : 命令"
       : "输入区：Enter 提交 · Esc 回清单";
     return <Text><Text color={C.accent}>› </Text><Text color={C.dimmer}>{hint}</Text></Text>;
   }
   if (state.input.startsWith(":") || state.input.startsWith("/")) {
-    return <Text><Text color={C.accent}>› </Text><Text color={C.dim}>命令：list &lt;查询&gt; / undo / sync / mode levels|urgency / archive / quit</Text></Text>;
+    return <Text><Text color={C.accent}>› </Text><Text color={C.dim}>命令：list &lt;查询&gt; / undo / sync / mode levels|urgency / archive / cancel / meeting / todo / wait &lt;日期&gt; / snooze &lt;分钟&gt; / quit</Text></Text>;
   }
   return (
     <Text>
@@ -360,6 +364,68 @@ const WelcomeModal = ({ rows }: { rows?: number | undefined }): React.ReactEleme
   </ModalPage>
 );
 
+// ---------------------------------------------------------------- 详情 / 确认浮层
+const DetailRow = ({ label, value }: { label: string; value: string }): React.ReactElement => (
+  <Box flexDirection="row">
+    <Box width={10}><Text color={C.dim}>{label}</Text></Box>
+    <Box flexGrow={1} flexShrink={1}><Text wrap="wrap">{value}</Text></Box>
+  </Box>
+);
+
+/** notes 一直只存不显示；详情浮层就是给它一个真正能看到的地方 */
+const DetailModal = ({ task, children: subtasks, parent, rows, columns }: {
+  task: Task;
+  children: Task[];
+  parent: Task | undefined;
+  rows?: number | undefined;
+  columns?: number | undefined;
+}): React.ReactElement => {
+  const noteLines = task.notes.trim() ? task.notes.split(/\r?\n/) : [];
+  const fields: Array<[string, string]> = [
+    ["状态", task.status],
+    ["截止", task.due ? task.due.replace("T", " ").slice(0, 16) : "—"],
+    ["优先级", task.priority ?? "—"],
+    ["项目", task.project ?? "—"],
+    ["标签", task.tags.length ? task.tags.map((tag) => `#${tag}`).join(" ") : "—"],
+    ["等待到", task.wait ?? "—"],
+    ["重复", task.recur ? describeRecur(task.recur) : "—"],
+  ];
+  if (parent) fields.push(["父任务", `${parent.id} ${parent.title}`]);
+  if (subtasks.length) fields.push(["子任务", subtasks.map((child) => `${child.status === "done" ? "✓" : "·"} ${child.title}`).join("  ")]);
+  fields.push(["创建", task.entry.replace("T", " ").slice(0, 16)]);
+  if (task.end) fields.push(["完成", task.end.replace("T", " ").slice(0, 16)]);
+  const reminderLines = task.reminders.map((reminder) => `${reminder.at.replace("T", " ")}  ${reminder.hooks.join(",")}  ${reminder.dead ? "已放弃" : reminder.fired ? "已发送" : "待发送"}`);
+  const contentLines = 4 + fields.length + (reminderLines.length ? reminderLines.length + 1 : 0) + (noteLines.length ? noteLines.length + 1 : 0);
+  const width = Math.min(Math.max(40, (columns ?? 80) - 8), 100);
+  return (
+    <ModalPage rows={rows} contentLines={contentLines}>
+      <Box flexDirection="column" alignItems="center">
+        <Box flexDirection="column" borderStyle="round" borderColor={C.accent} paddingLeft={2} paddingRight={2} width={width}>
+          <Text><Text bold color={C.accent}>{truncateWithEllipsis(task.title, width - 16)}</Text><Text color={C.dimmer}>{`  ${task.id}`}</Text></Text>
+          {fields.map(([label, value]) => <DetailRow key={label} label={label} value={value} />)}
+          {reminderLines.length ? <Text bold color={C.warn}>提醒</Text> : null}
+          {reminderLines.map((line) => <Text key={line} color={C.yellow}>{`  ${line}`}</Text>)}
+          {noteLines.length ? <Text bold color={C.warn}>备注</Text> : null}
+          {noteLines.map((line, index) => <Text key={`${index}-${line}`} wrap="wrap">{`  ${line}`}</Text>)}
+          <Text color={C.dim}>j/k 看上下一条 · e 编辑 · 其他键关闭</Text>
+        </Box>
+      </Box>
+    </ModalPage>
+  );
+};
+
+const ConfirmModal = ({ prompt, rows }: { prompt: string; rows?: number | undefined }): React.ReactElement => (
+  <ModalPage rows={rows} contentLines={4}>
+    <Box flexDirection="column" alignItems="center">
+      <Box flexDirection="column" borderStyle="round" borderColor={C.overdue} paddingLeft={2} paddingRight={2}>
+        <Text bold color={C.overdue}>请确认</Text>
+        <Text wrap="wrap">{prompt}</Text>
+        <Text color={C.dim}>y 或 Enter 确认 · 其他任意键取消</Text>
+      </Box>
+    </Box>
+  </ModalPage>
+);
+
 // ---------------------------------------------------------------- 主组件
 type TableLine = { kind: "sep"; name: string; count: number } | { kind: "task"; task: Task; depth: number; index: number };
 
@@ -371,6 +437,21 @@ const completeAndDescribe = async (service: ApplicationService, id: string): Pro
   if (result.openChildren.length) extras.push(`还有 ${result.openChildren.length} 个子任务没完成`);
   return `✓ 完成：${result.task.title}${extras.length ? `（${extras.join("，")}）` : ""}`;
 };
+
+/** 批量跑同一个操作，逐条收集失败，最后汇总成一句话 */
+const runBatch = async (ids: string[], label: string, run: (id: string) => Promise<string | void>): Promise<string> => {
+  if (ids.length === 1) { const single = await run(ids[0]!); return typeof single === "string" ? single : `${label} 1 条`; }
+  const failures: string[] = [];
+  let done = 0;
+  for (const id of ids) {
+    try { await run(id); done += 1; }
+    catch (error) { failures.push(error instanceof Error ? error.message : String(error)); }
+  }
+  return `${label} ${done} 条${failures.length ? `，${failures.length} 条没成功：${failures[0]!}` : ""}`;
+};
+
+/** 打了勾就对勾选的那些干活，没打勾就对光标所在这条干活 */
+const targetIds = (state: TuiState, selected: Task): string[] => state.marked.length ? [...state.marked] : [selected.id];
 
 export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: TuiProps): React.ReactElement => {
   const { exit } = useApp();
@@ -393,6 +474,12 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     : [], [config, state.query, state.sortMode, tasks]);
   const visible = useMemo(() => flatten(visibleGroups), [visibleGroups]);
   const selected = visible[state.selectedIndex];
+  // 详情浮层的数据在早返回之前算好：hooks 数量必须每帧一致，
+  // 否则 React 会抛 "Rendered fewer hooks"（表现为闪退）
+  const detailId = state.mode.kind === "detail" ? state.mode.taskId : undefined;
+  const detailTask = detailId === undefined ? undefined : (selected ?? tasks.find((task) => task.id === detailId));
+  const detailChildren = useMemo(() => detailTask ? tasks.filter((task) => task.parent === detailTask.id) : [], [detailTask, tasks]);
+  const detailParent = detailTask?.parent === undefined ? undefined : tasks.find((task) => task.id === detailTask.parent);
   const stateRef = useRef(state);
   const configRef = useRef(config);
   const selectedRef = useRef(selected);
@@ -458,6 +545,8 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
         dispatch({ type: "flash", message: `过滤：${query}（: 清除）` });
       } else if (currentState.mode.kind === "command") {
         const command = currentState.input.replace(/^:/u, "").trim();
+        const ids = currentState.marked.length ? [...currentState.marked] : currentSelected ? [currentSelected.id] : [];
+        const [verb, ...rest] = command.split(/\s+/u);
         if (command === "undo") dispatch({ type: "flash", message: await service.undo() });
         else if (command === "sync") dispatch({ type: "flash", message: await service.sync() });
         else if (command === "mode urgency") { dispatch({ type: "sort", mode: "urgency" }); dispatch({ type: "flash", message: "排序模式：urgency" }); }
@@ -465,6 +554,28 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
         else if (command === "list") { dispatch({ type: "query", value: "" }); dispatch({ type: "flash", message: "已清除过滤" }); }
         else if (command.startsWith("list ")) { dispatch({ type: "query", value: command.slice(5) }); dispatch({ type: "flash", message: `过滤：${command.slice(5)}` }); }
         else if (command.startsWith("archive")) { const days = command.split(/\s+/u)[1]; dispatch({ type: "flash", message: `归档了 ${await service.archive(days ? Number(days) : 14)} 行` }); }
+        else if (verb === "cancel" || verb === "meeting" || verb === "todo") {
+          if (!ids.length) dispatch({ type: "flash", message: "先选中一条任务" });
+          else {
+            const status = verb === "cancel" ? "cancelled" : verb;
+            dispatch({ type: "flash", message: await runBatch(ids, `已设为 ${status}`, async (id) => { await service.setStatus(id, status); }) });
+            dispatch({ type: "setMarks", ids: [] });
+          }
+        } else if (verb === "wait") {
+          const spec = rest.join(" ");
+          if (!ids.length) dispatch({ type: "flash", message: "先选中一条任务" });
+          else if (!spec) dispatch({ type: "flash", message: await runBatch(ids, "已设为等待", async (id) => { await service.deferUntilTomorrow(id); }) });
+          else {
+            const scanned = scanDate(spec, nowLocal().slice(0, 10));
+            if (!scanned) dispatch({ type: "flash", message: `看不懂这个日期：${spec}` });
+            else { dispatch({ type: "flash", message: await runBatch(ids, `已等到 ${scanned.date}`, async (id) => { await service.deferUntil(id, scanned.date); }) }); dispatch({ type: "setMarks", ids: [] }); }
+          }
+        } else if (verb === "snooze") {
+          const minutes = Number(rest[0] ?? 10);
+          if (!ids.length) dispatch({ type: "flash", message: "先选中一条任务" });
+          else if (!Number.isFinite(minutes) || minutes <= 0) dispatch({ type: "flash", message: "用法：:snooze 30" });
+          else { dispatch({ type: "flash", message: await runBatch(ids, `提醒推迟 ${minutes} 分钟`, async (id) => { await service.snooze(id, minutes); }) }); dispatch({ type: "setMarks", ids: [] }); }
+        }
         else if (command === "quit") { exit(); return; }
         else if (command) dispatch({ type: "flash", message: `未知命令：${command}` });
       }
@@ -537,6 +648,8 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     if (action.type === "submit") { void submit(); return; }
     if (action.type === "escape") {
       if (currentState.mode.kind === "list") {
+        // Esc 先清多选，再当退出的第一下；免得刚勾了一堆就被问退出
+        if (currentState.marked.length) { dispatch({ type: "setMarks", ids: [] }); dispatch({ type: "flash", message: "已取消多选" }); return; }
         if (currentState.exitArmedAt && Date.now() - currentState.exitArmedAt < 1000) { exit(); return; }
         dispatch({ type: "armExit", at: Date.now() });
       } else {
@@ -546,7 +659,23 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
       }
       return;
     }
+    if (action.type === "confirmYes") {
+      if (currentState.mode.kind !== "confirm") return;
+      const ids = currentState.marked.length ? [...currentState.marked] : currentSelected ? [currentSelected.id] : [];
+      dispatch({ type: "mode", mode: { kind: "list" } });
+      dispatch({ type: "setMarks", ids: [] });
+      if (!ids.length) return;
+      runMutation(() => runBatch(ids, "已删除", async (id) => { await service.remove(id); }));
+      return;
+    }
     if (action.type === "move") { dispatch({ type: "select", index: currentState.selectedIndex + action.delta }); return; }
+    if (action.type === "page") {
+      // 一页按可见任务行数算，翻不动就贴到首尾
+      const page = Math.max(1, (rows ?? 24) - CHROME_LINES - 1);
+      const next = Math.max(0, Math.min(visible.length - 1, currentState.selectedIndex + action.delta * page));
+      dispatch({ type: "select", index: next });
+      return;
+    }
     if (action.type === "first") { dispatch({ type: "select", index: 0 }); return; }
     if (action.type === "last") { dispatch({ type: "select", index: Math.max(0, visible.length - 1) }); return; }
     if (action.type === "command") { dispatch({ type: "mode", mode: { kind: "command" } }); dispatch({ type: "input", value: action.value }); return; }
@@ -569,21 +698,60 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
       if (action.name === "i") { dispatch({ type: "mode", mode: { kind: "add" } }); return; }
       if (action.name === "e" && currentSelected) { dispatch({ type: "mode", mode: { kind: "edit", taskId: currentSelected.id } }); dispatch({ type: "input", value: taskToInput(currentSelected) }); return; }
       if (action.name === "d" && currentSelected) {
-        const task = currentSelected;
-        runMutation(() => completeAndDescribe(service, task.id));
+        const ids = targetIds(currentState, currentSelected);
+        runMutation(() => runBatch(ids, "✓ 已完成", (id) => completeAndDescribe(service, id)));
+        dispatch({ type: "setMarks", ids: [] });
         return;
       }
       if (action.name === "w" && currentSelected) {
-        const task = currentSelected;
-        runMutation(async () => { const updated = await service.deferUntilTomorrow(task.id); return `等待至 ${updated.wait ?? ""}`; });
+        const ids = targetIds(currentState, currentSelected);
+        runMutation(() => runBatch(ids, "已设为等待", async (id) => `等待至 ${(await service.deferUntilTomorrow(id)).wait ?? ""}`));
+        dispatch({ type: "setMarks", ids: [] });
         return;
       }
       if (action.name === "x" && currentSelected) {
-        const task = currentSelected;
-        runMutation(async () => { await service.remove(task.id); return `已删除：${task.title}`; });
+        // 删除是唯一没法恢复原样的破坏性操作，问一句再动手
+        const ids = targetIds(currentState, currentSelected);
+        const prompt = ids.length === 1
+          ? `删除「${currentSelected.title}」？只想留个记录的话按 c 取消任务更合适。`
+          : `删除选中的 ${ids.length} 条任务？`;
+        dispatch({ type: "mode", mode: { kind: "confirm", prompt, pending: "delete" } });
         return;
       }
       if (action.name === "u") { runMutation(() => service.undo()); return; }
+      if (action.name === "mark" && currentSelected) {
+        dispatch({ type: "toggleMark", id: currentSelected.id });
+        dispatch({ type: "select", index: currentState.selectedIndex + 1 });
+        return;
+      }
+      if (action.name === "markAll") {
+        const all = visible.map((task) => task.id);
+        const clearing = currentState.marked.length >= all.length && all.every((id) => currentState.marked.includes(id));
+        dispatch({ type: "setMarks", ids: clearing ? [] : all });
+        dispatch({ type: "flash", message: clearing ? "已取消全选" : `已选中 ${all.length} 条` });
+        return;
+      }
+      if (action.name === "v" && currentSelected) { dispatch({ type: "mode", mode: { kind: "detail", taskId: currentSelected.id } }); return; }
+      if (action.name === "s" && currentSelected) {
+        const ids = targetIds(currentState, currentSelected);
+        runMutation(() => runBatch(ids, "已推迟提醒", async (id) => { await service.snooze(id, 10); }));
+        dispatch({ type: "setMarks", ids: [] });
+        return;
+      }
+      if (action.name === "o") {
+        if (!currentSelected) return;
+        const ids = targetIds(currentState, currentSelected);
+        runMutation(() => runBatch(ids, "↩ 已重新打开", async (id) => `↩ 重新打开：${(await service.reopen(id)).title}`));
+        dispatch({ type: "setMarks", ids: [] });
+        return;
+      }
+      if (action.name === "c") {
+        if (!currentSelected) return;
+        const ids = targetIds(currentState, currentSelected);
+        runMutation(() => runBatch(ids, "✗ 已取消", async (id) => `✗ 已取消：${(await service.setStatus(id, "cancelled")).title}`));
+        dispatch({ type: "setMarks", ids: [] });
+        return;
+      }
       if (action.name === "enter" && currentSelected) {
         const task = currentSelected;
         if (task.status === "done") {
@@ -593,7 +761,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
         runMutation(() => completeAndDescribe(service, task.id));
       }
     }
-  }, [dispatch, exit, refresh, runMutation, service, store, tasks, visible.length]);
+  }, [dispatch, exit, refresh, runMutation, service, store, tasks, visible]);
 
   const today = nowLocal().slice(0, 10);
   const levels = config ? [...config.priority.levels] : ["低", "中", "高"];
@@ -633,7 +801,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     const currentState = stateRef.current;
     const { lines: currentLines, windowStart: start } = viewRef.current;
     // 弹窗打开时任意点击关闭（和任意键关闭一致）
-    if (currentState.mode.kind === "help" || currentState.mode.kind === "welcome") {
+    if (currentState.mode.kind === "help" || currentState.mode.kind === "welcome" || currentState.mode.kind === "detail" || currentState.mode.kind === "confirm") {
       if (event.kind === "press") { setActionSequence((sequence) => sequence + 1); dispatch({ type: "mode", mode: { kind: "list" } }); }
       return;
     }
@@ -685,11 +853,19 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
 
   if (state.mode.kind === "help") return <ModalShell rows={rows}><HelpModal rows={rows} /></ModalShell>;
   if (state.mode.kind === "welcome") return <ModalShell rows={rows}><WelcomeModal rows={rows} /></ModalShell>;
+  if (state.mode.kind === "confirm") return <ModalShell rows={rows}><ConfirmModal prompt={state.mode.prompt} rows={rows} /></ModalShell>;
+  if (state.mode.kind === "detail" && detailTask) {
+    return (
+      <ModalShell rows={rows}>
+        <DetailModal task={detailTask} parent={detailParent} rows={rows} columns={columns}>{detailChildren}</DetailModal>
+      </ModalShell>
+    );
+  }
 
   return (
     <Box flexDirection="column" {...(rows !== undefined ? { height: rows } : {})}>
       <Banner columns={columns} />
-      <BannerInfo query={state.query} sortMode={state.sortMode} tasks={tasks} clock={clock} />
+      <BannerInfo query={state.query} sortMode={state.sortMode} tasks={tasks} clock={clock} marked={state.marked.length} />
       <Box flexDirection="column" flexGrow={1} borderStyle="round" borderColor={C.border} paddingLeft={1} paddingRight={1}>
         <Box flexDirection="row">
           <Box width={DATE_W}><Text bold color={C.dim}>日期</Text></Box>
@@ -701,7 +877,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
         {lines.length === 0 ? <Text color={C.dimmer}>（没有任务）</Text> : windowLines.map((line) => (
           line.kind === "sep"
             ? <GroupSeparator key={`sep-${line.name}-${line.count}`} name={line.name} count={line.count} />
-            : <TaskRow key={line.task.id} task={line.task} selected={line.index === state.selectedIndex} today={today} dateFormat={state.dateFormat} levels={levels} titleWidth={titleWidth} depth={line.depth} />
+            : <TaskRow key={line.task.id} task={line.task} selected={line.index === state.selectedIndex} marked={state.marked.includes(line.task.id)} today={today} dateFormat={state.dateFormat} levels={levels} titleWidth={titleWidth} depth={line.depth} />
         ))}
       </Box>
       <Box paddingLeft={2} paddingRight={2}><PreviewLine state={state} levels={levels} /></Box>
