@@ -2,13 +2,15 @@
 
 ![atd TUI](.assets/TUI.png)
 
+**中文 README** · [English README](README.en.md)
+
 轻量 todo：一行模糊输入添加任务，命令行 TUI 管理，提醒 hook 通知，git 多端同步。数据是纯文本 JSONL，存在 `~/.atd/`。
 
-> 完整功能与案例见 **[docs/guide.md](docs/guide.md)**。本 README 是速查。
+> 完整功能与案例见 **[VitePress 文档站](https://meredith2328.github.io/anothertodo/)**。本 README 是速查。
 
 ## 安装
 
-**Node.js（迁移候选实现）**：需要 Node.js 22+，从源码安装：
+**Node.js**：需要 Node.js 22+，从源码安装：
 
 ```bash
 npm ci
@@ -16,18 +18,9 @@ npm run build
 npm link
 ```
 
-安装 Node wrapper 后，`atd` 默认使用 Node 实现；项目级正式默认仍需完成三端 sign-off。兼容期内如需旧 Python 实现，可在 Node wrapper
-下显式运行 `ATD_ENGINE=python atd ...`；旧版三平台二进制仍属于 Python 回退发布物。
+安装后 `atd` 使用 Node 实现。数据存在 `~/.atd/`，与其他安装方式互通。
 
-Node 发布使用 `node-v*` tag；Python 兼容发布使用 `legacy-v*` tag。
-
-**独立可执行文件（推荐，无需安装任何东西）**：从 GitHub Releases（`node-v*` tag）下载对应平台的单文件程序——Windows 直接双击 `atd-windows.exe` 进入 TUI；macOS/Linux `chmod +x` 后运行。数据仍存 `~/.atd`，与其他安装方式互通。
-
-**Python 兼容回退（Python 3.10+）**：
-
-```bash
-python -m pip install -r requirements.txt && python -m pip install -e .
-```
+**独立可执行文件（推荐，无需安装任何东西）**：从 GitHub Releases（`node-v*` tag）下载对应平台的单文件程序——Windows 直接双击 `atd-windows.exe` 进入 TUI；macOS/Linux `chmod +x` 后运行。数据仍存 `~/.atd`。
 
 数据目录 `~/.atd/` 首次运行自动创建。
 
@@ -113,34 +106,10 @@ atd sync          # commit + fetch + rebase + push
 ## 开发与打包
 
 ```bash
-python -m pytest tests/ -q        # 41 项测试
-python -m PyInstaller atd.spec    # 本地打单文件（Windows）
+npm test                 # 运行测试套件
+npm run typecheck        # tsc 类型检查
+npm run build            # 构建到 dist-node
+npm run build:sea        # 打包独立可执行文件
 ```
 
-Python 兼容三平台二进制由 GitHub Actions 自动构建：push `legacy-v*` tag；Node 发布使用 `node-v*` tag，产物包含三平台**独立可执行文件**（Node SEA 单文件程序，无需安装 Node，Windows 双击即用）和面向已装 Node 22+ 环境的便携 tar 包。本地重打包可执行文件：
-
-```bash
-npm run build:sea                                  # 产出 dist-sea/sea-entry.cjs
-node --experimental-sea-config sea-config.json    # 生成 dist-sea/sea-prep.blob
-cp "$(command -v node)" atd.exe
-npx postject atd.exe NODE_SEA_BLOB dist-sea/sea-prep.blob \
-  --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
-```
-
-# TypeScript / Node.js migration
-
-The Node implementation is available under `src/` and preserves the existing
-`~/.atd` JSONL data directory. Build and use it with:
-
-```powershell
-npm ci
-npm run build
-npm link
-atd add "明天 采购复盘"
-atd list
-```
-
-See [docs/node-usage.md](docs/node-usage.md) and
-[docs/ts-migration-plan.md](docs/ts-migration-plan.md) for compatibility rules
-and the staged migration status. The Python implementation remains available
-until the stable compatibility period required by `DESIGN.md` is complete.
+发布产物由 GitHub Actions 自动构建：push `node-v*` tag 即产出三平台**独立可执行文件**（Node SEA 单文件程序，无需安装 Node，Windows 双击即用）。实现细节与兼容规则见 [docs/node-usage.md](docs/node-usage.md) 和 [docs/ts-migration-plan.md](docs/ts-migration-plan.md)。
