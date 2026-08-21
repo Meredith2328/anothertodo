@@ -72,10 +72,14 @@ export const INPUT_PLACEHOLDER = "添加：后天 买牛奶 很急 @18:30   ·  
 export const HELP_SECTIONS: ReadonlyArray<readonly [string, ReadonlyArray<readonly [string, string]>]> = [
   ["清单区（默认焦点，光标在任务列表）", [
     ["j k ↑ ↓", "移动选择"],
+    ["PgUp / PgDn", "上下翻一页"],
     ["g / G", "跳到最上 / 最下"],
-    ["d / x", "完成 / 删除（软删除，可撤销）"],
+    ["l / →", "看详情（备注、提醒、父子任务）"],
+    ["d / x", "完成 / 删除（删除会先问一句）"],
+    ["c / o", "取消任务 / 重新打开 done、cancelled"],
     ["e", "编辑选中任务"],
-    ["w", "设为等待（隐藏到明天）"],
+    ["w / s", "等待到明天 / 提醒推迟 10 分钟"],
+    ["空格 / Ctrl+A", "打勾多选 / 全选本屏；有勾时 d x c w o s 批量执行"],
     ["u / r", "撤销上一步 / 重载配置刷新"],
     ["1 / 2", "档位排序 / urgency 排序"],
     ["t", "日期列格式：相对 / 月日 / 完整"],
@@ -105,13 +109,14 @@ export const HELP_SECTIONS: ReadonlyArray<readonly [string, ReadonlyArray<readon
 export const FULL_HELP_LINES =
   3 + HELP_SECTIONS.reduce((lines, [, entries]) => lines + 1 + entries.length, 0);
 
-// 紧凑帮助（终端高度不足以放下完整版时使用）：6 行讲完全部高频操作，
-// 加边框和标题共 9 行，任何常规终端都放得下。
+// 紧凑帮助（终端高度不足以放下完整版时使用）：几行讲完全部高频操作，
+// 加边框和标题后任何常规终端都放得下。
 export const COMPACT_HELP_ROWS: ReadonlyArray<readonly [string, string]> = [
-  ["清单区", "j/k ↑↓ 移动 · g/G 首末 · d 完成 · x 删除 · e 编辑 · w 等待"],
-  ["", "u 撤销 · r 刷新 · 1/2 排序 · t 日期列 · Enter 完成/重开"],
+  ["清单区", "j/k ↑↓ 移动 · PgUp/PgDn 翻页 · g/G 首末 · l 详情"],
+  ["", "d 完成 · x 删除 · c 取消 · o 重开 · e 编辑 · w 等待 · s 推迟提醒"],
+  ["", "空格 打勾多选 · Ctrl+A 全选 · u 撤销 · 1/2 排序 · t 日期列"],
   ["输入区", "直接打字添加 · Enter 提交 · Tab 补全 #标签/proj:"],
-  ["", ": 命令(list/undo/sync/mode/archive) · / 搜索 · Esc 回清单"],
+  ["", ": 命令(list/undo/sync/mode/archive/cancel/meeting) · / 搜索"],
   ["通用", "? 帮助 · Ctrl+Z 撤销 · Ctrl+S 同步 · Ctrl+F 搜索"],
   ["退出", "q / Q / Ctrl+Q / 双击 Esc；打 d/x/q 开头标题先按 i"],
 ];
