@@ -312,14 +312,25 @@ const FooterBar = (): React.ReactElement => (
 
 // ---------------------------------------------------------------- 弹窗
 // Ink 从上往下渲染，没有「垂直居中」布局；按终端剩余高度在弹窗上方垫空行。
-// 垫完的总高度保证不超过终端行数——否则矮终端里整帧溢出，顶部内容会被
-// 卷出屏幕（表现为帮助标题“被顶到顶上去了”）。
+// 整帧必须严格等于终端行数（外层 height:rows + 底部 Footer）——一旦溢出，
+// 矮终端里整帧上卷，上一帧的残留（比如旧 Footer）会留在屏幕顶部。
+const ModalShell = ({ rows, children }: {
+  rows?: number | undefined;
+  children: React.ReactNode;
+}): React.ReactElement => (
+  <Box flexDirection="column" {...(rows !== undefined ? { height: rows } : {})}>
+    <Box flexDirection="column" flexGrow={1}>{children}</Box>
+    <FooterBar />
+  </Box>
+);
+
 const ModalPage = ({ rows, contentLines, children }: {
   rows?: number | undefined;
   contentLines: number;
   children: React.ReactNode;
 }): React.ReactElement => {
-  const pad = rows === undefined ? 0 : Math.max(0, Math.floor((rows - contentLines) / 2));
+  // 减 1 给 ModalShell 底部的 Footer 行
+  const pad = rows === undefined ? 0 : Math.max(0, Math.floor((rows - 1 - contentLines) / 2));
   return (
     <Box flexDirection="column">
       {Array.from({ length: pad }, (_, index) => <Text key={index}> </Text>)}
@@ -687,8 +698,8 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     }
   }), [columns, dispatch, runMutation, service, rows]);
 
-  if (state.mode.kind === "help") return <HelpModal rows={rows} />;
-  if (state.mode.kind === "welcome") return <WelcomeModal rows={rows} />;
+  if (state.mode.kind === "help") return <ModalShell rows={rows}><HelpModal rows={rows} /></ModalShell>;
+  if (state.mode.kind === "welcome") return <ModalShell rows={rows}><WelcomeModal rows={rows} /></ModalShell>;
 
   return (
     <Box flexDirection="column" {...(rows !== undefined ? { height: rows } : {})}>

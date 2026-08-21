@@ -178,6 +178,23 @@ describe("stage 7 Ink TUI integration", () => {
     expect(frame).toContain("清单区（默认焦点，光标在任务列表）");
     expect(frame.split("\n").length).toBeLessThanOrEqual(40);
   });
+
+  it("keeps the footer on the last line while help is open", async () => {
+    // 回归：帮助模式曾只渲染弹窗，Footer 从帧里消失，上一帧的键帽残留在屏幕顶部
+    const dir = await mkdtemp(join(tmpdir(), "atd-ink-"));
+    const store = new Store(dir);
+    const signals = createSignals();
+    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={24} />);
+    await signals.ready();
+    await signals.data();
+    const helpAction = signals.action();
+    app.stdin.write("?");
+    await helpAction;
+    const lines = (app.lastFrame() ?? "").split("\n");
+    expect(lines.length).toBe(24); // 整帧严格等于终端行数，不溢出
+    const last = lines[lines.length - 1] ?? "";
+    for (const label of ["帮助", "输入", "完成", "退出"]) expect(last).toContain(label);
+  });
 });
 
 describe("footer mouse interaction", () => {
