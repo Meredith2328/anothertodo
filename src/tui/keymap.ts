@@ -63,7 +63,8 @@ export const mapKey = (mode: UiMode, event: KeyEvent): KeyAction | undefined => 
   if (key.ctrl && (key.name === "q" || key.name === "c")) return { type: "quit" };
   if (key.ctrl && key.name === "z") return { type: "shortcut", name: "undo" };
   if (key.ctrl && key.name === "s") return { type: "shortcut", name: "sync" };
-  if (input === "Q") return { type: "quit" };
+  // q/Q 都退出（Footer 上就是「q 退出」；打 q 开头的标题先按 i 进输入区）
+  if (input === "q" || input === "Q") return { type: "quit" };
   if (is("escape", key.escape)) return { type: "escape" };
   if (is("up", key.up) || input === "k") return { type: "move", delta: -1 };
   if (is("down", key.down) || input === "j") return { type: "move", delta: 1 };

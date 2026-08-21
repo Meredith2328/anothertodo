@@ -18,8 +18,9 @@ import type { KeyAction, KeyEvent } from "./keymap.js";
 import { mapKey } from "./keymap.js";
 import { subscribeMouse, type MouseEvent } from "./mouse.js";
 import {
-  BANNER_COLORS, BANNER_FULL, BANNER_SMALL, C, DATE_FORMAT_LABEL, GROUP_COLOR,
-  HELP_SECTIONS, INPUT_PLACEHOLDER, MODE_LABEL, STATUS_COLOR, WELCOME_ROWS,
+  BANNER_COLORS, BANNER_FULL, BANNER_SMALL, C, COMPACT_HELP_LINES, COMPACT_HELP_ROWS,
+  DATE_FORMAT_LABEL, FULL_HELP_LINES, GROUP_COLOR, HELP_SECTIONS, INPUT_PLACEHOLDER,
+  MODE_LABEL, STATUS_COLOR, WELCOME_ROWS,
 } from "./theme.js";
 
 export type TuiTestSignals = {
@@ -28,7 +29,13 @@ export type TuiTestSignals = {
   onActionComplete?: (sequence: number) => void;
   onMutationComplete?: (state: { kind: "success" | "error"; id: string; message?: string }) => void;
 };
-export type TuiProps = { store: Store; testSignals?: TuiTestSignals; welcome?: boolean };
+export type TuiProps = {
+  store: Store;
+  testSignals?: TuiTestSignals;
+  welcome?: boolean;
+  /** 测试注入的终端行数（真实环境读 stdout.rows） */
+  terminalRows?: number;
+};
 const nowLocal = localNow;
 const flatten = (items: ReturnType<typeof groups>): Task[] => items.flatMap((group) => group.tasks);
 const completeInput = (input: string, tasks: Task[]): string => {
@@ -280,7 +287,7 @@ const FOOTER_KEYS = [
 ];
 // 每个 Footer 键的屏幕列区间（1 起，含键帽与标签）。布局：Box paddingLeft=1
 // 占第 1 列；每项 = 键帽 ` x `(3 列) + 空格(1) + 标签(width 列) + 3 空格。
-const footerKeyRanges = (): Array<{ name: "help" | "input" | "done" | "quit"; start: number; end: number }> => {
+export const footerKeyRanges = (): Array<{ name: "help" | "input" | "done" | "quit"; start: number; end: number }> => {
   const ranges: Array<{ name: "help" | "input" | "done" | "quit"; start: number; end: number }> = [];
   let column = 2; // paddingLeft 1 → 内容从第 2 列开始
   for (const entry of FOOTER_KEYS) {
@@ -304,55 +311,79 @@ const FooterBar = (): React.ReactElement => (
 );
 
 // ---------------------------------------------------------------- 弹窗
-const ModalFrame = ({ title, note, rows }: {
-  title: string;
-  note: string;
-  rows: ReadonlyArray<readonly [string, string]>;
+// Ink 从上往下渲染，没有「垂直居中」布局；按终端剩余高度在弹窗上方垫空行。
+// 垫完的总高度保证不超过终端行数——否则矮终端里整帧溢出，顶部内容会被
+// 卷出屏幕（表现为帮助标题“被顶到顶上去了”）。
+const ModalPage = ({ rows, contentLines, children }: {
+  rows?: number | undefined;
+  contentLines: number;
+  children: React.ReactNode;
+}): React.ReactElement => {
+  const pad = rows === undefined ? 0 : Math.max(0, Math.floor((rows - contentLines) / 2));
+  return (
+    <Box flexDirection="column">
+      {Array.from({ length: pad }, (_, index) => <Text key={index}> </Text>)}
+      {children}
+    </Box>
+  );
+};
+
+const HelpRows = ({ entries, keysWidth }: {
+  entries: ReadonlyArray<readonly [string, string]>;
+  keysWidth: number;
 }): React.ReactElement => (
-  <Box flexDirection="column" alignItems="center">
-    <Box flexDirection="column" borderStyle="round" borderColor={C.accent} paddingLeft={2} paddingRight={2}>
-      <Text><Text bold color={C.accent}>{title}</Text><Text color={C.dim}>{`   ${note}`}</Text></Text>
-      {rows.map(([keys, description]) => (
-        <Box key={keys} flexDirection="row">
-          <Box width={34}><Text color={C.accent}>{keys}</Text></Box>
-          <Box flexGrow={1} flexShrink={1}><Text>{description}</Text></Box>
+  <>
+    {entries.map(([keys, description], index) => (
+      <Box key={`${index}-${keys}`} flexDirection="row">
+        <Box width={keysWidth}><Text color={C.accent}>{keys}</Text></Box>
+        <Box flexGrow={1} flexShrink={1}><Text>{description}</Text></Box>
+      </Box>
+    ))}
+  </>
+);
+
+const HelpModal = ({ rows }: { rows?: number | undefined }): React.ReactElement => {
+  // 终端放得下完整版（留 2 行余量）就用完整版；矮终端自动切紧凑版，
+  // 保证弹窗永远完整可见。高度未知（测试/管道）时保持完整版。
+  const full = rows === undefined || rows >= FULL_HELP_LINES + 2;
+  return (
+    <ModalPage rows={rows} contentLines={full ? FULL_HELP_LINES : COMPACT_HELP_LINES}>
+      <Box flexDirection="column" alignItems="center">
+        <Box flexDirection="column" borderStyle="round" borderColor={C.accent} paddingLeft={2} paddingRight={2}>
+          <Text><Text bold color={C.accent}>atd 帮助</Text><Text color={C.dim}>   （按任意键关闭）</Text></Text>
+          {full ? HELP_SECTIONS.map(([section, entries]) => (
+            <React.Fragment key={section}>
+              <Text bold color={C.warn}>{section}</Text>
+              <HelpRows entries={entries} keysWidth={34} />
+            </React.Fragment>
+          )) : <HelpRows entries={COMPACT_HELP_ROWS} keysWidth={10} />}
         </Box>
-      ))}
-    </Box>
-  </Box>
-);
+      </Box>
+    </ModalPage>
+  );
+};
 
-const HelpModal = (): React.ReactElement => (
-  <Box flexDirection="column" alignItems="center">
-    <Box flexDirection="column" borderStyle="round" borderColor={C.accent} paddingLeft={2} paddingRight={2}>
-      <Text><Text bold color={C.accent}>atd 帮助</Text><Text color={C.dim}>   （按任意键关闭）</Text></Text>
-      {HELP_SECTIONS.map(([section, entries]) => (
-        <React.Fragment key={section}>
-          <Text bold color={C.warn}>{section}</Text>
-          {entries.map(([keys, description]) => (
-            <Box key={keys} flexDirection="row">
-              <Box width={34}><Text color={C.accent}>{keys}</Text></Box>
-              <Box flexGrow={1} flexShrink={1}><Text>{description}</Text></Box>
-            </Box>
-          ))}
-        </React.Fragment>
-      ))}
-    </Box>
-  </Box>
-);
+const WELCOME_LINES = 3 + WELCOME_ROWS.length;
 
-const WelcomeModal = (): React.ReactElement => (
-  <ModalFrame title="👋 atd 上手三分钟" note="（按任意键开始）" rows={WELCOME_ROWS} />
+const WelcomeModal = ({ rows }: { rows?: number | undefined }): React.ReactElement => (
+  <ModalPage rows={rows} contentLines={WELCOME_LINES}>
+    <Box flexDirection="column" alignItems="center">
+      <Box flexDirection="column" borderStyle="round" borderColor={C.accent} paddingLeft={2} paddingRight={2}>
+        <Text><Text bold color={C.accent}>👋 atd 上手三分钟</Text><Text color={C.dim}>   （按任意键开始）</Text></Text>
+        <HelpRows entries={WELCOME_ROWS} keysWidth={34} />
+      </Box>
+    </Box>
+  </ModalPage>
 );
 
 // ---------------------------------------------------------------- 主组件
 type TableLine = { kind: "sep"; name: string; count: number } | { kind: "task"; task: Task; index: number };
 
-export const TuiApp = ({ store, testSignals, welcome = false }: TuiProps): React.ReactElement => {
+export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: TuiProps): React.ReactElement => {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const columns = typeof stdout?.columns === "number" && stdout.columns > 0 ? stdout.columns : undefined;
-  const rows = typeof stdout?.rows === "number" && stdout.rows > 0 ? stdout.rows : undefined;
+  const rows = typeof stdout?.rows === "number" && stdout.rows > 0 ? stdout.rows : terminalRows;
   const service = useMemo(() => new ApplicationService(store), [store]);
   const [config, setConfig] = useState<Config>();
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -588,8 +619,13 @@ export const TuiApp = ({ store, testSignals, welcome = false }: TuiProps): React
   // ------------------------------------------------ 鼠标交互
   // 注意：以下钩子必须位于弹窗 early return 之前，否则帮助/欢迎弹窗打开时
   // 钩子数量变化会让 React 抛 "Rendered fewer hooks" 直接退出（表现为闪退）。
-  // 布局行号（1 起，alt-screen 绝对坐标）：横幅 6 行 + 信息行 1 行 + 表格上边框 1 + 表头 1
-  const firstTaskRow = 9;
+  // 布局行号（1 起，alt-screen 绝对坐标）：内容首行 = 横幅可见行数 + 信息行
+  // 1 + 表格上边框 1 + 表头 1。BANNER_FULL 末行是空串（Ink 不渲染空行），
+  // 可见 5 行；BANNER_SMALL 两行都非空，可见 2 行。
+  const bannerVisibleLines = columns !== undefined && columns < 72
+    ? BANNER_SMALL.length
+    : BANNER_FULL.length - 1;
+  const firstTaskRow = bannerVisibleLines + 4;
   const viewRef = useRef({ lines: [] as TableLine[], windowStart: 0 });
   viewRef.current = { lines, windowStart };
   const keyboardRef = useRef(handleKeyboard);
@@ -608,7 +644,8 @@ export const TuiApp = ({ store, testSignals, welcome = false }: TuiProps): React
       return;
     }
     if (event.kind !== "press") return;
-    // Footer 行（最后一行）：点击键帽/标签触发对应快捷键
+    // Footer 行（最后一行）：点击键帽/标签触发对应快捷键。按钮全局生效——
+    // 无论当前焦点在清单区还是输入区，点 ? 就开帮助、点 q 就退出。
     if (rows !== undefined && event.y === rows) {
       const hit = footerKeyRanges().find((range) => event.x >= range.start && event.x <= range.end);
       if (hit) {
@@ -618,7 +655,10 @@ export const TuiApp = ({ store, testSignals, welcome = false }: TuiProps): React
           done: { input: "d", key: { ctrl: false } },
           quit: { input: "q", key: { ctrl: false } },
         };
-        keyboardRef.current(currentState, selectedRef.current, keyByFooter[hit.name].input, keyByFooter[hit.name].key);
+        const listState: TuiState = currentState.mode.kind === "list"
+          ? currentState
+          : { ...currentState, mode: { kind: "list" } };
+        keyboardRef.current(listState, selectedRef.current, keyByFooter[hit.name].input, keyByFooter[hit.name].key);
       }
       return;
     }
@@ -628,7 +668,9 @@ export const TuiApp = ({ store, testSignals, welcome = false }: TuiProps): React
       if (currentState.mode.kind === "list") dispatch({ type: "mode", mode: { kind: "add" } });
       return;
     }
-    // 点击任务行：选中该行；再点同一行 = 完成/重开任务（Textual 行点击语义）
+    // 点击任务行：选中该行；再点同一行 = 完成/重开任务（Textual 行点击语义）。
+    // firstTaskRow 是内容首行的屏幕行号（1 起）：横幅可见行数 + 信息行 + 表格
+    // 边框 + 表头。注意 BANNER_FULL 末行是空串，Ink 不渲染空行，实际少占一行。
     const lineIndex = event.y - firstTaskRow + start;
     const line = currentLines[lineIndex];
     if (line && line.kind === "task") {
@@ -643,10 +685,10 @@ export const TuiApp = ({ store, testSignals, welcome = false }: TuiProps): React
         dispatch({ type: "select", index: line.index });
       }
     }
-  }), [dispatch, runMutation, service, rows]);
+  }), [columns, dispatch, runMutation, service, rows]);
 
-  if (state.mode.kind === "help") return <HelpModal />;
-  if (state.mode.kind === "welcome") return <WelcomeModal />;
+  if (state.mode.kind === "help") return <HelpModal rows={rows} />;
+  if (state.mode.kind === "welcome") return <WelcomeModal rows={rows} />;
 
   return (
     <Box flexDirection="column" {...(rows !== undefined ? { height: rows } : {})}>

@@ -46,7 +46,7 @@ atd undo                          # 撤销上一步
 
 ```
 直接打字 = 添加（下方实时解析预览）    j/k 移动 · d 完成 · x 删除 · e 编辑
-: 命令（list/undo/sync/mode）       / 搜索 · ? 帮助 · 双击 Esc 或 Q 退出
+: 命令（list/undo/sync/mode）       / 搜索 · ? 帮助 · q/Q/双击 Esc 退出
 ```
 
 ## 一行输入魔法

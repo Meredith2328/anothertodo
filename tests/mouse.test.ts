@@ -1,6 +1,30 @@
 import { describe, expect, it } from "vitest";
 
+import { footerKeyRanges } from "../src/tui/app.js";
 import { splitMouseData } from "../src/tui/mouse.js";
+
+describe("footer key hit ranges", () => {
+  it("lays out the four buttons contiguously from column 2", () => {
+    const ranges = footerKeyRanges();
+    expect(ranges.map((range) => range.name)).toEqual(["help", "input", "done", "quit"]);
+    expect(ranges[0]?.start).toBe(2);
+    for (let index = 1; index < ranges.length; index += 1) {
+      expect(ranges[index]?.start).toBe((ranges[index - 1]?.end ?? 0) + 1);
+    }
+  });
+
+  it("covers representative click points (key cap and label tail)", () => {
+    const ranges = footerKeyRanges();
+    const hitAt = (x: number): string | undefined => ranges.find((range) => x >= range.start && x <= range.end)?.name;
+    expect(hitAt(2)).toBe("help"); // ? 键帽
+    expect(hitAt(12)).toBe("help"); // 帮助 标签尾（两个全角字宽 4 列）
+    expect(hitAt(13)).toBe("input");
+    expect(hitAt(24)).toBe("done");
+    expect(hitAt(35)).toBe("quit"); // q 键帽
+    expect(hitAt(45)).toBe("quit"); // 退出 标签尾
+    expect(hitAt(46)).toBeUndefined();
+  });
+});
 
 describe("mouse SGR sequence parsing", () => {
   it("extracts a press event and forwards the rest", () => {
