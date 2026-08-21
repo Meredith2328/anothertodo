@@ -1,2 +1,2 @@
-$ atd reopen 16481ad8
+$ atd reopen b5673a38
 ↩ 重新打开 例会

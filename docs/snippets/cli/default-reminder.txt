@@ -1,0 +1,24 @@
+$ atd add "后天 还书"
+已添加 2cafbf8f  还书
+$ atd show 2cafbf8f
+{
+  "id": "2cafbf8f",
+  "title": "还书",
+  "status": "todo",
+  "due": "2026-08-23T00:00:00",
+  "tags": [],
+  "notes": "",
+  "reminders": [
+    {
+      "id": "rem-039eda0fe8aeec01",
+      "at": "2026-08-22T00:00",
+      "hooks": [
+        "toast"
+      ],
+      "fired": false,
+      "dead": false
+    }
+  ],
+  "entry": "2026-08-21T08:46:20.079Z",
+  "modified": "2026-08-21T08:46:20.085Z"
+}

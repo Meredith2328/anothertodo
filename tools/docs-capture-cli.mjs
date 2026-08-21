@@ -46,6 +46,21 @@ const scenarios = [
     ],
   },
   { id: "preview-basic", title: "预览：日期+紧急度+提醒", runs: [{ atd: ["preview", "后天 买牛奶 很急 @18:30"] }] },
+  { id: "preview-en-dates", title: "预览：英文相对日期", runs: [
+    { atd: ["preview", "tomorrow buy milk"] },
+    { atd: ["preview", "next monday submit report"] },
+    { atd: ["preview", "tonight 21:00 gym"] },
+    { atd: ["preview", "day after tomorrow pick up parcel"] },
+    { atd: ["preview", "this weekend retro #work"] },
+  ] },
+  { id: "default-reminder", title: "默认提醒：没写 @ 也会自动补 toast", runs: [
+    { atd: ["add", "后天 还书"] },
+    { atd: ["show", "{id6}"] },
+  ] },
+  { id: "no-reminder", title: "关闭默认提醒：@none / no reminder", runs: [
+    { atd: ["preview", "下周五 交报告 @none"] },
+    { atd: ["preview", "next friday submit report no reminders"] },
+  ] },
   { id: "preview-combo", title: "预览：全字段组合", runs: [{ atd: ["preview", "下周五 18:30 交季度报告 非常急 #工作 proj:q3 ^{id0} @30m"] }] },
   { id: "list-all", title: "列出全部（默认档位排序）", runs: [{ atd: ["list"] }] },
   { id: "list-keyword", title: "关键词查询", runs: [{ atd: ["list", "报告"] }] },

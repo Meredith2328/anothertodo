@@ -1,2 +1,2 @@
-$ atd wait 2bff53da
+$ atd wait a0bbead5
 已设为等待 取快递
