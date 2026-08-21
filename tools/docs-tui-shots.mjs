@@ -369,7 +369,7 @@ const scenarios = [
   },
   {
     id: "undo",
-    title: ":undo 命令撤销",
+    title: "Ctrl+Z 撤销",
     rows: 24,
     run: async (app, signals, store) => {
       const before = (await store.tasks()).length;
@@ -378,15 +378,46 @@ const scenarios = [
       app.stdin.write("d");
       await mutation;
       const doneCount = (await store.tasks()).filter((t) => t.status === "done").length;
-      // 通过命令模式撤销（:undo 走 command 分支，不依赖 key.name）
-      await press(app, signals, ":");
-      await press(app, signals, "undo");
+      // Ctrl+Z（\x1a）在清单区触发 undo（回归：修复前 key.name 缺失导致失效）
       const undo = signals.mutation();
-      app.stdin.write("\n");
+      app.stdin.write("\x1a");
       const undoResult = await undo;
       const after = (await store.tasks()).length;
       const undone = undoResult.kind === "success" && (await store.tasks()).filter((t) => t.status === "done").length < doneCount;
-      return { frame: app.lastFrame(), asserts: [["任务已先完成", doneCount >= 1], ["撤销后任务数恢复", after === before], ["撤销生效", undone]] };
+      return { frame: app.lastFrame(), asserts: [["任务已先完成", doneCount >= 1], ["Ctrl+Z 撤销后任务数恢复", after === before], ["撤销生效", undone]] };
+    },
+  },
+  {
+    id: "ctrl-search",
+    title: "Ctrl+F 搜索过滤",
+    rows: 24,
+    run: async (app, signals) => {
+      // Ctrl+F（\x13 不是；Ctrl+F 是 \x06）在清单区触发搜索
+      const action = signals.action();
+      app.stdin.write("\x06");
+      await action;
+      const frame = app.lastFrame();
+      // 进入搜索输入态：输入框前缀 /
+      const entered = frame.includes("/");
+      await press(app, signals, "报告");
+      const mutation = signals.mutation();
+      app.stdin.write("\n");
+      await mutation;
+      const filtered = app.lastFrame();
+      const ok = filtered.includes("过滤") && filtered.includes("报告") && !filtered.includes("读书笔记");
+      return { frame: filtered, asserts: [["Ctrl+F 进入搜索态", entered], ["过滤生效且排除未匹配", ok]] };
+    },
+  },
+  {
+    id: "ctrl-sync",
+    title: "Ctrl+S 同步",
+    rows: 24,
+    run: async (app, signals, store) => {
+      // Ctrl+S（\x13）在清单区触发同步
+      const mutation = signals.mutation();
+      app.stdin.write("\x13");
+      const result = await mutation;
+      return { frame: app.lastFrame(), asserts: [["Ctrl+S 触发同步", result.kind === "success"]] };
     },
   },
   {

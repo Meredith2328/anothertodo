@@ -173,7 +173,7 @@
     },
     {
       "id": "undo",
-      "title": ":undo 命令撤销",
+      "title": "Ctrl+Z 撤销",
       "rows": 24,
       "asserts": [
         {
@@ -181,11 +181,41 @@
           "ok": true
         },
         {
-          "name": "撤销后任务数恢复",
+          "name": "Ctrl+Z 撤销后任务数恢复",
           "ok": true
         },
         {
           "name": "撤销生效",
+          "ok": true
+        }
+      ],
+      "pass": true,
+      "failed": []
+    },
+    {
+      "id": "ctrl-search",
+      "title": "Ctrl+F 搜索过滤",
+      "rows": 24,
+      "asserts": [
+        {
+          "name": "Ctrl+F 进入搜索态",
+          "ok": true
+        },
+        {
+          "name": "过滤生效且排除未匹配",
+          "ok": true
+        }
+      ],
+      "pass": true,
+      "failed": []
+    },
+    {
+      "id": "ctrl-sync",
+      "title": "Ctrl+S 同步",
+      "rows": 24,
+      "asserts": [
+        {
+          "name": "Ctrl+S 触发同步",
           "ok": true
         }
       ],

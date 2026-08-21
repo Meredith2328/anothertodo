@@ -6,7 +6,7 @@
 
 - **单元/集成测试**：94 个测试全部通过（vitest）
 - **CLI 实测**：34 个场景真实运行，捕获每条命令的终端输出和退出码
-- **TUI 实测**：14 个场景用真实 Ink 渲染管线驱动，每个场景断言帧内容符合预期
+- **TUI 实测**：16 个场景用真实 Ink 渲染管线驱动，每个场景断言帧内容符合预期
 
 ## CLI 实测场景
 
@@ -52,26 +52,27 @@
 | `delete-soft` | `x` 软删除、任务数减少 |
 | `wait-defer` | `w` 设为等待 |
 | `date-format` | `t` 切换日期列格式 |
-| `undo` | `:undo` 撤销 |
+| `undo` | `Ctrl+Z` 撤销 |
+| `ctrl-sync` | `Ctrl+S` 同步 |
+| `ctrl-search` | `Ctrl+F` 搜索过滤 |
 | `sort-2` | `2` 切换 urgency 排序 |
 | `exit-armed` | 双击 Esc 出现二次提示 |
 
-14 个场景全部通过。
+16 个场景全部通过。
 
-## 已发现的已知问题
+## 实测发现并已修复的问题
 
-在实测中发现了以下与预期不符的问题，如实记录如下：
+在实测中发现了以下与预期不符的问题，主线已修复并随本文档同步：
 
-### `Ctrl+Z` / `Ctrl+S` / `Ctrl+F` 在真实 TUI 中不生效
+### `Ctrl+Z` / `Ctrl+S` / `Ctrl+F` 在真实 TUI 中曾不生效（已修复）
 
-这三个快捷键在 `keymap.ts` 里通过 `key.ctrl && key.name === "z"/"s"/"f"` 判断。但 Ink 的 `useInput` 传给按键处理器的事件对象**不包含 `key.name` 字段**（只有 `key.ctrl` 标志）。因此这三个组合键无法匹配，实际行为是作为普通字符输入。
+这三个快捷键在 `keymap.ts` 里原先通过 `key.ctrl && key.name === "z"/"s"/"f"` 判断。但 Ink 的 `useInput` 传给按键处理器的事件对象**不包含 `key.name` 字段**（只有 `key.ctrl` 标志）。因此这三个组合键无法匹配，实际行为是作为普通字符输入。
 
 - **影响**：`Ctrl+Z`（撤销）、`Ctrl+S`（同步）、`Ctrl+F`（搜索）在 TUI 中失效。
-- **替代方案**（均可用）：撤销 → `:undo`，同步 → `:sync`，搜索 → `/`。
 - **定位**：`src/tui/keymap.ts` 依赖 `key.name`，而 `src/tui/app.tsx` 通过 `useInput` 收到的 `key` 对象无 `name`。单测 `tests/keymap.test.ts` 直接构造了含 `name` 的 key，掩盖了该问题。
-- **状态**：待主线修复。
+- **修复**（主线 commit `f1210b2`）：改为 `key.ctrl + input`（小写字母）识别 Ctrl 组合键，方向键改用 `upArrow/downArrow`，测试同步按真实 Ink 的 key 形状构造。
 
-这解释了为什么 TUI 指南里的"通用快捷键"表格对这些键做了特殊标注。
+现在 `Ctrl+Z` / `Ctrl+S` / `Ctrl+F` 均已实测可用（见下方 TUI 实测场景 `undo` / `ctrl-sync` / `ctrl-search`）。
 
 ## 复现实测
 
