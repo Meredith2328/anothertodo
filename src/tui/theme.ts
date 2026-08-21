@@ -91,15 +91,33 @@ export const HELP_SECTIONS: ReadonlyArray<readonly [string, ReadonlyArray<readon
   ["区域切换", [
     ["清单 → 输入", "直接打字（非快捷键首字）· i 进输入区 · : · / · e(编辑)"],
     ["输入 → 清单", "Enter 提交后自动 · Esc 清空 · 空输入回车"],
-    ["想打 d/x 等开头的标题", "清单区先按 i 进输入区，再打字"],
+    ["想打 d/x/q 等开头的标题", "清单区先按 i 进输入区，再打字"],
     ["默认焦点", "在清单区（无需 Tab；Tab 是输入区补全）"],
   ]],
   ["两区通用", [
     ["? / F1", "本帮助（任意键关闭）"],
     ["Ctrl+Z / Ctrl+S / Ctrl+F", "撤销 / 同步 / 搜索"],
-    ["Esc 双击", "退出（Q / Ctrl+Q 也可）"],
+    ["q / Q / 双击 Esc", "退出（Ctrl+Q 也可）"],
   ]],
 ];
+
+// 完整帮助的总行数（边框 2 + 标题 1 + 每节 1 行节名 + 条目），用于判断能否整页放下
+export const FULL_HELP_LINES =
+  3 + HELP_SECTIONS.reduce((lines, [, entries]) => lines + 1 + entries.length, 0);
+
+// 紧凑帮助（终端高度不足以放下完整版时使用）：6 行讲完全部高频操作，
+// 加边框和标题共 9 行，任何常规终端都放得下。
+export const COMPACT_HELP_ROWS: ReadonlyArray<readonly [string, string]> = [
+  ["清单区", "j/k ↑↓ 移动 · g/G 首末 · d 完成 · x 删除 · e 编辑 · w 等待"],
+  ["", "u 撤销 · r 刷新 · 1/2 排序 · t 日期列 · Enter 完成/重开"],
+  ["输入区", "直接打字添加 · Enter 提交 · Tab 补全 #标签/proj:"],
+  ["", ": 命令(list/undo/sync/mode/archive) · / 搜索 · Esc 回清单"],
+  ["通用", "? 帮助 · Ctrl+Z 撤销 · Ctrl+S 同步 · Ctrl+F 搜索"],
+  ["退出", "q / Q / Ctrl+Q / 双击 Esc；打 d/x/q 开头标题先按 i"],
+];
+
+// 紧凑帮助总行数（边框 2 + 标题 1 + 条目）
+export const COMPACT_HELP_LINES = 3 + COMPACT_HELP_ROWS.length;
 
 export const WELCOME_ROWS: ReadonlyArray<readonly [string, string]> = [
   ["直接打字", "添加任务：`后天 买牛奶 很急 @18:30`，回车即存"],
@@ -107,5 +125,5 @@ export const WELCOME_ROWS: ReadonlyArray<readonly [string, string]> = [
   ["d", "完成选中的任务"],
   [": 命令", "如 `:mode urgency` 切换排序、`:undo` 撤销"],
   ["? / F1", "随时打开完整快捷键帮助"],
-  ["Q / 双击 Esc", "退出"],
+  ["q / 双击 Esc", "退出"],
 ];

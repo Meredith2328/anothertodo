@@ -33,6 +33,7 @@ describe("tui-shortcuts frozen contract", () => {
     expect(mapKey(list, press(":"))).toEqual({ type: "command", value: ":" });
     expect(mapKey(list, press("", { ctrl: true, name: "s" }))).toEqual({ type: "shortcut", name: "sync" });
     expect(mapKey(list, press("", { ctrl: true, name: "z" }))).toEqual({ type: "shortcut", name: "undo" });
+    expect(mapKey(list, press("q"))).toEqual({ type: "quit" });
     expect(mapKey(list, press("Q"))).toEqual({ type: "quit" });
     expect(mapKey(list, press("", { ctrl: true, name: "q" }))).toEqual({ type: "quit" });
   });
@@ -61,7 +62,7 @@ describe("tui-shortcuts frozen contract", () => {
     expect(mapKey(add, press("e"))).toEqual({ type: "text", value: "e" });
     expect(mapKey(add, press("u"))).toEqual({ type: "text", value: "u" });
     expect(mapKey(add, press("买牛奶"))).toEqual({ type: "text", value: "买牛奶" });
-    // 输入模式下 q 是普通文本（退出是大写 Q / Ctrl+Q，见契约）
+    // 输入模式下 q 是普通文本（退出只在清单区触发，见契约）
     expect(mapKey(add, press("q"))).toEqual({ type: "text", value: "q" });
     // 大写 Q 在输入模式也是文本（退出只从清单区触发）
     expect(mapKey(add, press("Q"))).toEqual({ type: "text", value: "Q" });
@@ -70,8 +71,8 @@ describe("tui-shortcuts frozen contract", () => {
   it("type-to-add in list mode: non-shortcut characters jump into the input", () => {
     expect(mapKey(list, press("买"))).toEqual({ type: "text", value: "买" });
     expect(mapKey(list, press("z"))).toEqual({ type: "text", value: "z" });
-    // 小写 q 在清单区也是打字（与 Python 版 QUICK 集一致；退出用大写 Q）
-    expect(mapKey(list, press("q"))).toEqual({ type: "text", value: "q" });
+    // 小写 q 在清单区是退出（Footer 标签就是「q 退出」）；打 q 开头的标题先按 i
+    expect(mapKey(list, press("q"))).toEqual({ type: "quit" });
   });
 
   it("submit and tab completion in input modes", () => {

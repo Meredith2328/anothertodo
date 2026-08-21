@@ -7,9 +7,10 @@ The migration must preserve these keys and their mode boundaries:
 - Views and input: `1`, `2`, `t`, `i`, `Tab`, `/`, `:`
 - Help and search: `?`, `F1`, `Ctrl+F`
 - Sync and undo: `Ctrl+S`, `Ctrl+Z`
-- Exit: `Esc`, `Q`, `Ctrl+Q`
+- Exit (list mode): `q`, `Q`, double-`Esc`, `Ctrl+Q`; the footer button for `q`
+  must quit from any mode
 
 In add/edit/search/command input modes, ordinary characters such as `d`, `x`,
-`e`, and `u` are text and must not invoke list-mode shortcuts. `Tab` completes
-only in input mode. `Esc` first returns to the list or cancels the current input;
-two list-mode presses retain the existing quit behavior.
+`e`, `u`, and `q` are text and must not invoke list-mode shortcuts. `Tab`
+completes only in input mode. `Esc` first returns to the list or cancels the
+current input; two list-mode presses retain the existing quit behavior.
