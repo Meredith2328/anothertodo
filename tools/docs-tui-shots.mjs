@@ -152,24 +152,30 @@ const drawFrame = (frame, path, rows = 24) => {
     // 任务行：识别列并逐段上色
     if (i > BANNER_FULL.length + 2 && line.includes("│")) {
       const body = line.replace(/[│╭╰]/gu, " ");
-      // 检测是否是选中行（有背景高亮 —— 用帧里无法直接感知，故用宽度启发）
-      // 日期段
-      const dateText = body.slice(TITLE_START, TITLE_START + DATE_W).trim();
-      const titleText = body.slice(TITLE_START, TITLE_START + DATE_W + 20).trim();
-      // 用已知任务标题判定颜色：逾期/今天/未来
+      // 按显示宽度精确切段：全角字符占 2 列，半角占 1 列
+      const sliceDisplay = (text, from, width) => {
+        let used = 0;
+        let out = "";
+        let col = 0;
+        for (const ch of text) {
+          const w = charW(ch);
+          if (col + w > from + width) break;
+          if (col >= from) { out += ch; used += w; }
+          col += w;
+        }
+        return out;
+      };
+      // 日期段（列 2 起，占 DATE_W 显示列）
+      const dateText = sliceDisplay(body, TITLE_START, DATE_W).trim();
+      const titleText = sliceDisplay(body, TITLE_START + DATE_W, PRIO_START - TITLE_START - DATE_W).trim();
+      const prioText = sliceDisplay(body, PRIO_START, PRIORITY_W).trim();
+      const statusText = sliceDisplay(body, STATUS_START, STATUS_W).trim();
+      const extras = sliceDisplay(body, EXTRAS_START, 99).trim();
       drawSeg(i, TITLE_START, dateText, C.dim, false);
-      // 标题用默认色
-      const title = body.slice(TITLE_START + DATE_W, PRIO_START + 20);
-      drawSeg(i, TITLE_START + DATE_W, title, "#d8dee9", false);
-      // 紧急度（紧急度列）
-      const prioText = body.slice(PRIO_START, PRIO_START + PRIORITY_W).trim();
+      drawSeg(i, TITLE_START + DATE_W, titleText, "#d8dee9", false);
       drawSeg(i, PRIO_START, prioText, C.good, false);
-      // 状态列
-      const statusText = body.slice(STATUS_START, STATUS_START + STATUS_W).trim();
       const statusColor = STATUS_COLOR[statusText] ?? C.dim;
       drawSeg(i, STATUS_START, statusText, statusColor, statusText === "waiting" || statusText === "meeting");
-      // 标签/提醒列
-      const extras = body.slice(EXTRAS_START);
       drawSeg(i, EXTRAS_START, extras, C.dim, false);
       continue;
     }
