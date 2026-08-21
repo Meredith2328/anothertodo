@@ -53,6 +53,23 @@ const scenarios = [
     { atd: ["preview", "day after tomorrow pick up parcel"] },
     { atd: ["preview", "this weekend retro #work"] },
   ] },
+  { id: "preview-en-urgency", title: "预览：英文紧急度短语", runs: [
+    { atd: ["preview", "tomorrow buy milk urgent"] },
+    { atd: ["preview", "next friday report very urgent"] },
+    { atd: ["preview", "clean desk no rush"] },
+    { atd: ["preview", "urgent vs urgency"] },
+  ] },
+  { id: "preview-12h", title: "预览：12 小时制时间", runs: [
+    { atd: ["preview", "tomorrow 2:30pm meeting"] },
+    { atd: ["preview", "tonight 9am gym"] },
+    { atd: ["preview", "next friday 12pm lunch"] },
+    { atd: ["preview", "8.20 12am report"] },
+  ] },
+  { id: "preview-wait-multiword", title: "预览：多词 wait 日期", runs: [
+    { atd: ["preview", "await reply ~next monday"] },
+    { atd: ["preview", "await reply ~this weekend"] },
+    { atd: ["preview", "await reply ~day after tomorrow"] },
+  ] },
   { id: "default-reminder", title: "默认提醒：没写 @ 也会自动补 toast", runs: [
     { atd: ["add", "后天 还书"] },
     { atd: ["show", "{id6}"] },

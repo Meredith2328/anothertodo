@@ -1,5 +1,5 @@
 {
-  "home": "C:\\Users\\10pi\\AppData\\Local\\Temp\\atd-docs-cli-ZbkwBd",
+  "home": "C:\\Users\\10pi\\AppData\\Local\\Temp\\atd-docs-cli-p8zeN5",
   "scenarios": [
     {
       "id": "add-multi",
@@ -15,7 +15,7 @@
             "大后天 取快递 低",
             "8月30日 写学习总结 #学习"
           ],
-          "stdout": "已添加 b5673a38  例会\n已添加 4135d0bd  买牛奶\n已添加 e4b29069  健身\n已添加 3e796cb3  交季度报告\n已添加 a0bbead5  取快递\n已添加 e8a9d9d6  写学习总结\n",
+          "stdout": "已添加 c2411f09  例会\n已添加 16e5332c  买牛奶\n已添加 9653994d  健身\n已添加 37974c4b  交季度报告\n已添加 dff6a1e7  取快递\n已添加 93536f2e  写学习总结\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -88,6 +88,123 @@
       ]
     },
     {
+      "id": "preview-en-urgency",
+      "title": "预览：英文紧急度短语",
+      "entries": [
+        {
+          "argv": [
+            "preview",
+            "tomorrow buy milk urgent"
+          ],
+          "stdout": "→ 2026-08-22 10:00 | 标题：buy milk  [高] ⏰2026-08-22 09:45(toast)\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "preview",
+            "next friday report very urgent"
+          ],
+          "stdout": "→ 2026-08-28 | 标题：report  [高] ⏰2026-08-27 00:00(toast)\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "preview",
+            "clean desk no rush"
+          ],
+          "stdout": "→ [低] | 标题：clean desk\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "preview",
+            "urgent vs urgency"
+          ],
+          "stdout": "→ [高] | 标题：vs urgency\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "preview-12h",
+      "title": "预览：12 小时制时间",
+      "entries": [
+        {
+          "argv": [
+            "preview",
+            "tomorrow 2:30pm meeting"
+          ],
+          "stdout": "→ 2026-08-22 14:30 | 标题：meeting  ⏰2026-08-22 14:15(toast)\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "preview",
+            "tonight 9am gym"
+          ],
+          "stdout": "→ 2026-08-21 09:00 | 标题：gym\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "preview",
+            "next friday 12pm lunch"
+          ],
+          "stdout": "→ 2026-08-28 12:00 | 标题：lunch  ⏰2026-08-27 12:00(toast)\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "preview",
+            "8.20 12am report"
+          ],
+          "stdout": "→ 2026-08-20 00:00 | 标题：report\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "preview-wait-multiword",
+      "title": "预览：多词 wait 日期",
+      "entries": [
+        {
+          "argv": [
+            "preview",
+            "await reply ~next monday"
+          ],
+          "stdout": "→ 等到2026-08-31 | 标题：await reply\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "preview",
+            "await reply ~this weekend"
+          ],
+          "stdout": "→ 等到2026-08-22 | 标题：await reply\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "preview",
+            "await reply ~day after tomorrow"
+          ],
+          "stdout": "→ 等到2026-08-23 | 标题：await reply\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
       "id": "default-reminder",
       "title": "默认提醒：没写 @ 也会自动补 toast",
       "entries": [
@@ -96,16 +213,16 @@
             "add",
             "后天 还书"
           ],
-          "stdout": "已添加 2cafbf8f  还书\n",
+          "stdout": "已添加 ccb86ccb  还书\n",
           "stderr": "",
           "exitCode": 0
         },
         {
           "argv": [
             "show",
-            "2cafbf8f"
+            "ccb86ccb"
           ],
-          "stdout": "{\n  \"id\": \"2cafbf8f\",\n  \"title\": \"还书\",\n  \"status\": \"todo\",\n  \"due\": \"2026-08-23T00:00:00\",\n  \"tags\": [],\n  \"notes\": \"\",\n  \"reminders\": [\n    {\n      \"id\": \"rem-039eda0fe8aeec01\",\n      \"at\": \"2026-08-22T00:00\",\n      \"hooks\": [\n        \"toast\"\n      ],\n      \"fired\": false,\n      \"dead\": false\n    }\n  ],\n  \"entry\": \"2026-08-21T08:46:20.079Z\",\n  \"modified\": \"2026-08-21T08:46:20.085Z\"\n}\n",
+          "stdout": "{\n  \"id\": \"ccb86ccb\",\n  \"title\": \"还书\",\n  \"status\": \"todo\",\n  \"due\": \"2026-08-23T00:00:00\",\n  \"tags\": [],\n  \"notes\": \"\",\n  \"reminders\": [\n    {\n      \"id\": \"rem-ef71e1659a92b68b\",\n      \"at\": \"2026-08-22T00:00\",\n      \"hooks\": [\n        \"toast\"\n      ],\n      \"fired\": false,\n      \"dead\": false\n    }\n  ],\n  \"entry\": \"2026-08-21T12:47:57.107Z\",\n  \"modified\": \"2026-08-21T12:47:57.111Z\"\n}\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -142,9 +259,9 @@
         {
           "argv": [
             "preview",
-            "下周五 18:30 交季度报告 非常急 #工作 proj:q3 ^b5673a38 @30m"
+            "下周五 18:30 交季度报告 非常急 #工作 proj:q3 ^c2411f09 @30m"
           ],
-          "stdout": "→ 2026-08-28 18:30 | 标题：交季度报告  [高] proj:q3 #工作 ⏰2026-08-21 17:16(toast) 父:b5673a38\n",
+          "stdout": "→ 2026-08-28 18:30 | 标题：交季度报告  [高] proj:q3 #工作 ⏰2026-08-21 21:17(toast) 父:c2411f09\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -158,7 +275,7 @@
           "argv": [
             "list"
           ],
-          "stdout": "== 今天 ==\n  e4b29069 今天     健身\n== 接下来 ==\n  4135d0bd 明天     买牛奶  低  #生活\n  2cafbf8f 后天     还书\n  b5673a38 后天     例会  #meeting\n  3e796cb3 周一     交季度报告  高  #工作\n  a0bbead5 周一     取快递  低\n== 更远 ==\n  e8a9d9d6 8/30   写学习总结  #学习\n隐藏(等待未到) 0 项\n",
+          "stdout": "== 今天 ==\n  9653994d 今天     健身\n== 接下来 ==\n  16e5332c 明天     买牛奶  低  #生活\n  ccb86ccb 后天     还书\n  c2411f09 后天     例会  #meeting\n  37974c4b 周一     交季度报告  高  #工作\n  dff6a1e7 周一     取快递  低\n== 更远 ==\n  93536f2e 8/30   写学习总结  #学习\n隐藏(等待未到) 0 项\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -173,7 +290,7 @@
             "list",
             "报告"
           ],
-          "stdout": "== 接下来 ==\n  3e796cb3 周一     交季度报告  高  #工作\n隐藏(等待未到) 0 项\n",
+          "stdout": "== 接下来 ==\n  37974c4b 周一     交季度报告  高  #工作\n隐藏(等待未到) 0 项\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -188,7 +305,7 @@
             "list",
             "+工作"
           ],
-          "stdout": "== 接下来 ==\n  3e796cb3 周一     交季度报告  高  #工作\n隐藏(等待未到) 0 项\n",
+          "stdout": "== 接下来 ==\n  37974c4b 周一     交季度报告  高  #工作\n隐藏(等待未到) 0 项\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -204,7 +321,7 @@
             "--",
             "-生活"
           ],
-          "stdout": "== 今天 ==\n  e4b29069 今天     健身\n== 接下来 ==\n  2cafbf8f 后天     还书\n  b5673a38 后天     例会  #meeting\n  3e796cb3 周一     交季度报告  高  #工作\n  a0bbead5 周一     取快递  低\n== 更远 ==\n  e8a9d9d6 8/30   写学习总结  #学习\n隐藏(等待未到) 0 项\n",
+          "stdout": "== 今天 ==\n  9653994d 今天     健身\n== 接下来 ==\n  ccb86ccb 后天     还书\n  c2411f09 后天     例会  #meeting\n  37974c4b 周一     交季度报告  高  #工作\n  dff6a1e7 周一     取快递  低\n== 更远 ==\n  93536f2e 8/30   写学习总结  #学习\n隐藏(等待未到) 0 项\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -219,7 +336,7 @@
             "list",
             "/奶"
           ],
-          "stdout": "== 接下来 ==\n  4135d0bd 明天     买牛奶  低  #生活\n隐藏(等待未到) 0 项\n",
+          "stdout": "== 接下来 ==\n  16e5332c 明天     买牛奶  低  #生活\n隐藏(等待未到) 0 项\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -234,7 +351,7 @@
             "add",
             "昨天 交水电费 不急"
           ],
-          "stdout": "已添加 caba2e49  昨天 交水电费\n",
+          "stdout": "已添加 8fa1797d  昨天 交水电费\n",
           "stderr": "",
           "exitCode": 0
         },
@@ -258,7 +375,7 @@
             "list",
             "due:before:明天"
           ],
-          "stdout": "== 今天 ==\n  e4b29069 今天     健身\n隐藏(等待未到) 0 项\n",
+          "stdout": "== 今天 ==\n  9653994d 今天     健身\n隐藏(等待未到) 0 项\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -274,7 +391,7 @@
             "proj:q3",
             "priority:高"
           ],
-          "stdout": "== 接下来 ==\n  3e796cb3 周一     交季度报告  高  #工作\n隐藏(等待未到) 0 项\n",
+          "stdout": "== 接下来 ==\n  37974c4b 周一     交季度报告  高  #工作\n隐藏(等待未到) 0 项\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -305,7 +422,7 @@
             "-m",
             "urgency"
           ],
-          "stdout": "== 今天 ==\n  e4b29069 今天     健身  U=8.0\n== 接下来 ==\n  4135d0bd 明天     买牛奶  低  #生活  U=7.9\n  3e796cb3 周一     交季度报告  高  #工作  U=7.6\n  2cafbf8f 后天     还书  U=5.7\n  b5673a38 后天     例会  #meeting  U=5.7\n  a0bbead5 周一     取快递  低  U=5.6\n== 更远 ==\n  e8a9d9d6 8/30   写学习总结  #学习  U=0.0\n== 无日期 ==\n  caba2e49 昨天 交水电费  低  U=1.0\n隐藏(等待未到) 0 项\n",
+          "stdout": "== 今天 ==\n  9653994d 今天     健身  U=8.0\n== 接下来 ==\n  16e5332c 明天     买牛奶  低  #生活  U=7.9\n  37974c4b 周一     交季度报告  高  #工作  U=7.6\n  ccb86ccb 后天     还书  U=5.7\n  c2411f09 后天     例会  #meeting  U=5.7\n  dff6a1e7 周一     取快递  低  U=5.6\n== 更远 ==\n  93536f2e 8/30   写学习总结  #学习  U=0.0\n== 无日期 ==\n  8fa1797d 昨天 交水电费  低  U=1.0\n隐藏(等待未到) 0 项\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -318,7 +435,7 @@
         {
           "argv": [
             "done",
-            "b5673a38"
+            "c2411f09"
           ],
           "stdout": "✓ 完成 例会\n",
           "stderr": "",
@@ -333,7 +450,7 @@
         {
           "argv": [
             "edit",
-            "4135d0bd",
+            "16e5332c",
             "明天 18:00 买牛奶和酸奶 #生活 @17:30"
           ],
           "stdout": "已更新 买牛奶和酸奶\n",
@@ -349,7 +466,7 @@
         {
           "argv": [
             "wait",
-            "a0bbead5"
+            "dff6a1e7"
           ],
           "stdout": "已设为等待 取快递\n",
           "stderr": "",
@@ -364,9 +481,9 @@
         {
           "argv": [
             "show",
-            "e4b29069"
+            "9653994d"
           ],
-          "stdout": "{\n  \"id\": \"e4b29069\",\n  \"title\": \"健身\",\n  \"status\": \"todo\",\n  \"due\": \"2026-08-21T20:30:00\",\n  \"tags\": [],\n  \"notes\": \"\",\n  \"reminders\": [\n    {\n      \"id\": \"rem-0d894478e4d02b66\",\n      \"at\": \"2026-08-21T20:00\",\n      \"hooks\": [\n        \"toast\"\n      ],\n      \"fired\": false,\n      \"dead\": false\n    }\n  ],\n  \"entry\": \"2026-08-21T08:46:17.694Z\",\n  \"modified\": \"2026-08-21T08:46:17.706Z\"\n}\n",
+          "stdout": "{\n  \"id\": \"9653994d\",\n  \"title\": \"健身\",\n  \"status\": \"todo\",\n  \"due\": \"2026-08-21T20:30:00\",\n  \"tags\": [],\n  \"notes\": \"\",\n  \"reminders\": [\n    {\n      \"id\": \"rem-358d2e459d1fb957\",\n      \"at\": \"2026-08-22T20:00\",\n      \"hooks\": [\n        \"toast\"\n      ],\n      \"fired\": false,\n      \"dead\": false\n    }\n  ],\n  \"entry\": \"2026-08-21T12:47:51.354Z\",\n  \"modified\": \"2026-08-21T12:47:51.363Z\"\n}\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -379,7 +496,7 @@
         {
           "argv": [
             "snooze",
-            "e4b29069",
+            "9653994d",
             "30m"
           ],
           "stdout": "",
@@ -389,9 +506,9 @@
         {
           "argv": [
             "show",
-            "e4b29069"
+            "9653994d"
           ],
-          "stdout": "{\n  \"id\": \"e4b29069\",\n  \"title\": \"健身\",\n  \"status\": \"todo\",\n  \"due\": \"2026-08-21T20:30:00\",\n  \"tags\": [],\n  \"notes\": \"\",\n  \"reminders\": [\n    {\n      \"id\": \"rem-0d894478e4d02b66\",\n      \"at\": \"2026-08-21T20:30\",\n      \"hooks\": [\n        \"toast\"\n      ],\n      \"fired\": false,\n      \"attempts\": 0,\n      \"dead\": false\n    }\n  ],\n  \"entry\": \"2026-08-21T08:46:17.694Z\",\n  \"modified\": \"2026-08-21T08:46:26.799Z\"\n}\n",
+          "stdout": "{\n  \"id\": \"9653994d\",\n  \"title\": \"健身\",\n  \"status\": \"todo\",\n  \"due\": \"2026-08-21T20:30:00\",\n  \"tags\": [],\n  \"notes\": \"\",\n  \"reminders\": [\n    {\n      \"id\": \"rem-358d2e459d1fb957\",\n      \"at\": \"2026-08-22T20:30\",\n      \"hooks\": [\n        \"toast\"\n      ],\n      \"fired\": false,\n      \"attempts\": 0,\n      \"dead\": false\n    }\n  ],\n  \"entry\": \"2026-08-21T12:47:51.354Z\",\n  \"modified\": \"2026-08-21T12:48:03.659Z\"\n}\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -412,9 +529,9 @@
         {
           "argv": [
             "show",
-            "e4b29069"
+            "9653994d"
           ],
-          "stdout": "{\n  \"id\": \"e4b29069\",\n  \"title\": \"健身\",\n  \"status\": \"todo\",\n  \"due\": \"2026-08-21T20:30:00\",\n  \"tags\": [],\n  \"notes\": \"\",\n  \"reminders\": [\n    {\n      \"id\": \"rem-0d894478e4d02b66\",\n      \"at\": \"2026-08-21T20:00\",\n      \"hooks\": [\n        \"toast\"\n      ],\n      \"fired\": false,\n      \"attempts\": 0,\n      \"dead\": false\n    }\n  ],\n  \"entry\": \"2026-08-21T08:46:17.694Z\",\n  \"modified\": \"2026-08-21T08:46:27.419Z\"\n}\n",
+          "stdout": "{\n  \"id\": \"9653994d\",\n  \"title\": \"健身\",\n  \"status\": \"todo\",\n  \"due\": \"2026-08-21T20:30:00\",\n  \"tags\": [],\n  \"notes\": \"\",\n  \"reminders\": [\n    {\n      \"id\": \"rem-358d2e459d1fb957\",\n      \"at\": \"2026-08-22T20:00\",\n      \"hooks\": [\n        \"toast\"\n      ],\n      \"fired\": false,\n      \"attempts\": 0,\n      \"dead\": false\n    }\n  ],\n  \"entry\": \"2026-08-21T12:47:51.354Z\",\n  \"modified\": \"2026-08-21T12:48:04.277Z\"\n}\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -427,7 +544,7 @@
         {
           "argv": [
             "reopen",
-            "b5673a38"
+            "c2411f09"
           ],
           "stdout": "↩ 重新打开 例会\n",
           "stderr": "",
@@ -442,7 +559,7 @@
         {
           "argv": [
             "rm",
-            "4135d0bd"
+            "16e5332c"
           ],
           "stdout": "已删除 买牛奶和酸奶\n",
           "stderr": "",
@@ -471,7 +588,7 @@
         {
           "argv": [
             "done",
-            "e8a9d9d6"
+            "93536f2e"
           ],
           "stdout": "✓ 完成 写学习总结\n",
           "stderr": "",
@@ -490,14 +607,14 @@
           "argv": [
             "archive-list"
           ],
-          "stdout": "e8a9d9d6 写学习总结\n",
+          "stdout": "93536f2e 写学习总结\n",
           "stderr": "",
           "exitCode": 0
         },
         {
           "argv": [
             "restore",
-            "e8a9d9d6"
+            "93536f2e"
           ],
           "stdout": "已恢复 写学习总结\n",
           "stderr": "",
@@ -508,7 +625,7 @@
             "list",
             "status:done"
           ],
-          "stdout": "== 已完成/已取消 ==\n  e8a9d9d6 8/30   写学习总结  [done]  #学习\n隐藏(等待未到) 0 项\n",
+          "stdout": "== 已完成/已取消 ==\n  93536f2e 8/30   写学习总结  [done]  #学习\n隐藏(等待未到) 0 项\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -572,7 +689,7 @@
           "argv": [
             "config"
           ],
-          "stdout": "配置文件：C:\\Users\\10pi\\AppData\\Local\\Temp\\atd-docs-cli-ZbkwBd\\config.toml\n# atd 配置文件。手工编辑保存即可，下次操作生效。\n\n[priority]\nmode = \"levels\"\nlevels = [\"低\", \"中\", \"高\"]\n\n[priority.urgency]\noverdue = 12.0\ndue_today = 8.0\ndue_week_decay = 8.0\nper_level = 3.0\nage_per_day = 0.05\nage_cap = 2.0\nwaiting_penalty = 3.0\n\n[agenda]\nweek_days = 7\ndate_format = \"auto\"\n\n[watch]\ninterval_seconds = 30\n\n[email]\nhost = \"\"\nport = 465\nssl = true\nuser = \"\"\npassword = \"***\"\nfrom = \"\"\nto = \"\"\n\n",
+          "stdout": "配置文件：C:\\Users\\10pi\\AppData\\Local\\Temp\\atd-docs-cli-p8zeN5\\config.toml\n# atd 配置文件。手工编辑保存即可，下次操作生效。\n\n[priority]\nmode = \"levels\"\nlevels = [\"低\", \"中\", \"高\"]\n\n[priority.urgency]\noverdue = 12.0\ndue_today = 8.0\ndue_week_decay = 8.0\nper_level = 3.0\nage_per_day = 0.05\nage_cap = 2.0\nwaiting_penalty = 3.0\n\n[agenda]\nweek_days = 7\ndate_format = \"auto\"\n\n[watch]\ninterval_seconds = 30\n\n[email]\nhost = \"\"\nport = 465\nssl = true\nuser = \"\"\npassword = \"***\"\nfrom = \"\"\nto = \"\"\n\n",
           "stderr": "",
           "exitCode": 0
         }
