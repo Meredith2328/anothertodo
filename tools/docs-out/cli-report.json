@@ -1,0 +1,556 @@
+{
+  "home": "C:\\Users\\10pi\\AppData\\Local\\Temp\\atd-docs-cli-byrjlJ",
+  "scenarios": [
+    {
+      "id": "add-multi",
+      "title": "批量添加",
+      "entries": [
+        {
+          "argv": [
+            "add",
+            "后天 14:00 例会 #meeting",
+            "明天 买牛奶 不急 #生活",
+            "今晚 20:30 健身 @20:00",
+            "下周一 交季度报告 非常急 #工作 proj:q3",
+            "大后天 取快递 低",
+            "8月30日 写学习总结 #学习"
+          ],
+          "stdout": "已添加 16481ad8  例会\n已添加 54fdf963  买牛奶\n已添加 9c6bc92e  健身\n已添加 015124b5  交季度报告\n已添加 2bff53da  取快递\n已添加 76d7d504  写学习总结\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "preview-basic",
+      "title": "预览：日期+紧急度+提醒",
+      "entries": [
+        {
+          "argv": [
+            "preview",
+            "后天 买牛奶 很急 @18:30"
+          ],
+          "stdout": "→ 2026-08-23 | 标题：买牛奶  [高] ⏰2026-08-23 18:30(toast)\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "preview-combo",
+      "title": "预览：全字段组合",
+      "entries": [
+        {
+          "argv": [
+            "preview",
+            "下周五 18:30 交季度报告 非常急 #工作 proj:q3 ^16481ad8 @30m"
+          ],
+          "stdout": "→ 2026-08-28 18:30 | 标题：交季度报告  [高] proj:q3 #工作 ⏰2026-08-21 17:00(toast) 父:16481ad8\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "list-all",
+      "title": "列出全部（默认档位排序）",
+      "entries": [
+        {
+          "argv": [
+            "list"
+          ],
+          "stdout": "== 今天 ==\n  9c6bc92e 今天     健身\n== 接下来 ==\n  54fdf963 明天     买牛奶  低  #生活\n  16481ad8 后天     例会  #meeting\n  015124b5 周一     交季度报告  高  #工作\n  2bff53da 周一     取快递  低\n== 更远 ==\n  76d7d504 8/30   写学习总结  #学习\n隐藏(等待未到) 0 项\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "list-keyword",
+      "title": "关键词查询",
+      "entries": [
+        {
+          "argv": [
+            "list",
+            "报告"
+          ],
+          "stdout": "== 接下来 ==\n  015124b5 周一     交季度报告  高  #工作\n隐藏(等待未到) 0 项\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "list-tag",
+      "title": "标签查询 +工作",
+      "entries": [
+        {
+          "argv": [
+            "list",
+            "+工作"
+          ],
+          "stdout": "== 接下来 ==\n  015124b5 周一     交季度报告  高  #工作\n隐藏(等待未到) 0 项\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "list-notag",
+      "title": "排除标签 -生活（注意 -- 分隔符）",
+      "entries": [
+        {
+          "argv": [
+            "list",
+            "--",
+            "-生活"
+          ],
+          "stdout": "== 今天 ==\n  9c6bc92e 今天     健身\n== 接下来 ==\n  16481ad8 后天     例会  #meeting\n  015124b5 周一     交季度报告  高  #工作\n  2bff53da 周一     取快递  低\n== 更远 ==\n  76d7d504 8/30   写学习总结  #学习\n隐藏(等待未到) 0 项\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "list-substr",
+      "title": "/子串匹配",
+      "entries": [
+        {
+          "argv": [
+            "list",
+            "/奶"
+          ],
+          "stdout": "== 接下来 ==\n  54fdf963 明天     买牛奶  低  #生活\n隐藏(等待未到) 0 项\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "list-overdue",
+      "title": "overdue 逾期过滤",
+      "entries": [
+        {
+          "argv": [
+            "add",
+            "昨天 交水电费 不急"
+          ],
+          "stdout": "已添加 abc2649c  昨天 交水电费\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "list",
+            "overdue"
+          ],
+          "stdout": "（没有匹配的任务）\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "list-due",
+      "title": "due:before: 明天之前到期",
+      "entries": [
+        {
+          "argv": [
+            "list",
+            "due:before:明天"
+          ],
+          "stdout": "== 今天 ==\n  9c6bc92e 今天     健身\n隐藏(等待未到) 0 项\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "list-proj-prio",
+      "title": "组合过滤 proj: priority:",
+      "entries": [
+        {
+          "argv": [
+            "list",
+            "proj:q3",
+            "priority:高"
+          ],
+          "stdout": "== 接下来 ==\n  015124b5 周一     交季度报告  高  #工作\n隐藏(等待未到) 0 项\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "list-status-done-empty",
+      "title": "status:done（当前没有已完成任务）",
+      "entries": [
+        {
+          "argv": [
+            "list",
+            "status:done"
+          ],
+          "stdout": "（没有匹配的任务）\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "list-urgency",
+      "title": "urgency 加权排序模式",
+      "entries": [
+        {
+          "argv": [
+            "list",
+            "-m",
+            "urgency"
+          ],
+          "stdout": "== 今天 ==\n  9c6bc92e 今天     健身  U=8.0\n== 接下来 ==\n  54fdf963 明天     买牛奶  低  #生活  U=7.9\n  015124b5 周一     交季度报告  高  #工作  U=7.6\n  16481ad8 后天     例会  #meeting  U=5.7\n  2bff53da 周一     取快递  低  U=5.6\n== 更远 ==\n  76d7d504 8/30   写学习总结  #学习  U=0.0\n== 无日期 ==\n  abc2649c 昨天 交水电费  低  U=1.0\n隐藏(等待未到) 0 项\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "done",
+      "title": "完成任务（id 前缀即可）",
+      "entries": [
+        {
+          "argv": [
+            "done",
+            "16481ad8"
+          ],
+          "stdout": "✓ 完成 例会\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "edit",
+      "title": "编辑任务",
+      "entries": [
+        {
+          "argv": [
+            "edit",
+            "54fdf963",
+            "明天 18:00 买牛奶和酸奶 #生活 @17:30"
+          ],
+          "stdout": "已更新 买牛奶和酸奶\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "wait",
+      "title": "设为等待",
+      "entries": [
+        {
+          "argv": [
+            "wait",
+            "2bff53da"
+          ],
+          "stdout": "已设为等待 取快递\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "show",
+      "title": "查看任务详情",
+      "entries": [
+        {
+          "argv": [
+            "show",
+            "9c6bc92e"
+          ],
+          "stdout": "{\n  \"id\": \"9c6bc92e\",\n  \"title\": \"健身\",\n  \"status\": \"todo\",\n  \"due\": \"2026-08-21T20:30:00\",\n  \"tags\": [],\n  \"notes\": \"\",\n  \"reminders\": [\n    {\n      \"id\": \"rem-584cb04b6e7feb15\",\n      \"at\": \"2026-08-21T20:00\",\n      \"hooks\": [\n        \"toast\"\n      ],\n      \"fired\": false,\n      \"dead\": false\n    }\n  ],\n  \"entry\": \"2026-08-21T08:30:45.407Z\",\n  \"modified\": \"2026-08-21T08:30:45.425Z\"\n}\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "snooze",
+      "title": "推迟提醒 30 分钟并验证",
+      "entries": [
+        {
+          "argv": [
+            "snooze",
+            "9c6bc92e",
+            "30m"
+          ],
+          "stdout": "",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "show",
+            "9c6bc92e"
+          ],
+          "stdout": "{\n  \"id\": \"9c6bc92e\",\n  \"title\": \"健身\",\n  \"status\": \"todo\",\n  \"due\": \"2026-08-21T20:30:00\",\n  \"tags\": [],\n  \"notes\": \"\",\n  \"reminders\": [\n    {\n      \"id\": \"rem-584cb04b6e7feb15\",\n      \"at\": \"2026-08-21T20:30\",\n      \"hooks\": [\n        \"toast\"\n      ],\n      \"fired\": false,\n      \"attempts\": 0,\n      \"dead\": false\n    }\n  ],\n  \"entry\": \"2026-08-21T08:30:45.407Z\",\n  \"modified\": \"2026-08-21T08:30:51.576Z\"\n}\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "undo-snooze",
+      "title": "撤销刚才的 snooze",
+      "entries": [
+        {
+          "argv": [
+            "undo"
+          ],
+          "stdout": "撤销修改：健身\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "show",
+            "9c6bc92e"
+          ],
+          "stdout": "{\n  \"id\": \"9c6bc92e\",\n  \"title\": \"健身\",\n  \"status\": \"todo\",\n  \"due\": \"2026-08-21T20:30:00\",\n  \"tags\": [],\n  \"notes\": \"\",\n  \"reminders\": [\n    {\n      \"id\": \"rem-584cb04b6e7feb15\",\n      \"at\": \"2026-08-21T20:00\",\n      \"hooks\": [\n        \"toast\"\n      ],\n      \"fired\": false,\n      \"attempts\": 0,\n      \"dead\": false\n    }\n  ],\n  \"entry\": \"2026-08-21T08:30:45.407Z\",\n  \"modified\": \"2026-08-21T08:30:52.348Z\"\n}\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "reopen",
+      "title": "重新打开已完成任务",
+      "entries": [
+        {
+          "argv": [
+            "reopen",
+            "16481ad8"
+          ],
+          "stdout": "↩ 重新打开 例会\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "rm",
+      "title": "删除任务（软删除）",
+      "entries": [
+        {
+          "argv": [
+            "rm",
+            "54fdf963"
+          ],
+          "stdout": "已删除 买牛奶和酸奶\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "undo-delete",
+      "title": "撤销删除",
+      "entries": [
+        {
+          "argv": [
+            "undo"
+          ],
+          "stdout": "撤销删除：买牛奶和酸奶\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "archive-flow",
+      "title": "归档已完成任务 / 归档列表 / 恢复",
+      "entries": [
+        {
+          "argv": [
+            "done",
+            "76d7d504"
+          ],
+          "stdout": "✓ 完成 写学习总结\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "archive",
+            "0"
+          ],
+          "stdout": "归档了 1 行\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "archive-list"
+          ],
+          "stdout": "76d7d504 写学习总结\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "restore",
+            "76d7d504"
+          ],
+          "stdout": "已恢复 写学习总结\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "list",
+            "status:done"
+          ],
+          "stdout": "== 已完成/已取消 ==\n  76d7d504 8/30   写学习总结  [done]  #学习\n隐藏(等待未到) 0 项\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "sync-status",
+      "title": "同步状态（尚未配置远程）",
+      "entries": [
+        {
+          "argv": [
+            "sync-status"
+          ],
+          "stdout": "无远程，待提交变更 1 项\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "sync-remote",
+      "title": "配置远程后同步",
+      "entries": [
+        {
+          "argv": [
+            "sync"
+          ],
+          "stdout": "远程为空：已推送并建立 master 分支\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "sync"
+          ],
+          "stdout": "同步完成（远端新变更已合并）\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "hooks",
+      "title": "查看可用 hook",
+      "entries": [
+        {
+          "argv": [
+            "hooks"
+          ],
+          "stdout": "内置 hook：toast, email\n用户 hook：（无）\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "config-show",
+      "title": "查看配置（敏感值自动打码）",
+      "entries": [
+        {
+          "argv": [
+            "config"
+          ],
+          "stdout": "配置文件：C:\\Users\\10pi\\AppData\\Local\\Temp\\atd-docs-cli-byrjlJ\\config.toml\n# atd 配置文件。手工编辑保存即可，下次操作生效。\n\n[priority]\nmode = \"levels\"\nlevels = [\"低\", \"中\", \"高\"]\n\n[priority.urgency]\noverdue = 12.0\ndue_today = 8.0\ndue_week_decay = 8.0\nper_level = 3.0\nage_per_day = 0.05\nage_cap = 2.0\nwaiting_penalty = 3.0\n\n[agenda]\nweek_days = 7\ndate_format = \"auto\"\n\n[watch]\ninterval_seconds = 30\n\n[email]\nhost = \"\"\nport = 465\nssl = true\nuser = \"\"\npassword = \"***\"\nfrom = \"\"\nto = \"\"\n\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "config-set",
+      "title": "修改配置",
+      "entries": [
+        {
+          "argv": [
+            "config",
+            "set",
+            "priority.mode",
+            "urgency"
+          ],
+          "stdout": "已设置 priority.mode = urgency\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "config",
+            "set",
+            "agenda.date_format",
+            "full"
+          ],
+          "stdout": "已设置 agenda.date_format = full\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "watch-once",
+      "title": "提醒守护进程单次检查",
+      "entries": [
+        {
+          "argv": [
+            "watch",
+            "--once"
+          ],
+          "stdout": "提醒处理：0，发送：0，重试：0，dead-letter：0\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "error-show-missing",
+      "title": "错误处理：任务不存在",
+      "entries": [
+        {
+          "argv": [
+            "show",
+            "deadbeef"
+          ],
+          "stdout": "",
+          "stderr": "找不到任务：deadbeef\n",
+          "exitCode": 1
+        }
+      ]
+    },
+    {
+      "id": "error-empty-title",
+      "title": "错误处理：空标题",
+      "entries": [
+        {
+          "argv": [
+            "add",
+            "   "
+          ],
+          "stdout": "",
+          "stderr": "标题不能为空\n",
+          "exitCode": 1
+        }
+      ]
+    }
+  ]
+}

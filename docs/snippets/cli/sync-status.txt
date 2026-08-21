@@ -1,0 +1,2 @@
+$ atd sync-status
+无远程，待提交变更 1 项

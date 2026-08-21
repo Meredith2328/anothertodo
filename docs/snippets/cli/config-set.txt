@@ -1,0 +1,4 @@
+$ atd config set priority.mode urgency
+已设置 priority.mode = urgency
+$ atd config set agenda.date_format full
+已设置 agenda.date_format = full

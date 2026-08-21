@@ -1,0 +1,4 @@
+$ atd sync
+远程为空：已推送并建立 master 分支
+$ atd sync
+同步完成（远端新变更已合并）

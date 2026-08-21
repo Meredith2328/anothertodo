@@ -1,0 +1,33 @@
+$ atd config
+配置文件：C:\Users\10pi\AppData\Local\Temp\atd-docs-cli-byrjlJ\config.toml
+# atd 配置文件。手工编辑保存即可，下次操作生效。
+
+[priority]
+mode = "levels"
+levels = ["低", "中", "高"]
+
+[priority.urgency]
+overdue = 12.0
+due_today = 8.0
+due_week_decay = 8.0
+per_level = 3.0
+age_per_day = 0.05
+age_cap = 2.0
+waiting_penalty = 3.0
+
+[agenda]
+week_days = 7
+date_format = "auto"
+
+[watch]
+interval_seconds = 30
+
+[email]
+host = ""
+port = 465
+ssl = true
+user = ""
+password = "***"
+from = ""
+to = ""
+

@@ -1,0 +1,2 @@
+$ atd watch --once
+提醒处理：0，发送：0，重试：0，dead-letter：0
