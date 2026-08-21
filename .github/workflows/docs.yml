@@ -1,0 +1,65 @@
+name: Deploy docs site (VitePress)
+
+on:
+  push:
+    branches:
+      - docs-site
+      - main
+    paths:
+      - "docs/**"
+      - "typedoc.json"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/docs.yml"
+  # 允许手动触发
+  workflow_dispatch:
+
+# 部署权限：需要 contents: read + pages: write + id-token: write
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只允许一个部署
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate API docs (from source, keeps docs/api in sync)
+        run: npm run docs:api
+
+      - name: Build VitePress site
+        run: npx vitepress build docs
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # VitePress 产物在 docs/.vitepress/dist
+          path: docs/.vitepress/dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
