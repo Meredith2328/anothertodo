@@ -1,11 +1,11 @@
 # 实测证据
 
-本页汇总对当前版本（基于 commit `1fdd82a`，tag `node-v0.2.0` 之后快照）的全部实测结果，确保文档所述功能与真实行为一致。
+本页汇总对当前版本（基于 commit `c236fc8`，tag `node-v0.2.0` 之后快照）的全部实测结果，确保文档所述功能与真实行为一致。
 
 ## 测试基线
 
-- **单元/集成测试**：94 个测试全部通过（vitest）
-- **CLI 实测**：34 个场景真实运行，捕获每条命令的终端输出和退出码
+- **单元/集成测试**：110 个测试全部通过（vitest）
+- **CLI 实测**：37 个场景真实运行，捕获每条命令的终端输出和退出码
 - **TUI 实测**：16 个场景用真实 Ink 渲染管线驱动，每个场景断言帧内容符合预期
 
 ## CLI 实测场景
@@ -17,6 +17,9 @@
 | `add-multi` | 批量添加，日期/紧急度/标签/项目/提醒解析 |
 | `preview-basic` | 预览：日期+紧急度+提醒 |
 | `preview-en-dates` | 英文相对日期 |
+| `preview-en-urgency` | 英文紧急度短语（`urgent`/`very urgent`/`no rush`） |
+| `preview-12h` | 12 小时制时间（`2:30pm`/`9am`/`12pm`/`12am`） |
+| `preview-wait-multiword` | 多词 wait 日期（`~next monday`/`~this weekend`/`~day after tomorrow`） |
 | `default-reminder` | 默认提醒自动补 toast |
 | `no-reminder` | `@none` / `no reminders` 关闭默认提醒 |
 | `list-all` / `list-keyword` / `list-tag` / `list-notag` / `list-substr` | 查询与过滤 |

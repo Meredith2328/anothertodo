@@ -116,3 +116,54 @@ describe("parser features synced from rust-rewrite", () => {
     expect(parse("修车回复 ~tomorrow", NOW, LEVELS).wait).toBe("2026-08-21");
   });
 });
+
+// 以下自 docs/input-enhancements.md：英文紧急度短语、12 小时制、~wait 多词日期。
+// now 固定在 2026-08-20（周四）。
+describe("input enhancements from docs/input-enhancements.md", () => {
+  const NOW = "2026-08-20T10:00:00";
+  const LEVELS = ["低", "中", "高"];
+
+  it("recognizes English urgency phrases and removes them from the title", () => {
+    expect(parse("tomorrow buy milk urgent", NOW, LEVELS)).toMatchObject({ title: "buy milk", priority: "高" });
+    expect(parse("next friday report very urgent", NOW, LEVELS)).toMatchObject({ title: "report", priority: "高" });
+    expect(parse("clean desk no rush", NOW, LEVELS)).toMatchObject({ title: "clean desk", priority: "低" });
+    expect(parse("clean desk not urgent", NOW, LEVELS)).toMatchObject({ title: "clean desk", priority: "低" });
+    expect(parse("review high priority", NOW, LEVELS)).toMatchObject({ title: "review", priority: "高" });
+    expect(parse("polish docs asap", NOW, LEVELS)).toMatchObject({ title: "polish docs", priority: "高" });
+  });
+
+  it("does not let English urgency phrases match inside other words", () => {
+    // urgent 不能误匹配 urgently / urgency；not urgent 是整体，不能只匹配其中的 urgent
+    for (const [text, title] of [["reply urgently", "reply urgently"], ["measure urgency", "measure urgency"], ["regularly water the garden", "regularly water the garden"]] as const) {
+      const parsed = parse(text, NOW, LEVELS);
+      expect(parsed.title).toBe(title);
+      expect(parsed.priority).toBeUndefined();
+    }
+  });
+
+  it("parses 12-hour times with am/pm and removes them from the title", () => {
+    expect(parse("tomorrow 2:30pm meeting", NOW, LEVELS)).toMatchObject({ title: "meeting", due: "2026-08-21T14:30:00", dueHasTime: true });
+    expect(parse("tonight 9am gym", NOW, LEVELS)).toMatchObject({ title: "gym", due: "2026-08-20T09:00:00" });
+    expect(parse("next friday 12pm lunch", NOW, LEVELS)).toMatchObject({ title: "lunch", due: "2026-08-28T12:00:00" });
+    expect(parse("8.20 12am report", NOW, LEVELS)).toMatchObject({ title: "report", due: "2026-08-20T00:00:00" });
+    expect(parse("day after tomorrow 2:30pm review", NOW, LEVELS)).toMatchObject({ title: "review", due: "2026-08-22T14:30:00" });
+  });
+
+  it("leaves 24-hour times and Chinese time forms unchanged", () => {
+    expect(parse("meet 14:30", NOW, LEVELS)).toMatchObject({ title: "meet", due: "2026-08-20T14:30:00" });
+    expect(parse("call at 12:00", NOW, LEVELS)).toMatchObject({ title: "call at", due: "2026-08-20T12:00:00" });
+    expect(parse("后天 下午2点半 复盘", NOW, LEVELS)).toMatchObject({ title: "复盘", due: "2026-08-22T14:30:00" });
+  });
+
+  it("parses multi-word English dates after ~wait and removes the whole date", () => {
+    expect(parse("await reply ~next monday", NOW, LEVELS)).toMatchObject({ title: "await reply", wait: "2026-08-31" });
+    expect(parse("await reply ~this weekend", NOW, LEVELS)).toMatchObject({ title: "await reply", wait: "2026-08-22" });
+    expect(parse("await reply ~day after tomorrow", NOW, LEVELS)).toMatchObject({ title: "await reply", wait: "2026-08-22" });
+    expect(parse("await reply ~tomorrow", NOW, LEVELS)).toMatchObject({ title: "await reply", wait: "2026-08-21" });
+    expect(parse("修车回复 ~周五 proj:车辆 ^ab12cd34", NOW, LEVELS)).toMatchObject({ title: "修车回复", wait: "2026-08-21", project: "车辆", parent: "ab12cd34" });
+  });
+
+  it("keeps trailing text after a multi-word wait date in the title", () => {
+    expect(parse("await reply ~next monday then call", NOW, LEVELS)).toMatchObject({ title: "await reply then call", wait: "2026-08-31" });
+  });
+});

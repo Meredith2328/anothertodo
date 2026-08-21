@@ -1,7 +1,7 @@
-$ atd snooze e4b29069 30m
-$ atd show e4b29069
+$ atd snooze 9653994d 30m
+$ atd show 9653994d
 {
-  "id": "e4b29069",
+  "id": "9653994d",
   "title": "健身",
   "status": "todo",
   "due": "2026-08-21T20:30:00",
@@ -9,8 +9,8 @@ $ atd show e4b29069
   "notes": "",
   "reminders": [
     {
-      "id": "rem-0d894478e4d02b66",
-      "at": "2026-08-21T20:30",
+      "id": "rem-358d2e459d1fb957",
+      "at": "2026-08-22T20:30",
       "hooks": [
         "toast"
       ],
@@ -19,6 +19,6 @@ $ atd show e4b29069
       "dead": false
     }
   ],
-  "entry": "2026-08-21T08:46:17.694Z",
-  "modified": "2026-08-21T08:46:26.799Z"
+  "entry": "2026-08-21T12:47:51.354Z",
+  "modified": "2026-08-21T12:48:03.659Z"
 }

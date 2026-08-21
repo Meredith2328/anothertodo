@@ -1,0 +1,6 @@
+$ atd preview "await reply ~next monday"
+→ 等到2026-08-31 | 标题：await reply
+$ atd preview "await reply ~this weekend"
+→ 等到2026-08-22 | 标题：await reply
+$ atd preview "await reply ~day after tomorrow"
+→ 等到2026-08-23 | 标题：await reply
