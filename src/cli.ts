@@ -24,7 +24,9 @@ export const buildProgram = (): Command => {
   const program = new Command();
   program.name("atd").description("anothertodo Node.js CLI").showHelpAfterError();
 
-  program.command("add").argument("<inputs...>").action(async (inputs: string[]) => {
+  // 三个吃「一行输入」的命令都要放过未知选项：输入里可能以 `-due` 这类
+  // 清空指令开头，commander 默认会把它当命令行选项拒掉
+  program.command("add").argument("<inputs...>").allowUnknownOption().action(async (inputs: string[]) => {
     const application = service();
     for (const input of inputs) {
       const task = await application.add(input, nowLocal());
@@ -64,7 +66,7 @@ export const buildProgram = (): Command => {
     for (const id of ids) { const current = await application.store.find(id); if (!current) throw new Error(`找不到任务：${id}`); await application.remove(id); console.log(`已删除 ${current.title}`); }
   });
 
-  program.command("edit").argument("<id>").argument("<input...>").action(async (id: string, input: string[]) => {
+  program.command("edit").argument("<id>").argument("<input...>").allowUnknownOption().action(async (id: string, input: string[]) => {
     const current = await service().edit(id, input.join(" "), nowLocal());
     console.log(`已更新 ${current.title}`);
   });
@@ -88,7 +90,7 @@ export const buildProgram = (): Command => {
     const application = service();
     for (const id of ids) { const current = await application.reopen(id); console.log(`↩ 重新打开 ${current.title}`); }
   });
-  program.command("preview").argument("<input...>").action(async (input: string[]) => { const cfg = await loadConfig(); console.log(preview(input.join(" "), nowLocal(), [...cfg.priority.levels])); });
+  program.command("preview").argument("<input...>").allowUnknownOption().action(async (input: string[]) => { const cfg = await loadConfig(); console.log(preview(input.join(" "), nowLocal(), [...cfg.priority.levels])); });
   program.command("sync").action(async () => console.log(await service().sync()));
   program.command("sync-status").action(async () => console.log(await syncStatus(dataDir())));
   program.command("watch").option("--once").option("--install").option("--uninstall").action(async (options: { once?: boolean; install?: boolean; uninstall?: boolean }) => { if (options.install) { await installAutostart(); console.log("已安装 watcher 自启"); return; } if (options.uninstall) { await uninstallAutostart(); console.log("已卸载 watcher 自启"); return; } const database = store(); if (options.once) { const summary = await checkOnceDetailed(database, false, undefined, database.paths.dir); console.log(`提醒处理：${summary.processed}，发送：${summary.sent}，重试：${summary.retried}，dead-letter：${summary.dead}`); } else await runForever(database); });
