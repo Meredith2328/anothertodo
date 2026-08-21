@@ -33,7 +33,7 @@ export class ApplicationService {
       id: newId(), title: parsed.title, status: initialStatus(parsed.wait, now.slice(0, 10)),
       ...(parsed.due ? { due: parsed.due } : {}), ...(parsed.priority ? { priority: parsed.priority } : {}),
       tags: parsed.tags, ...(parsed.project ? { project: parsed.project } : {}), ...(parsed.parent ? { parent: parsed.parent } : {}),
-      ...(parsed.wait ? { wait: parsed.wait } : {}),
+      ...(parsed.wait ? { wait: parsed.wait } : {}), ...(parsed.notes ? { notes: parsed.notes } : {}), ...(parsed.recur ? { recur: parsed.recur } : {}),
       reminders: parsed.reminders.map(({ relative: _relative, ...reminder }) => reminder), entry: utcNow(), modified: utcNow(),
     }));
   }
