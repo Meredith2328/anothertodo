@@ -32,7 +32,10 @@ export const buildProgram = (): Command => {
     }
   });
 
-  program.command("list").argument("[query...]", "query terms").option("-m, --mode <mode>", "levels or urgency").action(async (query: string[], options: { mode?: "levels" | "urgency" }) => {
+  // allowUnknownOption：让 `-低` `-#标签` 这类负向查询 token 落到 query 里，
+  // 而不是被 commander 当成未知选项直接报错（commander 会把它们追加到操作数后面，
+  // 查询谓词之间是 AND 关系，顺序被打乱不影响结果）
+  program.command("list").description("按查询条件列出任务议程").argument("[query...]", "查询条件，如 due:today +高 -#临时 /关键字").option("-m, --mode <mode>", "排序口径：levels 或 urgency").allowUnknownOption().action(async (query: string[], options: { mode?: "levels" | "urgency" }) => {
     const cfg = await loadConfig();
     const now = nowLocal();
     const selectedMode = options.mode ?? cfg.priority.mode;
