@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { groups, formatDate } from "../src/core/agenda.js";
+import { groups, formatDate, nestTasks } from "../src/core/agenda.js";
 import { ConfigSchema, TaskSchema } from "../src/contracts.js";
 import { compileQuery, filterTasks } from "../src/core/query.js";
 import { sortTasks, urgency } from "../src/core/priority.js";
@@ -76,6 +76,28 @@ describe("stage 3 query, priority, and agenda", () => {
   it("treats a passed meeting as overdue", () => {
     const result = groups([task({ id: "000000c1", title: "例会", status: "meeting", due: "2026-08-17T09:00:00" })], config, "levels", "2026-08-18T14:00");
     expect(result.map((group) => group.name)).toEqual(["逾期"]);
+  });
+
+  it("puts subtasks right after their parent and marks the depth", () => {
+    const parent = task({ id: "000000d1", title: "装修", status: "todo" });
+    const child = task({ id: "000000d2", title: "买瓷砖", status: "todo", parent: "000000d1" });
+    const grandchild = task({ id: "000000d3", title: "比价", status: "todo", parent: "000000d2" });
+    const other = task({ id: "000000d4", title: "别的事", status: "todo" });
+    // 输入顺序打乱，输出仍应是父 → 子 → 孙
+    const nested = nestTasks([grandchild, other, child, parent]);
+    expect(nested.map((item) => [item.task.id, item.depth])).toEqual([[
+      "000000d4", 0], ["000000d1", 0], ["000000d2", 1], ["000000d3", 2]]);
+  });
+
+  it("keeps orphans and cycles visible instead of dropping them", () => {
+    // 父任务不在这一组里（已完成或被查询滤掉），子任务仍要露出来
+    const orphan = task({ id: "000000e1", title: "孤儿", status: "todo", parent: "不存在" });
+    expect(nestTasks([orphan]).map((item) => [item.task.id, item.depth])).toEqual([["000000e1", 0]]);
+    const a = task({ id: "000000e2", title: "甲", status: "todo", parent: "000000e3" });
+    const b = task({ id: "000000e3", title: "乙", status: "todo", parent: "000000e2" });
+    expect(nestTasks([a, b]).map((item) => item.task.id).sort()).toEqual(["000000e2", "000000e3"]);
+    const self = task({ id: "000000e4", title: "自己的爹", status: "todo", parent: "000000e4" });
+    expect(nestTasks([self])).toHaveLength(1);
   });
 
   it("executes the frozen query and priority fixtures", async () => {
