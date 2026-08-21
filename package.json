@@ -29,7 +29,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "smoke": "node tools/smoke-node.mjs",
-    "test:tui:stable": "node tools/test-tui-stability.mjs 20"
+    "test:tui:stable": "node tools/test-tui-stability.mjs 20",
+    "docs:api": "typedoc"
   },
   "engines": {
     "node": ">=22"
@@ -46,8 +47,11 @@
     "postject": "1.0.0-alpha.6",
     "tsup": "^8.3.5",
     "tsx": "^4.19.2",
+    "typedoc": "^0.28.20",
+    "typedoc-plugin-markdown": "^4.12.0",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.67.0",
+    "vitepress": "^1.6.4",
     "vitest": "^2.1.8"
   },
   "dependencies": {

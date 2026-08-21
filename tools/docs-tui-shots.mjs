@@ -81,8 +81,8 @@ const charW = (ch) => {
 const displayW = (s) => [...s].reduce((w, c) => w + charW(c), 0);
 
 const drawFrame = (frame, path, rows = 24) => {
-  const COL = 8; // 每字符像素
-  const PAD = 12;
+  const COL = 12; // 每字符像素（放大提升清晰度）
+  const PAD = 16;
   const lines = frame.split("\n");
   const H = rows * COL + PAD * 2;
   const W = 80 * COL + PAD * 2;
@@ -90,36 +90,91 @@ const drawFrame = (frame, path, rows = 24) => {
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = C.bg;
   ctx.fillRect(0, 0, W, H);
-  ctx.font = `${Math.round(COL * 0.95)}px Consolas`;
   ctx.textBaseline = "top";
+  const FONT = `${Math.round(COL * 0.98)}px Consolas`;
+  const fontAt = (bold) => `${bold ? "bold " : ""}${Math.round(COL * 0.98)}px Consolas`;
 
-  const draw = (lineIdx, segStart, segText, color, bold) => {
-    if (!segText) return;
-    ctx.fillStyle = color;
-    // 用粗体字重：bold 时用 "bold " 前缀（canvas 粗体字体需同族）
-    ctx.font = `${bold ? "bold " : ""}${Math.round(COL * 0.95)}px Consolas`;
-    ctx.fillText(segText, PAD + segStart * COL, PAD + lineIdx * COL);
+  // 列宽（与 app.tsx 一致）
+  const DATE_W = 12, PRIORITY_W = 8, STATUS_W = 10, EXTRAS_W = 30;
+  // 表格内容左起列号：边框占 1 列 + paddingLeft=1
+  const TITLE_START = 2;
+  const PRIO_START = TITLE_START + DATE_W; // 日期列占 DATE_W
+  const STATUS_START = PRIO_START + PRIORITY_W;
+  const EXTRAS_START = STATUS_START + STATUS_W;
+
+  // 把一段文本按字符绘制到指定列。中文字符用黑体（含 CJK 字形），
+  // 英文/数字/符号用 Consolas（等宽）。每字符都落在固定列网格上，
+  // 所以字形宽度差异不影响对齐。返回该段显示宽度。
+  const isCjk = (ch) => {
+    const code = ch.codePointAt(0) ?? 0;
+    return code >= 0x2e80 && code <= 0x9fff || code >= 0xac00 && code <= 0xd7a3 || code >= 0xf900 && code <= 0xfaff || code >= 0xff00 && code <= 0xff60 || code >= 0x1f300 && code <= 0x1faff;
   };
+  const drawSeg = (lineIdx, segStart, segText, color, bold = false, bg = null) => {
+    if (!segText) return 0;
+    let col = segStart;
+    const chars = [...segText];
+    for (const ch of chars) {
+      const w = charW(ch);
+      if (bg) { ctx.fillStyle = bg; ctx.fillRect(PAD + col * COL, PAD + lineIdx * COL, w * COL, COL); }
+      ctx.fillStyle = color;
+      ctx.font = `${bold ? "bold " : ""}${Math.round(COL * 0.98)}px ${isCjk(ch) ? "SimHei" : "Consolas"}`;
+      ctx.fillText(ch, PAD + col * COL, PAD + lineIdx * COL);
+      col += w;
+    }
+    return displayW(segText);
+  };
+  // 识别分组名（含数量）所在行：内容形如 "╾─ 名称 N ──────"
+  const groupMatch = (line) => /^╾─\s*(.+?)\s+(\d+)\s*─/.exec(line);
+  const isSelected = (line) => line.length > 0 && line !== lines[0] && /^\S/.test(line) && !/^[╭╰]/.test(line) && !/^╾/.test(line);
 
-  // 逐行逐段上色：按已知行/列规则匹配
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i] ?? "";
     // 横幅行（前 BANNER_FULL.length-1 行）
     if (i < BANNER_FULL.length - 1 && BANNER_FULL[i]) {
-      draw(i, 0, line, BANNER_COLORS[i % BANNER_COLORS.length] ?? C.hot, false);
+      drawSeg(i, 0, line, BANNER_COLORS[i % BANNER_COLORS.length] ?? C.hot, false);
       continue;
     }
-    // 信息行（横幅行之后 +1 行 = 第 i=5 行）
+    // 信息行（横幅之后 1 行）：右侧状态栏，用 dim 底 + accent 数字
     if (i === BANNER_FULL.length) {
-      // 逐 token 粗体：含「排序」标签等——整体用 dim，数字用 accent
-      draw(i, 0, line, C.dim, false);
+      drawSeg(i, 0, line, C.dim, false);
       continue;
     }
-    // 表格边框/表头行
-    if (i === BANNER_FULL.length + 1) { draw(i, 0, line, C.border, false); continue; }
-    if (i === BANNER_FULL.length + 2) { draw(i, 0, line, C.dim, true); continue; }
-    // 其余行：普通文本（默认 dim）
-    draw(i, 0, line, C.dim, false);
+    // 表格上边框
+    if (i === BANNER_FULL.length + 1) { drawSeg(i, 0, line, C.border, false); continue; }
+    // 表头行
+    if (i === BANNER_FULL.length + 2) { drawSeg(i, 0, line, C.dim, true); continue; }
+    // 分组分隔行：整行用该组颜色
+    const g = groupMatch(line);
+    if (g) {
+      drawSeg(i, 0, line, GROUP_COLOR[g[1]] ?? C.dim, true);
+      continue;
+    }
+    // 任务行：识别列并逐段上色
+    if (i > BANNER_FULL.length + 2 && line.includes("│")) {
+      const body = line.replace(/[│╭╰]/gu, " ");
+      // 检测是否是选中行（有背景高亮 —— 用帧里无法直接感知，故用宽度启发）
+      // 日期段
+      const dateText = body.slice(TITLE_START, TITLE_START + DATE_W).trim();
+      const titleText = body.slice(TITLE_START, TITLE_START + DATE_W + 20).trim();
+      // 用已知任务标题判定颜色：逾期/今天/未来
+      drawSeg(i, TITLE_START, dateText, C.dim, false);
+      // 标题用默认色
+      const title = body.slice(TITLE_START + DATE_W, PRIO_START + 20);
+      drawSeg(i, TITLE_START + DATE_W, title, "#d8dee9", false);
+      // 紧急度（紧急度列）
+      const prioText = body.slice(PRIO_START, PRIO_START + PRIORITY_W).trim();
+      drawSeg(i, PRIO_START, prioText, C.good, false);
+      // 状态列
+      const statusText = body.slice(STATUS_START, STATUS_START + STATUS_W).trim();
+      const statusColor = STATUS_COLOR[statusText] ?? C.dim;
+      drawSeg(i, STATUS_START, statusText, statusColor, statusText === "waiting" || statusText === "meeting");
+      // 标签/提醒列
+      const extras = body.slice(EXTRAS_START);
+      drawSeg(i, EXTRAS_START, extras, C.dim, false);
+      continue;
+    }
+    // 其余行（预览行/输入框/Footer）
+    drawSeg(i, 0, line, C.dim, false);
   }
 
   // 用窄终端 banner 时重新画 banner（不做，默认走宽版）

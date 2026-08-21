@@ -1,0 +1,17 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["src/index.ts"],
+  "out": "docs/api",
+  "plugin": ["typedoc-plugin-markdown"],
+  "theme": "markdown",
+  "readme": "none",
+  "name": "anothertodo API",
+  "includeVersion": false,
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "excludeExternals": true,
+  "hideGenerator": true,
+  "categorizeByGroup": true,
+  "disableSources": true,
+  "excludeReferences": true
+}
