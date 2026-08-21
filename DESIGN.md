@@ -675,7 +675,7 @@ interface GitRunner {
 硬约束：
 1. 不修改 ~/.atd 的现有数据格式，除非本阶段明确写迁移。
 2. 不做一次性重写；每阶段必须可运行、可测试、可提交。
-3. 先读 docs/ts-migration-plan.md 和现有 Python 测试。
+3. 先读文档站 [开发与构建](https://meredith2328.github.io/anothertodo/guide/development) 和现有测试。
 4. 业务行为以 fixtures 为准，不以“更合理”的猜测替代兼容性。
 5. TypeScript 开启 strict；禁止 any、静默 catch、未处理 Promise。
 6. 不在 UI 中写业务规则；UI 只能调用 application services。

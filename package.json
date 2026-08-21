@@ -6,9 +6,6 @@
   "files": [
     "dist-node/**",
     "bin/atd.mjs",
-    "docs/node-usage.md",
-    "docs/platform-acceptance.md",
-    "docs/ts-migration-plan.md",
     "README.md",
     "README.en.md"
   ],
