@@ -23,6 +23,22 @@ describe("stage 3 query, priority, and agenda", () => {
     expect(() => compileQuery("unknown:value", "2026-08-18")).toThrow("不认识的过滤器");
   });
 
+  it("filters on parent, notes, and field existence", () => {
+    const parent = task({ id: "000000a1", title: "装修", status: "todo" });
+    const child = task({ id: "000000a2", title: "买瓷砖", status: "todo", parent: "000000a1", notes: "去建材市场比价" });
+    const all = [parent, child];
+    expect(filterTasks(all, "parent:000000a1", "2026-08-18").map((item) => item.id)).toEqual(["000000a2"]);
+    expect(filterTasks(all, "parent:000000a", "2026-08-18").map((item) => item.id)).toEqual(["000000a2"]);
+    expect(filterTasks(all, "parent:any", "2026-08-18").map((item) => item.id)).toEqual(["000000a2"]);
+    expect(filterTasks(all, "parent:none", "2026-08-18").map((item) => item.id)).toEqual(["000000a1"]);
+    expect(filterTasks(all, "has:parent", "2026-08-18").map((item) => item.id)).toEqual(["000000a2"]);
+    expect(filterTasks(all, "-has:notes", "2026-08-18").map((item) => item.id)).toEqual(["000000a1"]);
+    // 关键字要能命中备注，否则写在备注里的内容永远搜不出来
+    expect(filterTasks(all, "/建材", "2026-08-18").map((item) => item.id)).toEqual(["000000a2"]);
+    expect(() => compileQuery("has:nope", "2026-08-18")).toThrow("不认识的字段");
+    expect(() => compileQuery("-nope:1", "2026-08-18")).toThrow("不支持取反的过滤器");
+  });
+
   it("matches urgency and level sorting semantics", async () => {
     const overdue = task({ id: "00000064", title: "逾期", status: "todo", due: "2026-08-15T09:00:00" });
     const future = task({ id: "00000065", title: "未来", status: "todo", due: "2026-08-25T09:00:00", priority: "高" });
