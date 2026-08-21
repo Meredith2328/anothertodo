@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import { mapKey, type KeyEvent } from "../src/tui/keymap.js";
 import type { UiMode } from "../src/tui/state.js";
 
+// Ink 的 useInput 传给回调的 key 只含布尔字段（没有 name/up/down/f1），
+// Ctrl+字母 通过 input（小写字母）+ key.ctrl 标识，方向键用 upArrow/downArrow。
+// 这里的 key 必须按真实 Ink 形状构造，否则会掩盖 Ctrl+Z/S/F、↑/↓ 匹配不上的缺陷。
 const press = (input: string, key: KeyEvent["key"] = {}): KeyEvent => ({ input, key });
 const list: UiMode = { kind: "list" };
 const add: UiMode = { kind: "add" };
@@ -12,8 +15,8 @@ describe("tui-shortcuts frozen contract", () => {
   it("navigation keys in list mode", () => {
     expect(mapKey(list, press("j"))).toEqual({ type: "move", delta: 1 });
     expect(mapKey(list, press("k"))).toEqual({ type: "move", delta: -1 });
-    expect(mapKey(list, press("", { up: true }))).toEqual({ type: "move", delta: -1 });
-    expect(mapKey(list, press("", { down: true }))).toEqual({ type: "move", delta: 1 });
+    expect(mapKey(list, press("", { upArrow: true }))).toEqual({ type: "move", delta: -1 });
+    expect(mapKey(list, press("", { downArrow: true }))).toEqual({ type: "move", delta: 1 });
     expect(mapKey(list, press("g"))).toEqual({ type: "first" });
     expect(mapKey(list, press("G"))).toEqual({ type: "last" });
     expect(mapKey(list, press("\r"))).toEqual({ type: "shortcut", name: "enter" });
@@ -28,14 +31,14 @@ describe("tui-shortcuts frozen contract", () => {
   it("help / search / command / exit keys in list mode", () => {
     expect(mapKey(list, press("?"))).toEqual({ type: "shortcut", name: "help" });
     expect(mapKey(list, press("", { f1: true }))).toEqual({ type: "shortcut", name: "help" });
-    expect(mapKey(list, press("", { ctrl: true, name: "f" }))).toEqual({ type: "shortcut", name: "search" });
+    expect(mapKey(list, press("f", { ctrl: true }))).toEqual({ type: "shortcut", name: "search" });
     expect(mapKey(list, press("/"))).toEqual({ type: "shortcut", name: "search" });
     expect(mapKey(list, press(":"))).toEqual({ type: "command", value: ":" });
-    expect(mapKey(list, press("", { ctrl: true, name: "s" }))).toEqual({ type: "shortcut", name: "sync" });
-    expect(mapKey(list, press("", { ctrl: true, name: "z" }))).toEqual({ type: "shortcut", name: "undo" });
+    expect(mapKey(list, press("s", { ctrl: true }))).toEqual({ type: "shortcut", name: "sync" });
+    expect(mapKey(list, press("z", { ctrl: true }))).toEqual({ type: "shortcut", name: "undo" });
     expect(mapKey(list, press("q"))).toEqual({ type: "quit" });
     expect(mapKey(list, press("Q"))).toEqual({ type: "quit" });
-    expect(mapKey(list, press("", { ctrl: true, name: "q" }))).toEqual({ type: "quit" });
+    expect(mapKey(list, press("q", { ctrl: true }))).toEqual({ type: "quit" });
   });
 
   it("esc arms exit in list mode and returns to list from input modes", () => {
