@@ -7,8 +7,8 @@ export default defineConfig({
   title: "anothertodo (atd)",
   description: "轻量命令行 TODO 工具：模糊输入、TUI、提醒、git 同步",
   base: "/anothertodo/",
-  // 仓库遗留的旧文档与开发记录不进站点，避免与新版 guide/ 重复混乱
-  srcExclude: ["guide.md", "node-usage.md", "platform-acceptance.md", "ts-migration-plan.md", "input-enhancements.md"],
+  // 站点只构建 docs/guide/ 下的指南页与 docs/api/；根目录历史文档已清理
+  srcExclude: [],
   head: [
     ["meta", { name: "theme-color", content: "#56d4dd" }],
     ["link", { rel: "icon", href: "/anothertodo/icon.svg", type: "image/svg+xml" }],

@@ -112,4 +112,4 @@ npm run build            # 构建到 dist-node
 npm run build:sea        # 打包独立可执行文件
 ```
 
-发布产物由 GitHub Actions 自动构建：push `node-v*` tag 即产出三平台**独立可执行文件**（Node SEA 单文件程序，无需安装 Node，Windows 双击即用）。实现细节与兼容规则见 [docs/node-usage.md](docs/node-usage.md) 和 [docs/ts-migration-plan.md](docs/ts-migration-plan.md)。
+发布产物由 GitHub Actions 自动构建：push `node-v*` tag 即产出三平台**独立可执行文件**（Node SEA 单文件程序，无需安装 Node，Windows 双击即用）。实现细节见文档站 [开发与构建](https://meredith2328.github.io/anothertodo/guide/development)。
