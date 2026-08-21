@@ -20,10 +20,14 @@ const WEEKDAY: Record<string, number> = { 一: 0, 二: 1, 三: 2, 四: 3, 五: 4
 const HOLIDAYS: Record<string, [number, number]> = { 元旦: [1, 1], 五一: [5, 1], 十一: [10, 1], 国庆: [10, 1] };
 const QUARTER: Record<string, number> = { 半: 30, 一刻: 15, 三刻: 45 };
 const URGENCY_PHRASES: Record<string, string[]> = {
-  high: ["非常急", "特别急", "特急", "很急", "比较着急", "有点着急", "着急", "紧急", "加急", "急"],
-  mid: ["一般般", "一般", "普通", "中等", "还行", "常规"],
-  low: ["有空再说", "慢慢来", "不着急", "不用急", "不急"],
+  high: ["非常急", "特别急", "特急", "很急", "比较着急", "有点着急", "着急", "紧急", "加急", "急", "urgent", "very urgent", "asap", "high priority", "critical"],
+  mid: ["一般般", "一般", "普通", "中等", "还行", "常规", "normal", "medium", "regular"],
+  low: ["有空再说", "慢慢来", "不着急", "不用急", "不急", "no rush", "not urgent", "low priority", "someday"],
 };
+
+// 预编译紧急度匹配正则：纯字面量，只含上方常量短语，不掺入任何用户输入。
+// 英文短语用 \b 词边界（避免 urgent 误匹配 urgently/not urgent），中文短语仍用中文词边界保护。
+const URGENCY_RE = /(\bhigh priority\b|\blow priority\b|\bvery urgent\b|\bnot urgent\b|\bcritical\b|\bregular\b|\bno rush\b|\bsomeday\b|\burgent\b|\bnormal\b|\bmedium\b|(?<![\u4e00-\u9fff])比较着急(?![\u4e00-\u9fff])|(?<![\u4e00-\u9fff])有点着急(?![\u4e00-\u9fff])|\basap\b|(?<![\u4e00-\u9fff])有空再说(?![\u4e00-\u9fff])|(?<![\u4e00-\u9fff])非常急(?![\u4e00-\u9fff])|(?<![\u4e00-\u9fff])特别急(?![\u4e00-\u9fff])|(?<![\u4e00-\u9fff])一般般(?![\u4e00-\u9fff])|(?<![\u4e00-\u9fff])慢慢来(?![\u4e00-\u9fff])|(?<![\u4e00-\u9fff])不着急(?![\u4e00-\u9fff])|(?<![\u4e00-\u9fff])不用急(?![\u4e00-\u9fff])|(?<![\u4e00-\u9fff])特急(?![\u4e00-\u9fff])|(?<![\u4e00-\u9fff])很急(?![\u4e00-\u9fff])|(?<![\u4e00-\u9fff])着急(?![\u4e00-\u9fff])|(?<![\u4e00-\u9fff])紧急(?![\u4e00-\u9fff])|(?<![\u4e00-\u9fff])加急(?![\u4e00-\u9fff])|(?<![\u4e00-\u9fff])一般(?![\u4e00-\u9fff])|(?<![\u4e00-\u9fff])普通(?![\u4e00-\u9fff])|(?<![\u4e00-\u9fff])中等(?![\u4e00-\u9fff])|(?<![\u4e00-\u9fff])还行(?![\u4e00-\u9fff])|(?<![\u4e00-\u9fff])常规(?![\u4e00-\u9fff])|(?<![\u4e00-\u9fff])不急(?![\u4e00-\u9fff])|(?<![\u4e00-\u9fff])急(?![\u4e00-\u9fff]))/iu;
 
 const pad = (n: number): string => String(n).padStart(2, "0");
 const dateOnly = (year: number, month: number, day: number): string => `${year}-${pad(month)}-${pad(day)}`;
@@ -64,7 +68,7 @@ const addMinutes = (value: string, minutes: number): string => {
 const EN_WEEKDAY: Record<string, number> = { mon: 0, tue: 1, tues: 1, wed: 2, wednes: 2, thu: 3, thur: 3, thurs: 3, fri: 4, sat: 5, satur: 5, sun: 6 };
 
 const DATE_RE = /(?<iso>\d{4}-\d{1,2}-\d{1,2}(?:[T ]\d{1,2}:\d{2})?)|(?<rel>大后天|后天|明天|今晚|明晚|今天)|(?<en>\bday\s+after\s+tomorrow\b|\bthis\s+weekend\b|\bnext\s+(?:mon|tues?|wed(?:nes)?|thu(?:rs)?|fri|sat(?:ur)?|sun)(?:day)?\b|\btoday\b|\btonight\b|\btomorrow\b)|(?<week>(?<wkpre>下|本)?(?:周|星期|礼拜)(?<wd>[一二三四五六日天]))|(?<weekend>周末)|(?<monthend>(?<mendpre>下)?月底)|(?<monthstart>(?<mstartpre>下)?月初)|(?<holiday>元旦|五一|十一|国庆)|(?<num4>\d{4}[./]\d{1,2}[./]\d{1,2})|(?<num2>(?<![\d.])(?<n2m>\d{1,2})[./-](?<n2d>\d{1,2})(?![\d.]))|(?<numcn>(?<n3m>\d{1,2})月(?<n3d>\d{1,2})日?)/giu;
-const TIME_RE = /(?<pre>凌晨|清晨|早上|上午|中午|下午|傍晚|晚上|夜里)(?<h1>\d{1,2})(?:[:：](?<m1>\d{1,2})|点(?<q1>半|一刻|三刻)?)?|(?<h2>\d{1,2})[:：](?<m2>\d{2})|(?<h3>\d{1,2})点(?<q3>半|一刻|三刻)?/gu;
+const TIME_RE = /(?<h12>\d{1,2})(?:[:：](?<m12>\d{1,2}))?\s*(?<apm>a\.?m\.?|p\.?m\.?)|(?<pre>凌晨|清晨|早上|上午|中午|下午|傍晚|晚上|夜里)(?<h1>\d{1,2})(?:[:：](?<m1>\d{1,2})|点(?<q1>半|一刻|三刻)?)?|(?<h2>\d{1,2})[:：](?<m2>\d{2})|(?<h3>\d{1,2})点(?<q3>半|一刻|三刻)?/giu;
 
 const group = (match: RegExpExecArray, key: string): string | undefined => match.groups?.[key];
 
@@ -170,9 +174,16 @@ export const scanTime = (text: string): TimeScan | undefined => {
   let match: RegExpExecArray | null;
   while ((match = TIME_RE.exec(text)) !== null) {
     const pre = group(match, "pre");
+    const apm = group(match, "apm");
     let hour: number;
     let minute: number;
-    if (pre) {
+    if (apm) {
+      hour = Number(group(match, "h12"));
+      minute = group(match, "m12") ? Number(group(match, "m12")) : 0;
+      const isPm = /^p/i.test(apm);
+      if (hour === 12) hour = isPm ? 12 : 0;
+      else if (isPm) hour += 12;
+    } else if (pre) {
       hour = Number(group(match, "h1"));
       minute = group(match, "m1") ? Number(group(match, "m1")) : QUARTER[group(match, "q1") ?? ""] ?? 0;
       if (["中午", "下午", "傍晚", "晚上", "夜里"].includes(pre) && hour < 12) hour += 12;
@@ -214,8 +225,26 @@ export const parse = (text: string, now = localNow(), levels = ["低", "中", "�
   if (project && project[1]) { parsed.project = project[1]; source = `${source.slice(0, project.index!)} ${source.slice(project.index! + project[0].length)}`; }
   const parent = source.match(/(?<![\w])\^([0-9a-zA-Z]{3,})/u);
   if (parent && parent[1]) { parsed.parent = parent[1]; source = `${source.slice(0, parent.index!)} ${source.slice(parent.index! + parent[0].length)}`; }
-  const wait = source.match(/~([^\s~]+)/u);
-  if (wait) { const found = scanDate(wait[1]!, today); if (found && found.start === 0 && found.end === wait[1]!.length) { parsed.wait = found.date; source = `${source.slice(0, wait.index!)} ${source.slice(wait.index! + wait[0].length)}`; } }
+  const wait = source.match(/~([^\s~]*)/u);
+  if (wait) {
+    // 最长前缀匹配：在 ~ 之后尝试扫描日期，允许 ~next monday 这类多词英文日期。
+    // 从完整子串开始，逐词回退，取第一个从开头完整识别为日期的片段。
+    const tail = source.slice(wait.index! + 1);
+    let best: DateScan | undefined;
+    let bestLen = 0;
+    let end = tail.length;
+    while (end > 0) {
+      const found = scanDate(tail.slice(0, end), today);
+      if (found && found.start === 0 && found.end === end) { best = found; bestLen = end; break; }
+      const space = tail.slice(0, end).lastIndexOf(" ");
+      end = space === -1 ? 0 : space;
+    }
+    if (best) {
+      parsed.wait = best.date;
+      const consumed = wait.index! + 1 + bestLen;
+      source = `${source.slice(0, wait.index!)} ${source.slice(consumed)}`.trim();
+    }
+  }
 
   while (true) {
     const reminderMatch = /@([^\s@]+)/u.exec(source);
@@ -273,9 +302,8 @@ export const parse = (text: string, now = localNow(), levels = ["低", "中", "�
     parsed.reminders.push(ensureReminder({ at: addMinutes(parsed.due.slice(0, 16), -advanceMinutes), hooks: ["toast"], relative: false }));
   }
 
-  const phrases = Object.values(URGENCY_PHRASES).flat().sort((a, b) => b.length - a.length).map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  const urgency = new RegExp(`(?<![\\u4e00-\\u9fff])(${phrases.join("|")})(?![\\u4e00-\\u9fff])`, "u").exec(source);
-  if (urgency) { const kind = urgencyKind(urgency[1]!); if (kind) { parsed.priority = phraseTarget(kind, levels); source = cut(source, urgency.index, urgency.index + urgency[0].length); } }
+  const urgency = source.match(URGENCY_RE);
+  if (urgency && urgency.index !== undefined) { const kind = urgencyKind(urgency[1]!.toLowerCase()); if (kind) { parsed.priority = phraseTarget(kind, levels); source = cut(source, urgency.index, urgency.index + urgency[0].length); } }
   const kept: string[] = [];
   for (const token of source.split(/\s+/u)) { if (!parsed.priority && levels.includes(token)) parsed.priority = token; else if (token) kept.push(token); }
   parsed.title = kept.join(" ").replace(/\s+/gu, " ").trim();
