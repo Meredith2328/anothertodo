@@ -113,4 +113,4 @@ npm run build            # build to dist-node
 npm run build:sea        # build a standalone SEA executable
 ```
 
-Release artifacts are built by GitHub Actions: push a `node-v*` tag to ship standalone executables for all three platforms. See [docs/node-usage.md](docs/node-usage.md) and [docs/ts-migration-plan.md](docs/ts-migration-plan.md) for the implementation details and compatibility rules.
+Release artifacts are built by GitHub Actions: push a `node-v*` tag to ship standalone executables for all three platforms. See the [development guide](https://meredith2328.github.io/anothertodo/guide/development) for implementation details.

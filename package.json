@@ -6,15 +6,13 @@
   "files": [
     "dist-node/**",
     "bin/atd.mjs",
-    "docs/node-usage.md",
-    "docs/platform-acceptance.md",
-    "docs/ts-migration-plan.md",
-    "README.md"
+    "README.md",
+    "README.en.md"
   ],
   "bin": {
     "atd": "bin/atd.mjs"
   },
-  "description": "anothertodo TypeScript/Node.js CLI, TUI, reminders, and Git sync",
+  "description": "A lightweight todo list with TUI, one-line fuzzy input, reminders, and git sync.",
   "type": "module",
   "workspaces": [
     "apps/*",
