@@ -59,7 +59,11 @@ const addMinutes = (value: string, minutes: number): string => {
   return localDateTime(dateOnly(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate()), `${pad(next.getUTCHours())}:${pad(next.getUTCMinutes())}`);
 };
 
-const DATE_RE = /(?<iso>\d{4}-\d{1,2}-\d{1,2}(?:[T ]\d{1,2}:\d{2})?)|(?<rel>大后天|后天|明天|今晚|明晚|今天)|(?<week>(?<wkpre>下|本)?(?:周|星期|礼拜)(?<wd>[一二三四五六日天]))|(?<weekend>周末)|(?<monthend>(?<mendpre>下)?月底)|(?<monthstart>(?<mstartpre>下)?月初)|(?<holiday>元旦|五一|十一|国庆)|(?<num4>\d{4}[./]\d{1,2}[./]\d{1,2})|(?<num2>(?<![\d.])(?<n2m>\d{1,2})[./-](?<n2d>\d{1,2})(?![\d.]))|(?<numcn>(?<n3m>\d{1,2})月(?<n3d>\d{1,2})日?)/gu;
+// 英文相对日期（自 rust-rewrite 同步）：整词匹配，大小写不敏感。
+// DATE_RE 加 i 标志安全——其余分支全是中文/数字字面量，无大小写可言。
+const EN_WEEKDAY: Record<string, number> = { mon: 0, tue: 1, tues: 1, wed: 2, wednes: 2, thu: 3, thur: 3, thurs: 3, fri: 4, sat: 5, satur: 5, sun: 6 };
+
+const DATE_RE = /(?<iso>\d{4}-\d{1,2}-\d{1,2}(?:[T ]\d{1,2}:\d{2})?)|(?<rel>大后天|后天|明天|今晚|明晚|今天)|(?<en>\bday\s+after\s+tomorrow\b|\bthis\s+weekend\b|\bnext\s+(?:mon|tues?|wed(?:nes)?|thu(?:rs)?|fri|sat(?:ur)?|sun)(?:day)?\b|\btoday\b|\btonight\b|\btomorrow\b)|(?<week>(?<wkpre>下|本)?(?:周|星期|礼拜)(?<wd>[一二三四五六日天]))|(?<weekend>周末)|(?<monthend>(?<mendpre>下)?月底)|(?<monthstart>(?<mstartpre>下)?月初)|(?<holiday>元旦|五一|十一|国庆)|(?<num4>\d{4}[./]\d{1,2}[./]\d{1,2})|(?<num2>(?<![\d.])(?<n2m>\d{1,2})[./-](?<n2d>\d{1,2})(?![\d.]))|(?<numcn>(?<n3m>\d{1,2})月(?<n3d>\d{1,2})日?)/giu;
 const TIME_RE = /(?<pre>凌晨|清晨|早上|上午|中午|下午|傍晚|晚上|夜里)(?<h1>\d{1,2})(?:[:：](?<m1>\d{1,2})|点(?<q1>半|一刻|三刻)?)?|(?<h2>\d{1,2})[:：](?<m2>\d{2})|(?<h3>\d{1,2})点(?<q3>半|一刻|三刻)?/gu;
 
 const group = (match: RegExpExecArray, key: string): string | undefined => match.groups?.[key];
@@ -79,6 +83,20 @@ const resolveDate = (match: RegExpExecArray, today: string): { date: string; tim
   }
   const rel = group(match, "rel");
   if (rel) return { date: rel === "今天" || rel === "今晚" ? today : addDays(today, rel === "明天" || rel === "明晚" ? 1 : rel === "后天" ? 2 : 3), ...(rel === "今晚" || rel === "明晚" ? { time: "20:00" } : {}) };
+  const en = group(match, "en")?.toLowerCase();
+  if (en) {
+    // tomorrow 默认上午 10 点、tonight 默认晚 8 点（显式时间在 scanTime 阶段覆盖）；
+    // next X 永远指下一周及以后，与 Rust 实现一致
+    if (en === "today") return { date: today };
+    if (en === "tonight") return { date: today, time: "20:00" };
+    if (en === "tomorrow") return { date: addDays(today, 1), time: "10:00" };
+    if (en === "day after tomorrow") return { date: addDays(today, 2) };
+    if (en === "this weekend") return { date: weekday(today) >= 5 ? today : addDays(today, 5 - weekday(today)) };
+    const stem = en.replace(/^next\s+/u, "").replace(/day$/u, "");
+    const target = EN_WEEKDAY[stem];
+    if (target === undefined) return undefined;
+    return { date: addDays(today, ((target - weekday(today) + 7) % 7) + 7) };
+  }
   const week = group(match, "week");
   if (week) {
     const target = WEEKDAY[group(match, "wd")!];
@@ -185,6 +203,11 @@ export const parse = (text: string, now = localNow(), levels = ["低", "中", "�
   if (!source) return parsed;
   const today = now.slice(0, 10);
 
+  // 关闭默认提醒的说法要在 @ 提醒循环之前剥掉，否则 @none 会被当成提醒
+  // token 卡住循环、落进标题（自 rust-rewrite 同步）
+  const remindersDisabled = /@(?:none|off)\b|\bno\s+reminders?\b/iu.test(source);
+  if (remindersDisabled) source = source.replace(/@(?:none|off)\b|\bno\s+reminders?\b/giu, " ").trim();
+
   for (const match of source.matchAll(/#([^\s#：:，,]+)/gu)) if (match[1] && !parsed.tags.includes(match[1])) parsed.tags.push(match[1]);
   source = source.replace(/#[^\s#：:，,]+/gu, " ").trim();
   const project = source.match(/(?:proj|project)[:：]([^\s：:，,]+)/u);
@@ -241,6 +264,13 @@ export const parse = (text: string, now = localNow(), levels = ["低", "中", "�
   for (const reminder of parsed.reminders) if (!reminder.relative) {
     if (date && date !== today) reminder.at = localDateTime(date, reminder.at.slice(11));
     else if (compareLocal(reminder.at, now) <= 0) reminder.at = addDays(reminder.at.slice(0, 10), 1) + reminder.at.slice(10);
+  }
+
+  // 默认提醒（自 rust-rewrite 同步）：没写提醒也没关闭、且截止在未来时，
+  // 自动补一个 toast——距截止超过 24 小时提前 1 天，否则提前 15 分钟
+  if (!parsed.reminders.length && !remindersDisabled && parsed.due && Date.parse(parsed.due) > Date.parse(now)) {
+    const advanceMinutes = Date.parse(parsed.due) - Date.parse(now) > 86_400_000 ? 1440 : 15;
+    parsed.reminders.push(ensureReminder({ at: addMinutes(parsed.due.slice(0, 16), -advanceMinutes), hooks: ["toast"], relative: false }));
   }
 
   const phrases = Object.values(URGENCY_PHRASES).flat().sort((a, b) => b.length - a.length).map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
