@@ -1,0 +1,222 @@
+{
+  "scenarios": [
+    {
+      "id": "main-list",
+      "title": "主清单：分组视图与选中行",
+      "rows": 24,
+      "asserts": [
+        {
+          "name": "包含横幅像素字",
+          "ok": true
+        },
+        {
+          "name": "包含「接下来」组",
+          "ok": true
+        },
+        {
+          "name": "包含「等待中」组",
+          "ok": true
+        },
+        {
+          "name": "包含任务标题",
+          "ok": true
+        }
+      ],
+      "pass": true,
+      "failed": []
+    },
+    {
+      "id": "add-flow",
+      "title": "添加任务：输入+预览+提交",
+      "rows": 24,
+      "asserts": [
+        {
+          "name": "预览显示日期+紧急度",
+          "ok": true
+        },
+        {
+          "name": "提交成功",
+          "ok": true
+        },
+        {
+          "name": "任务已入库",
+          "ok": true
+        }
+      ],
+      "pass": true,
+      "failed": []
+    },
+    {
+      "id": "help-full",
+      "title": "帮助弹窗（完整版）",
+      "rows": 40,
+      "asserts": [
+        {
+          "name": "完整帮助可见",
+          "ok": true
+        },
+        {
+          "name": "任意键可关闭",
+          "ok": true
+        }
+      ],
+      "pass": true,
+      "failed": []
+    },
+    {
+      "id": "help-compact",
+      "title": "帮助弹窗（矮终端紧凑版）",
+      "rows": 20,
+      "asserts": [
+        {
+          "name": "紧凑版无完整节名",
+          "ok": true
+        }
+      ],
+      "pass": true,
+      "failed": []
+    },
+    {
+      "id": "command-mode",
+      "title": "命令模式 :mode urgency",
+      "rows": 24,
+      "asserts": [
+        {
+          "name": "切换后显示 urgency 排序",
+          "ok": true
+        }
+      ],
+      "pass": true,
+      "failed": []
+    },
+    {
+      "id": "search-filter",
+      "title": "搜索过滤 /报告",
+      "rows": 24,
+      "asserts": [
+        {
+          "name": "过滤生效且排除未匹配",
+          "ok": true
+        }
+      ],
+      "pass": true,
+      "failed": []
+    },
+    {
+      "id": "edit-task",
+      "title": "编辑选中任务",
+      "rows": 24,
+      "asserts": [
+        {
+          "name": "进入编辑态并回填内容",
+          "ok": true
+        }
+      ],
+      "pass": true,
+      "failed": []
+    },
+    {
+      "id": "complete-done",
+      "title": "d 完成任务",
+      "rows": 24,
+      "asserts": [
+        {
+          "name": "完成成功",
+          "ok": true
+        },
+        {
+          "name": "状态已落库",
+          "ok": true
+        }
+      ],
+      "pass": true,
+      "failed": []
+    },
+    {
+      "id": "delete-soft",
+      "title": "x 软删除",
+      "rows": 24,
+      "asserts": [
+        {
+          "name": "删除后任务数减少",
+          "ok": true
+        }
+      ],
+      "pass": true,
+      "failed": []
+    },
+    {
+      "id": "wait-defer",
+      "title": "w 设为等待（隐藏到明天）",
+      "rows": 24,
+      "asserts": [
+        {
+          "name": "设为等待成功",
+          "ok": true
+        }
+      ],
+      "pass": true,
+      "failed": []
+    },
+    {
+      "id": "date-format",
+      "title": "t 切换日期列格式",
+      "rows": 24,
+      "asserts": [
+        {
+          "name": "日期列格式可切换",
+          "ok": true
+        }
+      ],
+      "pass": true,
+      "failed": []
+    },
+    {
+      "id": "undo",
+      "title": ":undo 命令撤销",
+      "rows": 24,
+      "asserts": [
+        {
+          "name": "任务已先完成",
+          "ok": true
+        },
+        {
+          "name": "撤销后任务数恢复",
+          "ok": true
+        },
+        {
+          "name": "撤销生效",
+          "ok": true
+        }
+      ],
+      "pass": true,
+      "failed": []
+    },
+    {
+      "id": "sort-2",
+      "title": "2 切换 urgency 排序",
+      "rows": 24,
+      "asserts": [
+        {
+          "name": "urgency 排序生效",
+          "ok": true
+        }
+      ],
+      "pass": true,
+      "failed": []
+    },
+    {
+      "id": "exit-armed",
+      "title": "双击 Esc 退出提示",
+      "rows": 24,
+      "asserts": [
+        {
+          "name": "出现二次 Esc 提示",
+          "ok": true
+        }
+      ],
+      "pass": true,
+      "failed": []
+    }
+  ]
+}
