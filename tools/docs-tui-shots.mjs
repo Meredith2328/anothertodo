@@ -36,6 +36,7 @@ const fonts = [
   ["C:\\Windows\\Fonts\\consola.ttf", "Consolas"],
   ["C:\\Windows\\Fonts\\msyh.ttc", "Microsoft YaHei"],
   ["C:\\Windows\\Fonts\\simhei.ttf", "SimHei"],
+  ["C:\\Windows\\Fonts\\simsun.ttc", "SimSun"],
 ];
 for (const [path, name] of fonts) { try { GlobalFonts.registerFromPath(path, name); } catch {} }
 
@@ -102,25 +103,19 @@ const drawFrame = (frame, path, rows = 24) => {
   const STATUS_START = PRIO_START + PRIORITY_W;
   const EXTRAS_START = STATUS_START + STATUS_W;
 
-  // 把一段文本按字符绘制到指定列。中文字符用黑体（含 CJK 字形），
-  // 英文/数字/符号用 Consolas（等宽）。每字符都落在固定列网格上，
-  // 所以字形宽度差异不影响对齐。返回该段显示宽度。
-  const isCjk = (ch) => {
-    const code = ch.codePointAt(0) ?? 0;
-    return code >= 0x2e80 && code <= 0x9fff || code >= 0xac00 && code <= 0xd7a3 || code >= 0xf900 && code <= 0xfaff || code >= 0xff00 && code <= 0xff60 || code >= 0x1f300 && code <= 0x1faff;
-  };
-  const drawSeg = (lineIdx, segStart, segText, color, bold = false, bg = null) => {
+  // 用 fillText 画整段文本，字距由等宽字体自然排布（紧凑、贴近真实终端）。
+  // 正文用 SimSun（宋体，严格等宽 CJK：汉字 2 格、ASCII 1 格），复现真实终端等宽网格。
+  // 横幅/边框等纯 ASCII 结构用 Consolas，保持像素字与制表符的观感。
+  const drawSeg = (lineIdx, segStart, segText, color, bold = false, bg = null, fontName = "SimSun") => {
     if (!segText) return 0;
-    let col = segStart;
-    const chars = [...segText];
-    for (const ch of chars) {
-      const w = charW(ch);
-      if (bg) { ctx.fillStyle = bg; ctx.fillRect(PAD + col * COL, PAD + lineIdx * COL, w * COL, COL); }
-      ctx.fillStyle = color;
-      ctx.font = `${bold ? "bold " : ""}${Math.round(COL * 0.98)}px ${isCjk(ch) ? "SimHei" : "Consolas"}`;
-      ctx.fillText(ch, PAD + col * COL, PAD + lineIdx * COL);
-      col += w;
-    }
+    const x = PAD + segStart * COL;
+    const y = PAD + lineIdx * COL;
+    const font = `${bold ? "bold " : ""}${Math.round(COL * 0.98)}px ${fontName}`;
+    ctx.font = font;
+    const w = ctx.measureText(segText).width;
+    if (bg) { ctx.fillStyle = bg; ctx.fillRect(x, y, w + 2, COL); }
+    ctx.fillStyle = color;
+    ctx.fillText(segText, x, y);
     return displayW(segText);
   };
   // 识别分组名（含数量）所在行：内容形如 "╾─ 名称 N ──────"
@@ -129,9 +124,9 @@ const drawFrame = (frame, path, rows = 24) => {
 
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i] ?? "";
-    // 横幅行（前 BANNER_FULL.length-1 行）
+    // 横幅行（前 BANNER_FULL.length-1 行）——纯 ASCII 像素字，用 Consolas
     if (i < BANNER_FULL.length - 1 && BANNER_FULL[i]) {
-      drawSeg(i, 0, line, BANNER_COLORS[i % BANNER_COLORS.length] ?? C.hot, false);
+      drawSeg(i, 0, line, BANNER_COLORS[i % BANNER_COLORS.length] ?? C.hot, false, null, "Consolas");
       continue;
     }
     // 信息行（横幅之后 1 行）：右侧状态栏，用 dim 底 + accent 数字
@@ -140,7 +135,7 @@ const drawFrame = (frame, path, rows = 24) => {
       continue;
     }
     // 表格上边框
-    if (i === BANNER_FULL.length + 1) { drawSeg(i, 0, line, C.border, false); continue; }
+    if (i === BANNER_FULL.length + 1) { drawSeg(i, 0, line, C.border, false, null, "Consolas"); continue; }
     // 表头行
     if (i === BANNER_FULL.length + 2) { drawSeg(i, 0, line, C.dim, true); continue; }
     // 分组分隔行：整行用该组颜色
