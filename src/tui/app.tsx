@@ -390,6 +390,15 @@ const WelcomeModal = ({ rows }: { rows?: number | undefined }): React.ReactEleme
 // ---------------------------------------------------------------- 主组件
 type TableLine = { kind: "sep"; name: string; count: number } | { kind: "task"; task: Task; index: number };
 
+/** 完成任务并把「派生了下一次」「还有子任务没做」这两件事说清楚，别让用户自己去发现 */
+const completeAndDescribe = async (service: ApplicationService, id: string): Promise<string> => {
+  const result = await service.complete(id);
+  const extras: string[] = [];
+  if (result.next) extras.push(`下一次 ${result.next.due ? result.next.due.slice(0, 10) : "无日期"}`);
+  if (result.openChildren.length) extras.push(`还有 ${result.openChildren.length} 个子任务没完成`);
+  return `✓ 完成：${result.task.title}${extras.length ? `（${extras.join("，")}）` : ""}`;
+};
+
 export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: TuiProps): React.ReactElement => {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -582,7 +591,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
       if (action.name === "e" && currentSelected) { dispatch({ type: "mode", mode: { kind: "edit", taskId: currentSelected.id } }); dispatch({ type: "input", value: taskToInput(currentSelected) }); return; }
       if (action.name === "d" && currentSelected) {
         const task = currentSelected;
-        runMutation(async () => { const updated = await service.setStatus(task.id, "done"); return `✓ 完成：${updated.title}`; });
+        runMutation(() => completeAndDescribe(service, task.id));
         return;
       }
       if (action.name === "w" && currentSelected) {
@@ -598,11 +607,11 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
       if (action.name === "u") { runMutation(() => service.undo()); return; }
       if (action.name === "enter" && currentSelected) {
         const task = currentSelected;
-        const reopening = task.status === "done";
-        runMutation(async () => {
-          const updated = await service.setStatus(task.id, reopening ? "todo" : "done");
-          return reopening ? `↩ 重新打开：${updated.title}` : `✓ 完成：${updated.title}`;
-        });
+        if (task.status === "done") {
+          runMutation(async () => `↩ 重新打开：${(await service.reopen(task.id)).title}`);
+          return;
+        }
+        runMutation(() => completeAndDescribe(service, task.id));
       }
     }
   }, [dispatch, exit, refresh, runMutation, service, store, tasks, visible.length]);
@@ -687,11 +696,8 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     if (line && line.kind === "task") {
       if (line.index === currentState.selectedIndex) {
         const task = line.task;
-        const reopening = task.status === "done";
-        runMutation(async () => {
-          const updated = await service.setStatus(task.id, reopening ? "todo" : "done");
-          return reopening ? `↩ 重新打开：${updated.title}` : `✓ 完成：${updated.title}`;
-        });
+        if (task.status === "done") runMutation(async () => `↩ 重新打开：${(await service.reopen(task.id)).title}`);
+        else runMutation(() => completeAndDescribe(service, task.id));
       } else {
         dispatch({ type: "select", index: line.index });
       }

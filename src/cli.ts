@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { ApplicationService } from "./app/service.js";
 import { groups, renderLine } from "./core/agenda.js";
 import { configPath, dataDir, getConfigValue, loadConfig, setConfigValue } from "./core/config.js";
-import { parse, preview } from "./core/parse.js";
+import { parse, preview, scanDate } from "./core/parse.js";
 import { Store } from "./storage/store.js";
 import { syncDirectory, syncStatus } from "./sync/sync.js";
 import { checkOnceDetailed, runForever, snooze } from "./reminders/watcher.js";
@@ -14,6 +14,10 @@ import { hookNames } from "./reminders/hooks.js";
 
 const store = (): Store => new Store(dataDir());
 const service = (): ApplicationService => new ApplicationService(store());
+/** 批量操作里每条的错误已经单独打印过，这里只负责让进程以非零码收尾 */
+class SilentFailure extends Error {
+  constructor() { super(""); }
+}
 const redactConfig = (text: string): string => text.split(/\r?\n/).map((line) => /(?:password|token|secret)\s*=/iu.test(line) ? line.replace(/(=\s*).*/u, "$1\"***\"") : line).join("\n");
 const nowLocal = (): string => {
   const now = new Date();
@@ -51,15 +55,50 @@ export const buildProgram = (): Command => {
     }
   });
 
-  const mutateStatus = (status: "done" | "waiting") => async (ids: string[]) => {
-    const application = service();
+  // 批量操作里一条失败不该带走其余的：逐条报告，最后统一以非零码退出
+  const forEachId = async (ids: string[], run: (id: string) => Promise<void>): Promise<void> => {
+    let failed = 0;
     for (const id of ids) {
-      const current = await application.setStatus(id, status);
-      console.log(`${status === "done" ? "✓ 完成" : "已设为等待"} ${current.title}`);
+      try { await run(id); }
+      catch (error) { failed += 1; console.error(error instanceof Error ? error.message : String(error)); }
     }
+    if (failed) throw new SilentFailure();
   };
-  program.command("done").argument("<ids...>").action(mutateStatus("done"));
-  program.command("wait").argument("<ids...>").action(mutateStatus("waiting"));
+
+  program.command("done").description("完成任务；重复任务会自动派生下一次").argument("<ids...>").option("--with-subtasks", "连同还开着的子任务一起完成").action(async (ids: string[], options: { withSubtasks?: boolean }) => {
+    const application = service();
+    await forEachId(ids, async (id) => {
+      const result = await application.complete(id, { cascade: options.withSubtasks === true });
+      console.log(`✓ 完成 ${result.task.title}`);
+      for (const child of result.cascaded) console.log(`  ↳ 顺带完成子任务 ${child.title}`);
+      if (result.next) console.log(`  ↻ 下一次：${result.next.id} ${result.next.due ? result.next.due.slice(0, 10) : "无日期"}`);
+      if (result.openChildren.length) console.log(`  ⚠ 还有 ${result.openChildren.length} 个子任务没完成：${result.openChildren.map((child) => child.title).join("、")}（加 --with-subtasks 一起完成）`);
+    });
+  });
+
+  const statusCommand = (name: string, status: "cancelled" | "meeting" | "todo", description: string, label: string): void => {
+    program.command(name).description(description).argument("<ids...>").action(async (ids: string[]) => {
+      const application = service();
+      await forEachId(ids, async (id) => { const current = await application.setStatus(id, status); console.log(`${label} ${current.title}`); });
+    });
+  };
+  statusCommand("cancel", "cancelled", "取消任务（保留记录，不同于删除）", "✗ 已取消");
+  statusCommand("meeting", "meeting", "标记为会议，过了时间同样计入逾期", "已标记为会议");
+  statusCommand("todo", "todo", "退回待办状态，并清掉等待日期", "↩ 已退回待办");
+
+  program.command("wait").description("设为等待；--until 指定等到哪天，缺省是明天").argument("<ids...>").option("-u, --until <date>", "等到哪天，支持 2026-09-01 / 下周一 / next monday").action(async (ids: string[], options: { until?: string }) => {
+    const application = service();
+    let date: string | undefined;
+    if (options.until !== undefined) {
+      const scanned = scanDate(options.until, nowLocal().slice(0, 10));
+      if (!scanned) throw new Error(`看不懂这个日期：${options.until}`);
+      date = scanned.date;
+    }
+    await forEachId(ids, async (id) => {
+      const current = date === undefined ? await application.setStatus(id, "waiting") : await application.deferUntil(id, date);
+      console.log(`已设为等待 ${current.title}${current.wait ? `（等到 ${current.wait}）` : ""}`);
+    });
+  });
 
   program.command("rm").alias("delete").argument("<ids...>").action(async (ids: string[]) => {
     const application = service();
@@ -130,7 +169,11 @@ export const main = async (argv = process.argv.slice(2)): Promise<number> => {
     return 0;
   }
   try { await program.parseAsync(["node", "atd", ...argv]); return 0; }
-  catch (error) { console.error(error instanceof Error ? error.message : String(error)); return 1; }
+  catch (error) {
+    if (error instanceof SilentFailure) return 1;
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
 };
 
 // SEA 单文件入口通过 ATD_SEA 标记跳过直跑判断；try/catch 兜底 __filename 缺失等环境差异

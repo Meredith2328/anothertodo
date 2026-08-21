@@ -294,6 +294,10 @@ export const nextOccurrence = (date: string, recur: Recur): string => {
   return dateOnly(targetYear, month, Math.min(day, daysInMonth(targetYear, month)));
 };
 
+/** 只按天平移日期字符串，给「下一次任务」搬 due/wait/提醒用 */
+export const shiftDateOnly = (date: string, days: number): string => addDays(date, days);
+export const daysBetweenDates = (from: string, to: string): number => Math.round((dateMs(to) - dateMs(from)) / 86_400_000);
+
 export const describeRecur = (recur: Recur): string => {
   if (recur.kind === "weekdays") return "每个工作日";
   const unit = recur.kind === "daily" ? "天" : recur.kind === "weekly" ? "周" : recur.kind === "monthly" ? "个月" : "年";
