@@ -1,0 +1,25 @@
+$ atd undo
+撤销修改：健身
+$ atd show 9c6bc92e
+{
+  "id": "9c6bc92e",
+  "title": "健身",
+  "status": "todo",
+  "due": "2026-08-21T20:30:00",
+  "tags": [],
+  "notes": "",
+  "reminders": [
+    {
+      "id": "rem-584cb04b6e7feb15",
+      "at": "2026-08-21T20:00",
+      "hooks": [
+        "toast"
+      ],
+      "fired": false,
+      "attempts": 0,
+      "dead": false
+    }
+  ],
+  "entry": "2026-08-21T08:30:45.407Z",
+  "modified": "2026-08-21T08:30:52.348Z"
+}

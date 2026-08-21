@@ -1,0 +1,12 @@
+$ atd done 76d7d504
+✓ 完成 写学习总结
+$ atd archive 0
+归档了 1 行
+$ atd archive-list
+76d7d504 写学习总结
+$ atd restore 76d7d504
+已恢复 写学习总结
+$ atd list status:done
+== 已完成/已取消 ==
+  76d7d504 8/30   写学习总结  [done]  #学习
+隐藏(等待未到) 0 项
