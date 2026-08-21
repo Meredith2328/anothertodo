@@ -27,21 +27,21 @@
     "input": "明天 晚上8点 开会",
     "now": "2026-08-20T10:00:00",
     "levels": ["低", "中", "高"],
-    "expected": {"title": "开会", "due": "2026-08-21T20:00:00", "priority": null, "tags": [], "project": null, "parent": null, "wait": null, "reminders": []}
+    "expected": {"title": "开会", "due": "2026-08-21T20:00:00", "priority": null, "tags": [], "project": null, "parent": null, "wait": null, "reminders": [{"at": "2026-08-20T20:00", "hooks": ["toast"], "fired": false}]}
   },
   {
     "name": "weekday and month boundary",
     "input": "月底 盘点",
     "now": "2026-08-20T10:00:00",
     "levels": ["低", "中", "高"],
-    "expected": {"title": "盘点", "due": "2026-08-31T00:00:00", "priority": null, "tags": [], "project": null, "parent": null, "wait": null, "reminders": []}
+    "expected": {"title": "盘点", "due": "2026-08-31T00:00:00", "priority": null, "tags": [], "project": null, "parent": null, "wait": null, "reminders": [{"at": "2026-08-30T00:00", "hooks": ["toast"], "fired": false}]}
   },
   {
     "name": "holiday",
     "input": "十一 出游",
     "now": "2026-08-20T10:00:00",
     "levels": ["低", "中", "高"],
-    "expected": {"title": "出游", "due": "2026-10-01T00:00:00", "priority": null, "tags": [], "project": null, "parent": null, "wait": null, "reminders": []}
+    "expected": {"title": "出游", "due": "2026-10-01T00:00:00", "priority": null, "tags": [], "project": null, "parent": null, "wait": null, "reminders": [{"at": "2026-09-30T00:00", "hooks": ["toast"], "fired": false}]}
   },
   {
     "name": "past numeric date stays literal date",
