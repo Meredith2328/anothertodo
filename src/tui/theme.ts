@@ -1,4 +1,4 @@
-// 界面常量：与 Python 版 atd/tui.py 的配色、横幅与帮助文案保持一致。
+// 界面常量：配色、横幅与帮助文案。
 
 import type { GroupKey } from "../core/agenda.js";
 
