@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 
 import { ApplicationService } from "./app/service.js";
 import { groups, renderLine } from "./core/agenda.js";
-import { configPath, dataDir, loadConfig, setConfigValue } from "./core/config.js";
+import { configPath, dataDir, getConfigValue, loadConfig, setConfigValue } from "./core/config.js";
 import { parse, preview } from "./core/parse.js";
 import { Store } from "./storage/store.js";
 import { syncDirectory, syncStatus } from "./sync/sync.js";
@@ -98,9 +98,10 @@ export const buildProgram = (): Command => {
   program.command("hooks").action(async () => { console.log(`内置 hook：toast, email`); console.log(`用户 hook：${(await hookNames(dataDir())).filter((name) => !["toast", "email"].includes(name)).join("、") || "（无）"}`); });
   program.command("config").argument("[action]").argument("[key]").argument("[value]").action(async (action?: string, key?: string, value?: string) => {
     if (action === "path") { console.log(dataDir()); return; }
+    if (action === "get" && key) { const current = await getConfigValue(key); console.log(/(?:password|token|secret)/iu.test(key) ? "***" : typeof current === "object" ? JSON.stringify(current) : String(current)); return; }
     if (action === "set" && key && value !== undefined) { await setConfigValue(key, value); const masked = /(?:password|token|secret)/iu.test(key) ? "***" : value; console.log(`已设置 ${key} = ${masked}`); return; }
     if (!action) { console.log(`配置文件：${configPath()}`); console.log(redactConfig(await (await import("node:fs/promises")).readFile(configPath(), "utf8"))); return; }
-    throw new Error("用法：atd config | atd config set priority.mode urgency");
+    throw new Error("用法：atd config | atd config path | atd config get priority.mode | atd config set priority.urgency.overdue 15");
   });
   return program;
 };
