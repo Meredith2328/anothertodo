@@ -1,5 +1,7 @@
 // 界面常量：与 Python 版 atd/tui.py 的配色、横幅与帮助文案保持一致。
 
+import type { GroupKey } from "../core/agenda.js";
+
 export const C = {
   accent: "#56d4dd", // 青：主色/横幅/今天
   hot: "#ff6188", // 粉红：最高档/重点
@@ -20,14 +22,16 @@ export const C = {
 
 export const MODE_LABEL: Record<"levels" | "urgency", string> = { levels: "档位", urgency: "urgency" };
 
-export const GROUP_COLOR: Record<string, string> = {
-  逾期: C.overdue,
-  今天: C.accent,
-  接下来: C.future,
-  更远: C.dim,
-  等待中: C.tag,
-  无日期: C.dim,
-  "已完成/已取消": C.dimmer,
+// 按分组 key 上色，而不是按显示出来的名字——名字会随界面语言变
+export const GROUP_COLOR: Record<GroupKey, string> = {
+  overdue: C.overdue,
+  today: C.accent,
+  upcoming: C.future,
+  later: C.dim,
+  waiting: C.tag,
+  nodate: C.dim,
+  finished: C.dimmer,
+  hidden: C.dimmer,
 };
 
 export const STATUS_COLOR: Record<string, string> = {
