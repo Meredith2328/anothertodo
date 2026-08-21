@@ -1,4 +1,5 @@
 import { ReminderSchema, RecurSchema, type Recur, type Reminder } from "../contracts.js";
+import { t, weekdayName } from "./i18n.js";
 
 export type ParsedReminder = Omit<Reminder, "dead"> & { dead?: boolean; relative: boolean };
 /** edit 时可以显式清空的字段名 */
@@ -299,12 +300,12 @@ export const shiftDateOnly = (date: string, days: number): string => addDays(dat
 export const daysBetweenDates = (from: string, to: string): number => Math.round((dateMs(to) - dateMs(from)) / 86_400_000);
 
 export const describeRecur = (recur: Recur): string => {
-  if (recur.kind === "weekdays") return "每个工作日";
-  const unit = recur.kind === "daily" ? "天" : recur.kind === "weekly" ? "周" : recur.kind === "monthly" ? "个月" : "年";
-  const every = recur.interval === 1 ? `每${unit}` : `每${recur.interval}${unit}`;
+  if (recur.kind === "weekdays") return t("recur.weekdays");
+  const plural = { daily: "recur.everyNDays", weekly: "recur.everyNWeeks", monthly: "recur.everyNMonths", yearly: "recur.everyNYears" }[recur.kind];
+  const every = recur.interval === 1 ? t(`recur.${recur.kind}`) : t(plural, { n: recur.interval });
   if (recur.kind !== "weekly" || recur.weekday === undefined) return every;
-  const day = `周${"一二三四五六日"[recur.weekday]}`;
-  return recur.interval === 1 ? `每${day}` : `${every}的${day}`;
+  const day = weekdayName(recur.weekday);
+  return recur.interval === 1 ? t("recur.weeklyOn", { day }) : t("recur.everyNWeeksOn", { n: recur.interval, day });
 };
 
 /** 反向输出 recur 的输入写法，供 taskToInput 回填编辑框 */

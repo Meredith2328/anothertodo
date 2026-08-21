@@ -6,9 +6,10 @@ import { join } from "node:path";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 
 import { ApplicationService } from "../app/service.js";
-import { formatDate, groups, nestTasks } from "../core/agenda.js";
+import { formatDate, groups, nestTasks, type GroupKey } from "../core/agenda.js";
 import { setConfigValue } from "../core/config.js";
 import type { Config, Task } from "../contracts.js";
+import { t } from "../core/i18n.js";
 import { describeRecur, preview, scanDate } from "../core/parse.js";
 import { isOverdue, localDate, localNow } from "../core/task.js";
 import { taskToInput } from "../core/task-ops.js";
@@ -118,8 +119,8 @@ const truncateSegments = (segments: Array<{ text: string; color: string }>, widt
   return out;
 };
 
-const GroupSeparator = ({ name, count }: { name: string; count: number }): React.ReactElement => {
-  const color = GROUP_COLOR[name] ?? C.dim;
+const GroupSeparator = ({ groupKey, name, count }: { groupKey: GroupKey; name: string; count: number }): React.ReactElement => {
+  const color = GROUP_COLOR[groupKey] ?? C.dim;
   return (
     <Text>
       <Text color={color}>╾─ </Text>
@@ -382,19 +383,19 @@ const DetailModal = ({ task, children: subtasks, parent, rows, columns }: {
 }): React.ReactElement => {
   const noteLines = task.notes.trim() ? task.notes.split(/\r?\n/) : [];
   const fields: Array<[string, string]> = [
-    ["状态", task.status],
-    ["截止", task.due ? task.due.replace("T", " ").slice(0, 16) : "—"],
-    ["优先级", task.priority ?? "—"],
-    ["项目", task.project ?? "—"],
-    ["标签", task.tags.length ? task.tags.map((tag) => `#${tag}`).join(" ") : "—"],
-    ["等待到", task.wait ?? "—"],
-    ["重复", task.recur ? describeRecur(task.recur) : "—"],
+    [t("field.status"), task.status],
+    [t("field.due"), task.due ? task.due.replace("T", " ").slice(0, 16) : t("value.none")],
+    [t("field.priority"), task.priority ?? t("value.none")],
+    [t("field.project"), task.project ?? t("value.none")],
+    [t("field.tags"), task.tags.length ? task.tags.map((tag) => `#${tag}`).join(" ") : t("value.none")],
+    [t("field.wait"), task.wait ?? t("value.none")],
+    [t("field.recur"), task.recur ? describeRecur(task.recur) : t("value.none")],
   ];
-  if (parent) fields.push(["父任务", `${parent.id} ${parent.title}`]);
-  if (subtasks.length) fields.push(["子任务", subtasks.map((child) => `${child.status === "done" ? "✓" : "·"} ${child.title}`).join("  ")]);
-  fields.push(["创建", task.entry.replace("T", " ").slice(0, 16)]);
-  if (task.end) fields.push(["完成", task.end.replace("T", " ").slice(0, 16)]);
-  const reminderLines = task.reminders.map((reminder) => `${reminder.at.replace("T", " ")}  ${reminder.hooks.join(",")}  ${reminder.dead ? "已放弃" : reminder.fired ? "已发送" : "待发送"}`);
+  if (parent) fields.push([t("field.parent"), `${parent.id} ${parent.title}`]);
+  if (subtasks.length) fields.push([t("field.subtasks"), subtasks.map((child) => `${child.status === "done" ? "✓" : "·"} ${child.title}`).join("  ")]);
+  fields.push([t("field.entry"), task.entry.replace("T", " ").slice(0, 16)]);
+  if (task.end) fields.push([t("field.end"), task.end.replace("T", " ").slice(0, 16)]);
+  const reminderLines = task.reminders.map((reminder) => `${reminder.at.replace("T", " ")}  ${reminder.hooks.join(",")}  ${reminder.dead ? t("reminder.dead") : reminder.fired ? t("reminder.sent") : t("reminder.pending")}`);
   const contentLines = 4 + fields.length + (reminderLines.length ? reminderLines.length + 1 : 0) + (noteLines.length ? noteLines.length + 1 : 0);
   const width = Math.min(Math.max(40, (columns ?? 80) - 8), 100);
   return (
@@ -403,9 +404,9 @@ const DetailModal = ({ task, children: subtasks, parent, rows, columns }: {
         <Box flexDirection="column" borderStyle="round" borderColor={C.accent} paddingLeft={2} paddingRight={2} width={width}>
           <Text><Text bold color={C.accent}>{truncateWithEllipsis(task.title, width - 16)}</Text><Text color={C.dimmer}>{`  ${task.id}`}</Text></Text>
           {fields.map(([label, value]) => <DetailRow key={label} label={label} value={value} />)}
-          {reminderLines.length ? <Text bold color={C.warn}>提醒</Text> : null}
+          {reminderLines.length ? <Text bold color={C.warn}>{t("field.reminders")}</Text> : null}
           {reminderLines.map((line) => <Text key={line} color={C.yellow}>{`  ${line}`}</Text>)}
-          {noteLines.length ? <Text bold color={C.warn}>备注</Text> : null}
+          {noteLines.length ? <Text bold color={C.warn}>{t("field.notes")}</Text> : null}
           {noteLines.map((line, index) => <Text key={`${index}-${line}`} wrap="wrap">{`  ${line}`}</Text>)}
           <Text color={C.dim}>j/k 看上下一条 · e 编辑 · 其他键关闭</Text>
         </Box>
@@ -427,7 +428,7 @@ const ConfirmModal = ({ prompt, rows }: { prompt: string; rows?: number | undefi
 );
 
 // ---------------------------------------------------------------- 主组件
-type TableLine = { kind: "sep"; name: string; count: number } | { kind: "task"; task: Task; depth: number; index: number };
+type TableLine = { kind: "sep"; groupKey: GroupKey; name: string; count: number } | { kind: "task"; task: Task; depth: number; index: number };
 
 /** 完成任务并把「派生了下一次」「还有子任务没做」这两件事说清楚，别让用户自己去发现 */
 const completeAndDescribe = async (service: ApplicationService, id: string): Promise<string> => {
@@ -770,7 +771,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   const lines: TableLine[] = [];
   let taskIndex = 0;
   for (const group of visibleGroups) {
-    lines.push({ kind: "sep", name: group.name, count: group.tasks.length });
+    lines.push({ kind: "sep", groupKey: group.key, name: group.name, count: group.tasks.length });
     for (const { task, depth } of group.nested) lines.push({ kind: "task", task, depth, index: taskIndex++ });
   }
   // 终端高度已知时做滚动窗口，保证选中行始终可见
@@ -876,7 +877,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
         </Box>
         {lines.length === 0 ? <Text color={C.dimmer}>（没有任务）</Text> : windowLines.map((line) => (
           line.kind === "sep"
-            ? <GroupSeparator key={`sep-${line.name}-${line.count}`} name={line.name} count={line.count} />
+            ? <GroupSeparator key={`sep-${line.groupKey}-${line.count}`} groupKey={line.groupKey} name={line.name} count={line.count} />
             : <TaskRow key={line.task.id} task={line.task} selected={line.index === state.selectedIndex} marked={state.marked.includes(line.task.id)} today={today} dateFormat={state.dateFormat} levels={levels} titleWidth={titleWidth} depth={line.depth} />
         ))}
       </Box>

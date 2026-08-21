@@ -1,11 +1,17 @@
 import type { Config, Task } from "../contracts.js";
 import { configLevels } from "./config.js";
+import { t, weekdayName } from "./i18n.js";
 import { describeRecur } from "./parse.js";
 import { compileQuery, match } from "./query.js";
 import { sortKey, urgency, type SortMode, compareTuple } from "./priority.js";
 import { hiddenByWait, isOverdue, localDate, ACTIVE_STATES } from "./task.js";
 
-export type Group = { name: string; style: string; tasks: Task[] };
+/**
+ * 分组的 key 是稳定标识，name 只是给人看的字。
+ * 上层判断分组用 key，不要去匹配 name——否则换个语言就全失效。
+ */
+export type GroupKey = "overdue" | "today" | "upcoming" | "later" | "waiting" | "nodate" | "finished" | "hidden";
+export type Group = { key: GroupKey; name: string; style: string; tasks: Task[] };
 const sort = (tasks: Task[], mode: SortMode, config: Config, now: string): Task[] => [...tasks].sort((a, b) => compareTuple(sortKey(a, mode, config, now), sortKey(b, mode, config, now)));
 
 export const groups = (allTasks: Task[], config: Config, mode: SortMode = config.priority.mode, now = new Date().toISOString().slice(0, 16), query = ""): Group[] => {
@@ -31,17 +37,17 @@ export const groups = (allTasks: Task[], config: Config, mode: SortMode = config
   const waiting = sort(open.filter((task) => task.status === "waiting"), mode, config, now);
   const nodate = sort(open.filter((task) => task.status !== "waiting" && task.due === undefined), mode, config, now);
   const result: Group[] = [];
-  if (overdue.length) result.push({ name: "逾期", style: "bold red", tasks: overdue });
-  if (todays.length) result.push({ name: "今天", style: "bold cyan", tasks: todays });
-  if (upcoming.length) result.push({ name: "接下来", style: "green", tasks: upcoming });
-  if (later.length) result.push({ name: "更远", style: "dim", tasks: later });
-  if (waiting.length) result.push({ name: "等待中", style: "magenta", tasks: waiting });
-  if (nodate.length) result.push({ name: "无日期", style: "dim", tasks: nodate });
+  if (overdue.length) result.push({ key: "overdue", name: t("group.overdue"), style: "bold red", tasks: overdue });
+  if (todays.length) result.push({ key: "today", name: t("group.today"), style: "bold cyan", tasks: todays });
+  if (upcoming.length) result.push({ key: "upcoming", name: t("group.upcoming"), style: "green", tasks: upcoming });
+  if (later.length) result.push({ key: "later", name: t("group.later"), style: "dim", tasks: later });
+  if (waiting.length) result.push({ key: "waiting", name: t("group.waiting"), style: "magenta", tasks: waiting });
+  if (nodate.length) result.push({ key: "nodate", name: t("group.nodate"), style: "dim", tasks: nodate });
   if (predicates.some((predicate) => predicate[0] === "status" && (predicate[1] === "done" || predicate[1] === "cancelled"))) {
     const finished = sort(tasks.filter((task) => task.status === "done" || task.status === "cancelled"), mode, config, now);
-    if (finished.length) result.push({ name: "已完成/已取消", style: "dim strike", tasks: finished });
+    if (finished.length) result.push({ key: "finished", name: t("group.finished"), style: "dim strike", tasks: finished });
   }
-  if (hidden.length) result.push({ name: `隐藏(等待未到) ${hidden.length} 项`, style: "dim", tasks: [] });
+  if (hidden.length) result.push({ key: "hidden", name: t("group.hidden", { count: hidden.length }), style: "dim", tasks: [] });
   return result;
 };
 
@@ -80,12 +86,12 @@ export const formatDate = (task: Task, today: string, dateFormat: "auto" | "md" 
   if (dateFormat === "md") return `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
   if (dateFormat === "full") return date;
   const delta = Math.round((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
-  if (delta === 0) return "今天";
-  if (delta === 1) return "明天";
-  if (delta === 2) return "后天";
-  if (delta === -1) return "昨天";
-  if (delta < 0) return `超${Math.abs(delta)}天`;
-  if (delta <= 7) return `周${"一二三四五六日"[new Date(`${date}T00:00:00Z`).getUTCDay() === 0 ? 6 : new Date(`${date}T00:00:00Z`).getUTCDay() - 1]}`;
+  if (delta === 0) return t("date.today");
+  if (delta === 1) return t("date.tomorrow");
+  if (delta === 2) return t("date.dayAfter");
+  if (delta === -1) return t("date.yesterday");
+  if (delta < 0) return t("date.overdueDays", { days: Math.abs(delta) });
+  if (delta <= 7) return t("date.weekday", { name: weekdayName((new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7) });
   return `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
 };
 

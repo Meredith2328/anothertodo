@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { ApplicationService } from "./app/service.js";
 import { groups, nestTasks, renderLine } from "./core/agenda.js";
 import { configPath, dataDir, getConfigValue, loadConfig, setConfigValue } from "./core/config.js";
+import { t } from "./core/i18n.js";
 import { describeRecur, parse, preview, scanDate } from "./core/parse.js";
 import { filterTasks } from "./core/query.js";
 import { collectStats, exportTasks, projectSummary, tagSummary } from "./core/report.js";
@@ -77,7 +78,7 @@ export const buildProgram = (): Command => {
     const visible = agenda.filter((group) => group.tasks.length > 0);
     if (!visible.length) { console.log("（没有匹配的任务）"); return; }
     for (const group of agenda) {
-      if (!group.tasks.length) { if (group.name.startsWith("隐藏")) console.log(group.name); continue; }
+      if (!group.tasks.length) { if (group.key === "hidden") console.log(group.name); continue; }
       console.log(`== ${group.name} ==`);
       for (const { task, depth } of nestTasks(group.tasks)) console.log(`  ${task.id.padEnd(8)} ${renderLine(task, cfg, now.slice(0, 10), selectedMode, now, depth)}`);
     }
@@ -153,27 +154,27 @@ export const buildProgram = (): Command => {
     const children = await application.children(current.id);
     const parent = current.parent === undefined ? undefined : await store().find(current.parent);
     const rows: Array<[string, string]> = [
-      ["id", current.id], ["标题", current.title], ["状态", current.status],
-      ["截止", current.due ? current.due.replace("T", " ").slice(0, 16) : "—"],
-      ["优先级", current.priority ?? "—"], ["项目", current.project ?? "—"],
-      ["标签", current.tags.length ? current.tags.map((tag) => `#${tag}`).join(" ") : "—"],
-      ["等待到", current.wait ?? "—"],
-      ["重复", current.recur ? describeRecur(current.recur) : "—"],
-      ["父任务", current.parent === undefined ? "—" : `${current.parent}${parent ? ` ${parent.title}` : "（已不存在）"}`],
-      ["子任务", children.length ? children.map((child) => `${child.id} ${child.title}`).join("、") : "—"],
-      ["创建", current.entry.replace("T", " ").slice(0, 16)],
-      ["完成", current.end ? current.end.replace("T", " ").slice(0, 16) : "—"],
+      [t("field.id"), current.id], [t("field.title"), current.title], [t("field.status"), current.status],
+      [t("field.due"), current.due ? current.due.replace("T", " ").slice(0, 16) : t("value.none")],
+      [t("field.priority"), current.priority ?? t("value.none")], [t("field.project"), current.project ?? t("value.none")],
+      [t("field.tags"), current.tags.length ? current.tags.map((tag) => `#${tag}`).join(" ") : t("value.none")],
+      [t("field.wait"), current.wait ?? t("value.none")],
+      [t("field.recur"), current.recur ? describeRecur(current.recur) : t("value.none")],
+      [t("field.parent"), current.parent === undefined ? t("value.none") : `${current.parent}${parent ? ` ${parent.title}` : t("value.missing")}`],
+      [t("field.subtasks"), children.length ? children.map((child) => `${child.id} ${child.title}`).join("、") : t("value.none")],
+      [t("field.entry"), current.entry.replace("T", " ").slice(0, 16)],
+      [t("field.end"), current.end ? current.end.replace("T", " ").slice(0, 16) : t("value.none")],
     ];
     const labelWidth = Math.max(...rows.map(([label]) => displayWidth(label)));
     for (const [label, value] of rows) console.log(`${padDisplay(label, labelWidth)}  ${value}`);
     if (current.reminders.length) {
-      console.log("提醒：");
+      console.log(`${t("field.reminders")}${t("punct.colon")}`);
       for (const reminder of current.reminders) {
-        const state = reminder.dead ? "已放弃" : reminder.fired ? "已发送" : "待发送";
-        console.log(`  ${reminder.at.replace("T", " ")}  ${reminder.hooks.join(",")}  ${state}${reminder.attempts ? `（重试 ${reminder.attempts} 次）` : ""}`);
+        const state = reminder.dead ? t("reminder.dead") : reminder.fired ? t("reminder.sent") : t("reminder.pending");
+        console.log(`  ${reminder.at.replace("T", " ")}  ${reminder.hooks.join(",")}  ${state}${reminder.attempts ? t("reminder.retries", { n: reminder.attempts }) : ""}`);
       }
     }
-    if (current.notes.trim()) { console.log("备注："); for (const line of current.notes.split(/\r?\n/)) console.log(`  ${line}`); }
+    if (current.notes.trim()) { console.log(`${t("field.notes")}${t("punct.colon")}`); for (const line of current.notes.split(/\r?\n/)) console.log(`  ${line}`); }
   });
   program.command("undo").description("撤销上一次改动").action(async () => console.log(await service().undo()));
   program.command("archive").description("把久已完成的任务搬进归档；也可 archive list / archive restore <id>").argument("[action]", "天数（缺省 14）、list、restore").argument("[id]").action(async (action?: string, id?: string) => {

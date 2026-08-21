@@ -99,6 +99,10 @@ export const ConfigSchema = z.object({
   watch: z.object({
     interval_seconds: z.number().int().positive(),
   }),
+  ui: z.object({
+    // auto 跟随环境变量（认不出来按中文）；只影响界面文案，不影响输入与查询语法
+    lang: z.enum(["auto", "zh", "en"]).default("auto"),
+  }).default({ lang: "auto" }),
   email: z.object({
     host: z.string(),
     port: z.number().int().positive(),

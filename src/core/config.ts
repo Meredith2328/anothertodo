@@ -5,6 +5,7 @@ import { readFile, mkdir, writeFile } from "node:fs/promises";
 import * as TOML from "@iarna/toml";
 
 import { ConfigSchema, type Config } from "../contracts.js";
+import { setLang } from "./i18n.js";
 import { atomicWriteText, withDataLock } from "../storage/lock.js";
 
 export const DEFAULT_CONFIG_TEXT = `# atd 配置文件。手工编辑保存即可，下次操作生效。
@@ -29,6 +30,11 @@ date_format = "auto"
 [watch]
 interval_seconds = 30
 
+[ui]
+# auto 跟随系统语言（认不出来按中文）；可写成 "zh" 或 "en" 固定界面语言。
+# 只影响界面文案，一行输入语法和查询语法两种语言下都一样。
+lang = "auto"
+
 [email]
 host = ""
 port = 465
@@ -43,6 +49,7 @@ const defaultConfig = (): Config => ConfigSchema.parse({
   priority: { mode: "levels", levels: ["低", "中", "高"], urgency: { overdue: 12, due_today: 8, due_week_decay: 8, per_level: 3, age_per_day: 0.05, age_cap: 2, waiting_penalty: 3 } },
   agenda: { week_days: 7, date_format: "auto" },
   watch: { interval_seconds: 30 },
+  ui: { lang: "auto" },
   email: { host: "", port: 465, ssl: true, user: "", password: "", from: "", to: "" },
 });
 
@@ -82,7 +89,10 @@ export const loadConfig = async (dir = dataDir()): Promise<Config> => {
   } catch (error) {
     throw new Error(`配置文件解析失败：${String(error)}\n请检查 ${configPath(dir)}`);
   }
-  return ConfigSchema.parse(deepMerge(defaultConfig() as unknown as Record<string, unknown>, user));
+  const config = ConfigSchema.parse(deepMerge(defaultConfig() as unknown as Record<string, unknown>, user));
+  // 界面语言是全局的，读配置时顺手生效，省得每个渲染点自己传
+  setLang(config.ui.lang);
+  return config;
 };
 
 export const configLevels = (config: Config): string[] => [...config.priority.levels];
