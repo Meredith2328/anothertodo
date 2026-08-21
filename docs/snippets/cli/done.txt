@@ -1,2 +1,2 @@
-$ atd done 16481ad8
+$ atd done b5673a38
 ✓ 完成 例会

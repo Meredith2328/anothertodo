@@ -1,6 +1,6 @@
-$ atd show 9c6bc92e
+$ atd show e4b29069
 {
-  "id": "9c6bc92e",
+  "id": "e4b29069",
   "title": "健身",
   "status": "todo",
   "due": "2026-08-21T20:30:00",
@@ -8,7 +8,7 @@ $ atd show 9c6bc92e
   "notes": "",
   "reminders": [
     {
-      "id": "rem-584cb04b6e7feb15",
+      "id": "rem-0d894478e4d02b66",
       "at": "2026-08-21T20:00",
       "hooks": [
         "toast"
@@ -17,6 +17,6 @@ $ atd show 9c6bc92e
       "dead": false
     }
   ],
-  "entry": "2026-08-21T08:30:45.407Z",
-  "modified": "2026-08-21T08:30:45.425Z"
+  "entry": "2026-08-21T08:46:17.694Z",
+  "modified": "2026-08-21T08:46:17.706Z"
 }

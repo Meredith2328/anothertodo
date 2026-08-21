@@ -1,5 +1,5 @@
 $ atd config
-配置文件：C:\Users\10pi\AppData\Local\Temp\atd-docs-cli-byrjlJ\config.toml
+配置文件：C:\Users\10pi\AppData\Local\Temp\atd-docs-cli-ZbkwBd\config.toml
 # atd 配置文件。手工编辑保存即可，下次操作生效。
 
 [priority]
