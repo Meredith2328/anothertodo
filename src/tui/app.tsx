@@ -6,10 +6,10 @@ import { join } from "node:path";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 
 import { ApplicationService } from "../app/service.js";
-import { formatDate, groups } from "../core/agenda.js";
+import { formatDate, groups, nestTasks } from "../core/agenda.js";
 import { setConfigValue } from "../core/config.js";
 import type { Config, Task } from "../contracts.js";
-import { preview } from "../core/parse.js";
+import { describeRecur, preview } from "../core/parse.js";
 import { isOverdue, localDate, localNow } from "../core/task.js";
 import { taskToInput } from "../core/task-ops.js";
 import { Store } from "../storage/store.js";
@@ -98,6 +98,10 @@ const truncateDisplay = (text: string, width: number): string => {
   return out;
 };
 
+/** 截断时留一格放省略号，让「这里还有内容」看得出来 */
+const truncateWithEllipsis = (text: string, width: number): string =>
+  displayWidth(text) <= width ? text : `${truncateDisplay(text, Math.max(0, width - 1))}…`;
+
 // ---------------------------------------------------------------- 单元格
 type Cell = { text: string; color: string; bold: boolean };
 
@@ -129,6 +133,8 @@ const extrasSegments = (task: Task): Array<{ text: string; color: string }> => {
   const segments: Array<{ text: string; color: string }> = [];
   if (task.project) segments.push({ text: `◈${task.project} `, color: C.proj });
   for (const tag of task.tags) segments.push({ text: `#${tag} `, color: C.tag });
+  if (task.recur) segments.push({ text: `↻${describeRecur(task.recur)} `, color: C.proj });
+  if (task.notes.trim()) segments.push({ text: "✎ ", color: C.dim });
   const reminder = task.reminders.find((item) => !item.fired);
   if (reminder) segments.push({ text: `⏰${reminder.at.slice(5, 16).replace("T", " ")}`, color: C.yellow });
   return segments;
@@ -160,16 +166,19 @@ const GroupSeparator = ({ name, count }: { name: string; count: number }): React
   );
 };
 
-const TaskRow = ({ task, selected, today, dateFormat, levels, titleWidth }: {
+const TaskRow = ({ task, selected, today, dateFormat, levels, titleWidth, depth = 0 }: {
   task: Task;
   selected: boolean;
   today: string;
   dateFormat: "auto" | "md" | "full";
   levels: string[];
   titleWidth: number;
+  depth?: number;
 }): React.ReactElement => {
-  const chars = [...task.title];
-  const title = chars.length > 44 ? `${chars.slice(0, 43).join("")}…` : task.title;
+  // 子任务缩进后可用的标题宽度也跟着变窄，否则会挤掉右边的列
+  const indent = depth > 0 ? `${"  ".repeat(depth - 1)}↳ ` : "";
+  const room = Math.max(4, titleWidth - displayWidth(indent));
+  const title = `${indent}${truncateWithEllipsis(task.title, room)}`;
   const date = dateCell(task, today, dateFormat);
   const priority = priorityCell(task, levels);
   const status = statusCell(task);
@@ -388,7 +397,7 @@ const WelcomeModal = ({ rows }: { rows?: number | undefined }): React.ReactEleme
 );
 
 // ---------------------------------------------------------------- 主组件
-type TableLine = { kind: "sep"; name: string; count: number } | { kind: "task"; task: Task; index: number };
+type TableLine = { kind: "sep"; name: string; count: number } | { kind: "task"; task: Task; depth: number; index: number };
 
 /** 完成任务并把「派生了下一次」「还有子任务没做」这两件事说清楚，别让用户自己去发现 */
 const completeAndDescribe = async (service: ApplicationService, id: string): Promise<string> => {
@@ -411,7 +420,13 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   const [state, dispatch] = useReducer(tuiReducer, undefined, () => initialTuiState());
   const [clock, setClock] = useState(() => new Date());
   const [actionSequence, setActionSequence] = useState(0);
-  const visibleGroups = useMemo(() => config ? groups(tasks, config, state.sortMode, nowLocal(), state.query).filter((group) => group.tasks.length > 0) : [], [config, state.query, state.sortMode, tasks]);
+  // 每组内部按父子相邻重排后再摊平：显示顺序和选中索引必须用同一份顺序，
+  // 否则按 j/k 选中的行和高亮的行会错开
+  const visibleGroups = useMemo(() => config
+    ? groups(tasks, config, state.sortMode, nowLocal(), state.query)
+      .filter((group) => group.tasks.length > 0)
+      .map((group) => ({ ...group, nested: nestTasks(group.tasks), tasks: nestTasks(group.tasks).map((item) => item.task) }))
+    : [], [config, state.query, state.sortMode, tasks]);
   const visible = useMemo(() => flatten(visibleGroups), [visibleGroups]);
   const selected = visible[state.selectedIndex];
   const stateRef = useRef(state);
@@ -624,7 +639,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   let taskIndex = 0;
   for (const group of visibleGroups) {
     lines.push({ kind: "sep", name: group.name, count: group.tasks.length });
-    for (const task of group.tasks) lines.push({ kind: "task", task, index: taskIndex++ });
+    for (const { task, depth } of group.nested) lines.push({ kind: "task", task, depth, index: taskIndex++ });
   }
   // 终端高度已知时做滚动窗口，保证选中行始终可见
   let windowStart = 0;
@@ -722,7 +737,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
         {lines.length === 0 ? <Text color={C.dimmer}>（没有任务）</Text> : windowLines.map((line) => (
           line.kind === "sep"
             ? <GroupSeparator key={`sep-${line.name}-${line.count}`} name={line.name} count={line.count} />
-            : <TaskRow key={line.task.id} task={line.task} selected={line.index === state.selectedIndex} today={today} dateFormat={state.dateFormat} levels={levels} titleWidth={titleWidth} />
+            : <TaskRow key={line.task.id} task={line.task} selected={line.index === state.selectedIndex} today={today} dateFormat={state.dateFormat} levels={levels} titleWidth={titleWidth} depth={line.depth} />
         ))}
       </Box>
       <Box paddingLeft={2} paddingRight={2}><PreviewLine state={state} levels={levels} /></Box>

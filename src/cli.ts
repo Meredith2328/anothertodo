@@ -3,7 +3,7 @@ import { Command } from "commander";
 import { pathToFileURL } from "node:url";
 
 import { ApplicationService } from "./app/service.js";
-import { groups, renderLine } from "./core/agenda.js";
+import { groups, nestTasks, renderLine } from "./core/agenda.js";
 import { configPath, dataDir, getConfigValue, loadConfig, setConfigValue } from "./core/config.js";
 import { parse, preview, scanDate } from "./core/parse.js";
 import { Store } from "./storage/store.js";
@@ -51,7 +51,7 @@ export const buildProgram = (): Command => {
     for (const group of agenda) {
       if (!group.tasks.length) { if (group.name.startsWith("隐藏")) console.log(group.name); continue; }
       console.log(`== ${group.name} ==`);
-      for (const task of group.tasks) console.log(`  ${task.id.padEnd(8)} ${renderLine(task, cfg, now.slice(0, 10), selectedMode, now)}`);
+      for (const { task, depth } of nestTasks(group.tasks)) console.log(`  ${task.id.padEnd(8)} ${renderLine(task, cfg, now.slice(0, 10), selectedMode, now, depth)}`);
     }
   });
 

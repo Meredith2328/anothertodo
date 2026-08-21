@@ -1,5 +1,6 @@
 import type { Config, Task } from "../contracts.js";
 import { configLevels } from "./config.js";
+import { describeRecur } from "./parse.js";
 import { compileQuery, match } from "./query.js";
 import { sortKey, urgency, type SortMode, compareTuple } from "./priority.js";
 import { hiddenByWait, isOverdue, localDate, ACTIVE_STATES } from "./task.js";
@@ -44,6 +45,35 @@ export const groups = (allTasks: Task[], config: Config, mode: SortMode = config
   return result;
 };
 
+export type NestedTask = { task: Task; depth: number };
+
+/**
+ * 把排好序的一组任务重排成父子相邻的顺序，并标出层级。
+ * 父任务不在这一组里的（比如父任务已完成、或被查询滤掉了）当作顶层，
+ * 免得子任务整组消失。父子成环时也保证每条任务只出现一次。
+ */
+export const nestTasks = (tasks: Task[]): NestedTask[] => {
+  const byId = new Map(tasks.map((task) => [task.id, task]));
+  const childrenOf = new Map<string, Task[]>();
+  const roots: Task[] = [];
+  for (const task of tasks) {
+    const parent = task.parent !== undefined && task.parent !== task.id && byId.has(task.parent) ? task.parent : undefined;
+    if (parent === undefined) roots.push(task);
+    else childrenOf.set(parent, [...(childrenOf.get(parent) ?? []), task]);
+  }
+  const out: NestedTask[] = [];
+  const seen = new Set<string>();
+  const visit = (task: Task, depth: number): void => {
+    if (seen.has(task.id)) return;
+    seen.add(task.id);
+    out.push({ task, depth });
+    for (const child of childrenOf.get(task.id) ?? []) visit(child, depth + 1);
+  };
+  for (const root of roots) visit(root, 0);
+  for (const task of tasks) if (!seen.has(task.id)) { seen.add(task.id); out.push({ task, depth: 0 }); }
+  return out;
+};
+
 export const formatDate = (task: Task, today: string, dateFormat: "auto" | "md" | "full" = "auto"): string => {
   if (!task.due) return "          ";
   const date = localDate(task.due);
@@ -59,10 +89,12 @@ export const formatDate = (task: Task, today: string, dateFormat: "auto" | "md" 
   return `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
 };
 
-export const renderLine = (task: Task, config: Config, today: string, mode: SortMode, now = `${today}T00:00`): string => {
+export const renderLine = (task: Task, config: Config, today: string, mode: SortMode, now = `${today}T00:00`, depth = 0): string => {
   const date = formatDate(task, today, config.agenda.date_format).padEnd(5);
   const status = task.status === "todo" ? "" : `[${task.status}]`;
   const tags = task.tags.map((tag) => `#${tag}`).join(" ");
-  const line = [date, task.title, task.priority ?? "", status, tags].filter((item) => item.trim()).join("  ");
+  const title = depth > 0 ? `${"  ".repeat(depth - 1)}↳ ${task.title}` : task.title;
+  const marks = [task.recur ? `↻${describeRecur(task.recur)}` : "", task.notes.trim() ? ">>" : ""].filter(Boolean).join(" ");
+  const line = [date, title, task.priority ?? "", status, tags, marks].filter((item) => item.trim()).join("  ");
   return mode === "urgency" ? `${line}  U=${urgency(task, config, now).toFixed(1)}` : line;
 };
