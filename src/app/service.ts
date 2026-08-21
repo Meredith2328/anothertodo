@@ -7,6 +7,10 @@ import { Store } from "../storage/store.js";
 import { syncDirectory } from "../sync/sync.js";
 import { snooze as snoozeReminder } from "../reminders/watcher.js";
 
+/** 写了未来的 `~日期` 就是在说「先押后」，直接落成 waiting，别留一个看不出状态的 todo */
+const initialStatus = (wait: string | undefined, today: string): "todo" | "waiting" =>
+  wait !== undefined && wait > today ? "waiting" : "todo";
+
 /** Application operations shared by CLI and TUI; presentation layers do not mutate tasks themselves. */
 export class ApplicationService {
   constructor(readonly store: Store) {}
@@ -26,7 +30,7 @@ export class ApplicationService {
     const parsed = parse(input, now, [...config.priority.levels]);
     if (!parsed.title) throw new Error("标题不能为空");
     return this.store.save(parseTask({
-      id: newId(), title: parsed.title, status: "todo",
+      id: newId(), title: parsed.title, status: initialStatus(parsed.wait, now.slice(0, 10)),
       ...(parsed.due ? { due: parsed.due } : {}), ...(parsed.priority ? { priority: parsed.priority } : {}),
       tags: parsed.tags, ...(parsed.project ? { project: parsed.project } : {}), ...(parsed.parent ? { parent: parsed.parent } : {}),
       ...(parsed.wait ? { wait: parsed.wait } : {}),

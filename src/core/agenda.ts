@@ -2,7 +2,7 @@ import type { Config, Task } from "../contracts.js";
 import { configLevels } from "./config.js";
 import { compileQuery, match } from "./query.js";
 import { sortKey, urgency, type SortMode, compareTuple } from "./priority.js";
-import { hiddenByWait, isOverdue, localDate } from "./task.js";
+import { hiddenByWait, isOverdue, localDate, ACTIVE_STATES } from "./task.js";
 
 export type Group = { name: string; style: string; tasks: Task[] };
 const sort = (tasks: Task[], mode: SortMode, config: Config, now: string): Task[] => [...tasks].sort((a, b) => compareTuple(sortKey(a, mode, config, now), sortKey(b, mode, config, now)));
@@ -14,13 +14,21 @@ export const groups = (allTasks: Task[], config: Config, mode: SortMode = config
   const horizon = new Date(`${today}T00:00:00Z`);
   horizon.setUTCDate(horizon.getUTCDate() + config.agenda.week_days);
   const horizonDate = horizon.toISOString().slice(0, 10);
-  const overdue = sort(tasks.filter((task) => isOverdue(task, today)), mode, config, now);
-  const todays = sort(tasks.filter((task) => (task.status === "todo" || task.status === "meeting") && task.due && localDate(task.due) === today), mode, config, now);
-  const upcoming = sort(tasks.filter((task) => (task.status === "todo" || task.status === "meeting") && task.due && localDate(task.due) > today && localDate(task.due) <= horizonDate), mode, config, now);
-  const later = sort(tasks.filter((task) => (task.status === "todo" || task.status === "meeting") && task.due && localDate(task.due) > horizonDate), mode, config, now);
-  const waiting = sort(tasks.filter((task) => task.status === "waiting" && !hiddenByWait(task, today)), mode, config, now);
-  const hidden = tasks.filter((task) => task.status === "waiting" && hiddenByWait(task, today));
-  const nodate = sort(tasks.filter((task) => task.status === "todo" && !task.due && !task.wait), mode, config, now);
+  // 查询里明确写了 wait 条件，说明用户就是要看这些等待中的任务，此时不再折叠
+  const revealWaiting = predicates.some((predicate) => predicate[0] === "wait");
+  const hidden = revealWaiting ? [] : tasks.filter((task) => ACTIVE_STATES.has(task.status) && hiddenByWait(task, today));
+  const hiddenIds = new Set(hidden.map((task) => task.id));
+  const open = tasks.filter((task) => ACTIVE_STATES.has(task.status) && !hiddenIds.has(task.id));
+  // wait 只决定「现在要不要露出来」，不再决定分组归属；否则 todo + ~日期
+  // 的任务两头落空，永远看不见
+  const scheduled = open.filter((task) => task.status !== "waiting" && task.due !== undefined && !isOverdue(task, today));
+  const dueDate = (task: Task): string => localDate(task.due ?? "");
+  const overdue = sort(open.filter((task) => isOverdue(task, today)), mode, config, now);
+  const todays = sort(scheduled.filter((task) => dueDate(task) === today), mode, config, now);
+  const upcoming = sort(scheduled.filter((task) => dueDate(task) > today && dueDate(task) <= horizonDate), mode, config, now);
+  const later = sort(scheduled.filter((task) => dueDate(task) > horizonDate), mode, config, now);
+  const waiting = sort(open.filter((task) => task.status === "waiting"), mode, config, now);
+  const nodate = sort(open.filter((task) => task.status !== "waiting" && task.due === undefined), mode, config, now);
   const result: Group[] = [];
   if (overdue.length) result.push({ name: "逾期", style: "bold red", tasks: overdue });
   if (todays.length) result.push({ name: "今天", style: "bold cyan", tasks: todays });
@@ -32,7 +40,7 @@ export const groups = (allTasks: Task[], config: Config, mode: SortMode = config
     const finished = sort(tasks.filter((task) => task.status === "done" || task.status === "cancelled"), mode, config, now);
     if (finished.length) result.push({ name: "已完成/已取消", style: "dim strike", tasks: finished });
   }
-  result.push({ name: `隐藏(等待未到) ${hidden.length} 项`, style: "dim", tasks: [] });
+  if (hidden.length) result.push({ name: `隐藏(等待未到) ${hidden.length} 项`, style: "dim", tasks: [] });
   return result;
 };
 
