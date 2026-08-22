@@ -2,6 +2,18 @@
 
 本文件记录用户能感觉到的变化。日期按发布日算。
 
+## 未发布
+
+### 安全
+
+把 nodemailer 从 6.10.1 升到 9.0.5，清掉它的 8 条依赖告警。这些告警只在配置并启用了 `email` 提醒 hook 时才可能被触发，默认的 `toast` 通知不碰这段代码，但其中几条分量不轻——addressparser 递归导致的拒绝服务（CVSS 7.5）、`raw` 选项绕过 `disableFileAccess` 造成任意文件读和 SSRF（7.1）、OAuth2 取 token 时 TLS 证书校验不当（6.5）。
+
+升级跨了三个大版本，逐条核对过 breaking change 对本项目的影响：v7 只删了 SES 相关支持（没用到），v8 把错误码 `NoAuth` 改名 `ENOAUTH`（代码里没有任何按错误码分支的逻辑），v9 给附件、OAuth2、代理这些对外抓取加上 TLS 证书校验（都没用到，也没设过 `tls` 选项）。所以对「直连 SMTP 发一封纯文本邮件」这个用法来说没有行为变化。
+
+顺带补了两个真库回归测试。原来的 email hook 测试注入了假 transport，真实 nodemailer 一行都没跑到，换版本出问题得等用户配了邮件才发现。现在会用 `streamTransport` 真编译一封邮件（不连任何服务器），并且钉住一个前提：任务标题里带 CRLF 时不会注入邮件头——nodemailer 会把 subject 做 RFC 2047 编码，CRLF 连同后面伪造的头一起被裹进 encoded-word。这个前提是审计时实测确认的，写成测试以免将来换库时静默失效。
+
+开发依赖那边 vitest 链上还剩 5 条告警（1 critical + 4 moderate），都是开发服务器相关，不进发行产物，本项目也不跑 vite dev server 或 vitest UI，留待单独升级。
+
 ## 0.2.1
 
 这一版的主线是把之前审查里发现的问题逐个修掉，顺带把几个「存了但用不上」的字段补成完整功能。
@@ -109,7 +121,7 @@ atd config set ui.lang en
 
 `npm audit` 报了 6 个依赖漏洞，这一版没动，因为修复都要跨大版本升级，不适合塞进一个补丁版本：
 
-- **nodemailer 6.x**（运行时依赖，2 个 high）：SMTP 命令注入和收件域名解析歧义。只有配置并启用了 `email` 提醒 hook 才会走到这段代码，默认的 `toast` 通知不受影响。修复需要升到 nodemailer 9。
+- **nodemailer 6.x**（运行时依赖，2 个 high）：SMTP 命令注入和收件域名解析歧义。只有配置并启用了 `email` 提醒 hook 才会走到这段代码，默认的 `toast` 通知不受影响。修复需要升到 nodemailer 9。（**已在下一版修掉**，见上方「未发布」一节。）
 - **vitest / vite / esbuild**（仅开发依赖，1 个 critical + 3 个 moderate）：都是开发服务器相关的任意文件读取。这几个包不进发行产物，本项目也不跑 vite dev server 或 vitest UI。修复需要升到 vitest 4。
 
 两处升级计划放到下一个版本单独做，好单独验证。
