@@ -6,7 +6,7 @@
 
 A lightweight todo list: add tasks with a single line of fuzzy input, manage them in a command-line TUI, get reminded via hooks, and sync across devices with git. Data is plain-text JSONL stored in `~/.atd/`.
 
-> For the full feature guide and examples, see the **[VitePress docs site](https://meredith2328.github.io/anothertodo/)**. This README is a quick reference.
+> For the full feature guide and examples, see the **[VitePress docs site](https://meredith2328.github.io/anothertodo/)**. This README is a quick reference; see the [CHANGELOG](CHANGELOG.md) for what changed between versions.
 
 ## Installation
 
