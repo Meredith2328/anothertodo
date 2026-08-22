@@ -119,9 +119,27 @@ describe("mouse bridge end-to-end (no emitMouse shortcut)", () => {
   it("enables and disables SGR tracking on the terminal", () => {
     const { bridge, written } = makeBridge();
     bridge.enable();
-    expect(written.join("")).toContain("\x1b[?1000h");
+    // 1003 而不是 1000：悬浮高亮需要「任意移动都上报」，1000 只报按下/释放
+    expect(written.join("")).toContain("\x1b[?1003h");
     expect(written.join("")).toContain("\x1b[?1006h");
     bridge.disable();
-    expect(written.join("")).toContain("\x1b[?1000l");
+    expect(written.join("")).toContain("\x1b[?1003l");
+  });
+
+  it("reports pointer movement as move events (hover needs 1003)", async () => {
+    const { stdin, bridge } = makeBridge();
+    const seen: MouseEvent[] = [];
+    const stop = subscribeMouse((event) => seen.push(event));
+    bridge.enable();
+    // bit 5（32）= 移动上报；35 = 32|3 表示按住拖动，32 是纯悬浮
+    stdin.write("\x1b[<32;10;7M");
+    stdin.write("\x1b[<35;11;8M");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    bridge.disable();
+    stop();
+    expect(seen).toEqual([
+      { kind: "move", button: 0, x: 10, y: 7 },
+      { kind: "move", button: 3, x: 11, y: 8 },
+    ]);
   });
 });

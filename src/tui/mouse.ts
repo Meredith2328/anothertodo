@@ -5,7 +5,7 @@ import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
 import type { ReadableOptions } from "node:stream";
 
-export type MouseKind = "press" | "release" | "wheel-up" | "wheel-down";
+export type MouseKind = "press" | "release" | "wheel-up" | "wheel-down" | "move";
 export type MouseEvent = { kind: MouseKind; button: number; x: number; y: number };
 
 const ESC = "\x1b";
@@ -47,10 +47,14 @@ const parseMouseSequence = (sequence: string): MouseEvent | undefined => {
   if (current < 0 || parts.length !== 2) return undefined;
   const code = parts[0] ?? 0;
   const button = code & 3;
+  const x = parts[1] ?? 0;
   if (code & 64) {
-    return { kind: code & 1 ? "wheel-down" : "wheel-up", button, x: parts[1] ?? 0, y: current };
+    return { kind: code & 1 ? "wheel-down" : "wheel-up", button, x, y: current };
   }
-  return { kind: flag === "M" ? "press" : "release", button, x: parts[1] ?? 0, y: current };
+  // bit 5（32）= 移动上报（1003 模式）。按住拖动和纯悬浮都走这里，
+  // 上层只关心位置，所以统一成 move。
+  if (code & 32) return { kind: "move", button, x, y: current };
+  return { kind: flag === "M" ? "press" : "release", button, x, y: current };
 };
 
 // 在 buffer 头部找完整的鼠标序列，返回 [序列, 剩余]；没有完整序列返回 undefined
@@ -170,14 +174,15 @@ export const createMouseBridge = (stdin: NodeJS.ReadStream & { fd: number }, std
     stdin.pause();
     stdin.addListener("readable", onReadable);
     stdin.resume();
-    // 1000 = 点击/释放 + 滚轮；1006 = SGR 扩展编码（Windows Terminal / xterm 通用）
-    stdout.write("\x1b[?1000h\x1b[?1006h");
+    // 1003 = 任意移动都上报（悬浮高亮需要它；1000 只报按下/释放）；
+    // 1006 = SGR 扩展编码（Windows Terminal / xterm 通用，坐标不受 223 列限制）
+    stdout.write("\x1b[?1003h\x1b[?1006h");
   };
 
   const disable = (): void => {
     if (!enabled) return;
     enabled = false;
-    stdout.write("\x1b[?1000l\x1b[?1006l");
+    stdout.write("\x1b[?1003l\x1b[?1006l");
     stdin.removeListener("readable", onReadable);
   };
 

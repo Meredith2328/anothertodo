@@ -351,4 +351,51 @@ describe("footer mouse interaction", () => {
     expect((await reopenMutation).kind).toBe("success");
     expect((await store.get("00000081"))?.status).toBe("todo");
   });
+
+  it("highlights the hovered task row without changing the selection", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atd-ink-"));
+    const store = new Store(dir);
+    for (const id of ["00000091", "00000092"]) {
+      await store.save(parseTask({ id, title: `悬浮${id.slice(-1)}`, status: "todo", tags: [], reminders: [], entry: "2026-08-20T10:00:00Z", modified: "2026-08-20T10:00:00Z" }));
+    }
+    const signals = createSignals();
+    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={30} />);
+    await signals.ready();
+    await signals.data();
+    // 悬浮到第二个任务行（y=11：首任务行 10 + 1）
+    emitMouse({ kind: "move", button: 0, x: 20, y: 11 });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    // 悬浮纯视觉：不动选中、不产生任何数据变更。
+    // 不断言帧字符串——悬浮只改颜色，无色环境下帧是一样的，那样断言会假过。
+    expect((await store.get("00000091"))?.status).toBe("todo");
+    expect((await store.get("00000092"))?.status).toBe("todo");
+    // 光标仍在第一行：悬浮不该抢选中
+    const doneFirst = signals.mutation();
+    app.stdin.write("d");
+    await doneFirst;
+    expect((await store.get("00000091"))?.status).toBe("done");
+    expect((await store.get("00000092"))?.status).toBe("todo");
+  });
+
+  it("clicking the footer d button completes the task (hover then press)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atd-ink-"));
+    const store = new Store(dir);
+    await store.save(parseTask({ id: "00000093", title: "按下反馈", status: "todo", tags: [], reminders: [], entry: "2026-08-20T10:00:00Z", modified: "2026-08-20T10:00:00Z" }));
+    const signals = createSignals();
+    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={24} />);
+    await signals.ready();
+    await signals.data();
+    // 先悬浮再按下，模拟真实鼠标轨迹；移动本身不该触发任何动作
+    emitMouse({ kind: "move", button: 0, x: 24, y: 24 });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect((await store.get("00000093"))?.status).toBe("todo");
+    const mutation = signals.mutation();
+    emitMouse({ kind: "press", button: 0, x: 24, y: 24 });
+    expect((await mutation).kind).toBe("success");
+    expect((await store.get("00000093"))?.status).toBe("done");
+    // 松手不该再触发第二次动作
+    emitMouse({ kind: "release", button: 0, x: 24, y: 24 });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect((await store.get("00000093"))?.status).toBe("done");
+  });
 });
