@@ -2,7 +2,9 @@
 
 本文件记录用户能感觉到的变化。日期按发布日算。
 
-## 未发布
+## 0.2.2
+
+一个纯依赖安全版本，没有功能变化，也没有任何行为改动。做的事就一件：把 `npm audit` 从 6 条告警清到 0 条。
 
 ### 安全
 
@@ -123,8 +125,8 @@ atd config set ui.lang en
 
 `npm audit` 报了 6 个依赖漏洞，这一版没动，因为修复都要跨大版本升级，不适合塞进一个补丁版本：
 
-- **nodemailer 6.x**（运行时依赖，2 个 high）：SMTP 命令注入和收件域名解析歧义。只有配置并启用了 `email` 提醒 hook 才会走到这段代码，默认的 `toast` 通知不受影响。修复需要升到 nodemailer 9。（**已在下一版修掉**，见上方「未发布」一节。）
-- **vitest / vite / esbuild**（仅开发依赖，1 个 critical + 3 个 moderate）：都是开发服务器相关的任意文件读取。这几个包不进发行产物，本项目也不跑 vite dev server 或 vitest UI。修复需要升到 vitest 4。（**已在下一版修掉**。）
+- **nodemailer 6.x**（运行时依赖，2 个 high）：SMTP 命令注入和收件域名解析歧义。只有配置并启用了 `email` 提醒 hook 才会走到这段代码，默认的 `toast` 通知不受影响。修复需要升到 nodemailer 9。（**已在 0.2.2 修掉。**）
+- **vitest / vite / esbuild**（仅开发依赖，1 个 critical + 3 个 moderate）：都是开发服务器相关的任意文件读取。这几个包不进发行产物，本项目也不跑 vite dev server 或 vitest UI。修复需要升到 vitest 4。（**已在 0.2.2 修掉。**）
 
 两处升级计划放到下一个版本单独做，好单独验证。
 
