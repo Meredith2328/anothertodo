@@ -34,9 +34,12 @@ mkdirSync(reportDir, { recursive: true });
 
 const fonts = [
   ["C:\\Windows\\Fonts\\consola.ttf", "Consolas"],
+  ["C:\\Windows\\Fonts\\consolab.ttf", "Consolas"],
   ["C:\\Windows\\Fonts\\msyh.ttc", "Microsoft YaHei"],
   ["C:\\Windows\\Fonts\\simhei.ttf", "SimHei"],
   ["C:\\Windows\\Fonts\\simsun.ttc", "SimSun"],
+  // Consolas 没有 ↳ ↻ ◈ ✎ 这些字形，缺了会画成豆腐块，用 Segoe UI Symbol 兜底
+  ["C:\\Windows\\Fonts\\seguisym.ttf", "Segoe UI Symbol"],
 ];
 for (const [path, name] of fonts) { try { GlobalFonts.registerFromPath(path, name); } catch {} }
 
@@ -72,8 +75,15 @@ const press = async (app, signals, key) => {
   await a;
 };
 
-// ---------------------------------------------------------------- 画布绘制（离线重绘彩色帧）
-// 用纯文本帧 + theme 颜色常量绘制。文本帧每个字符一列，全角字符占 2 格。
+// ---------------------------------------------------------------- 画布绘制
+// 关键做法：不再"离线重绘"，而是把 Ink 真实输出的 ANSI 帧解析成
+// 「每个格子一个字符 + 一个颜色」，再按等宽网格逐格画。
+//
+// 之前的版本用 ctx.fillText 画整段文字、靠字体自然排布定位，同时用正则猜每
+// 行是什么（分组行？任务行？）。两者都会崩：canvas 里 SimSun 的实际字宽和
+// 假定的 COL 不一致，于是整行越画越偏；正则猜错就把分组名和任务标题叠在一起。
+// 现在对齐由「列号 × COL」保证，颜色直接来自帧里的 24-bit SGR 序列，
+// 不需要猜，也不会和 theme 脱节。
 const charW = (ch) => {
   const code = ch.codePointAt(0) ?? 0;
   if (code >= 0x1100 && code <= 0x115f || code >= 0x2e80 && code <= 0xa4cf || code >= 0xac00 && code <= 0xd7a3 || code >= 0xf900 && code <= 0xfaff || code >= 0xfe30 && code <= 0xfe6f || code >= 0xff00 && code <= 0xff60 || code >= 0xffe0 && code <= 0xffe6 || code >= 0x1f300 && code <= 0x1faff) return 2;
@@ -81,106 +91,113 @@ const charW = (ch) => {
 };
 const displayW = (s) => [...s].reduce((w, c) => w + charW(c), 0);
 
+const DEFAULT_FG = "#d8dee9";
+// ANSI 16 色回落（Ink 大多输出 24-bit，这里兜底）
+const BASIC = ["#3b4048", "#ff6188", "#a9dc76", "#ffd866", "#78dce8", "#ab9df2", "#56d4dd", "#d8dee9"];
+
+/**
+ * 把带 ANSI 的一帧解析成逐行的 cell 数组。
+ * 每个 cell = { ch, fg, bg, bold, width }，宽字符后面跟一个 width:0 的占位，
+ * 这样「列号」和终端里的物理列严格对应。
+ */
+const parseAnsiFrame = (frame) => {
+  const rows = [];
+  for (const rawLine of frame.split("\n")) {
+    const cells = [];
+    let fg = DEFAULT_FG;
+    let bg = null;
+    let bold = false;
+    let i = 0;
+    while (i < rawLine.length) {
+      if (rawLine[i] === "\u001b" && rawLine[i + 1] === "[") {
+        const end = rawLine.indexOf("m", i);
+        if (end === -1) break;
+        const params = rawLine.slice(i + 2, end).split(";").map(Number);
+        for (let p = 0; p < params.length; p += 1) {
+          const code = params[p];
+          if (code === 0) { fg = DEFAULT_FG; bg = null; bold = false; }
+          else if (code === 1) bold = true;
+          else if (code === 22) bold = false;
+          else if (code === 39) fg = DEFAULT_FG;
+          else if (code === 49) bg = null;
+          else if (code === 38 && params[p + 1] === 2) { fg = `rgb(${params[p + 2]},${params[p + 3]},${params[p + 4]})`; p += 4; }
+          else if (code === 48 && params[p + 1] === 2) { bg = `rgb(${params[p + 2]},${params[p + 3]},${params[p + 4]})`; p += 4; }
+          else if (code >= 30 && code <= 37) fg = BASIC[code - 30];
+          else if (code >= 90 && code <= 97) fg = BASIC[code - 90];
+          else if (code >= 40 && code <= 47) bg = BASIC[code - 40];
+        }
+        i = end + 1;
+        continue;
+      }
+      const ch = String.fromCodePoint(rawLine.codePointAt(i));
+      const w = charW(ch);
+      cells.push({ ch, fg, bg, bold, width: w });
+      // 宽字符占两列：补一个零宽占位，保持列号与物理列一致
+      if (w === 2) cells.push({ ch: "", fg, bg, bold, width: 0 });
+      i += ch.length;
+    }
+    rows.push(cells);
+  }
+  return rows;
+};
+
 const drawFrame = (frame, path, rows = 24) => {
-  const COL = 12; // 每字符像素（放大提升清晰度）
-  const PAD = 16;
-  const lines = frame.split("\n");
-  const H = rows * COL + PAD * 2;
-  const W = 80 * COL + PAD * 2;
+  // 关键比例：真实终端里 CJK 正好是 ASCII 的两倍宽。所以以 ASCII 为基准格宽 COL，
+  // CJK 占 2*COL，字号按格宽推导——ASCII 字号约等于 COL/0.6（Consolas 的宽高比），
+  // CJK 字号约等于 2*COL（方块字满格）。这样两种字符在同一网格上严格对齐。
+  const COL = 11;                       // 一个 ASCII 字符的像素宽
+  const LINE = Math.round(COL * 2.05);  // 行高
+  const PAD = 18;
+  const ASCII_PX = Math.round(COL / 0.55);  // Consolas 在该字号下 advance ≈ 0.55em
+  const CJK_PX = COL * 2;                   // 方块字满两格
+  const grid = parseAnsiFrame(frame);
+  const cols = Math.max(100, ...grid.map((line) => line.length));
+  const W = cols * COL + PAD * 2;
+  const H = Math.max(rows, grid.length) * LINE + PAD * 2;
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = C.bg;
   ctx.fillRect(0, 0, W, H);
-  ctx.textBaseline = "top";
-  const FONT = `${Math.round(COL * 0.98)}px Consolas`;
-  const fontAt = (bold) => `${bold ? "bold " : ""}${Math.round(COL * 0.98)}px Consolas`;
+  ctx.textBaseline = "middle";
 
-  // 列宽（与 app.tsx 一致）
-  const DATE_W = 12, PRIORITY_W = 8, STATUS_W = 10, EXTRAS_W = 30;
-  // 表格内容左起列号：边框占 1 列 + paddingLeft=1
-  const TITLE_START = 2;
-  const PRIO_START = TITLE_START + DATE_W; // 日期列占 DATE_W
-  const STATUS_START = PRIO_START + PRIORITY_W;
-  const EXTRAS_START = STATUS_START + STATUS_W;
-
-  // 用 fillText 画整段文本，字距由等宽字体自然排布（紧凑、贴近真实终端）。
-  // 正文用 SimSun（宋体，严格等宽 CJK：汉字 2 格、ASCII 1 格），复现真实终端等宽网格。
-  // 横幅/边框等纯 ASCII 结构用 Consolas，保持像素字与制表符的观感。
-  const drawSeg = (lineIdx, segStart, segText, color, bold = false, bg = null, fontName = "SimSun") => {
-    if (!segText) return 0;
-    const x = PAD + segStart * COL;
-    const y = PAD + lineIdx * COL;
-    const font = `${bold ? "bold " : ""}${Math.round(COL * 0.98)}px ${fontName}`;
-    ctx.font = font;
-    const w = ctx.measureText(segText).width;
-    if (bg) { ctx.fillStyle = bg; ctx.fillRect(x, y, w + 2, COL); }
-    ctx.fillStyle = color;
-    ctx.fillText(segText, x, y);
-    return displayW(segText);
-  };
-  // 识别分组名（含数量）所在行：内容形如 "╾─ 名称 N ──────"
-  const groupMatch = (line) => /^╾─\s*(.+?)\s+(\d+)\s*─/.exec(line);
-  const isSelected = (line) => line.length > 0 && line !== lines[0] && /^\S/.test(line) && !/^[╭╰]/.test(line) && !/^╾/.test(line);
-
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i] ?? "";
-    // 横幅行（前 BANNER_FULL.length-1 行）——纯 ASCII 像素字，用 Consolas
-    if (i < BANNER_FULL.length - 1 && BANNER_FULL[i]) {
-      drawSeg(i, 0, line, BANNER_COLORS[i % BANNER_COLORS.length] ?? C.hot, false, null, "Consolas");
-      continue;
+  // 先铺所有背景块（选中行高亮），再画字，避免后画的背景盖住前面的字
+  for (let r = 0; r < grid.length; r += 1) {
+    for (let c = 0; c < grid[r].length; c += 1) {
+      const cell = grid[r][c];
+      if (!cell.bg) continue;
+      ctx.fillStyle = cell.bg;
+      ctx.fillRect(PAD + c * COL, PAD + r * LINE, COL * Math.max(1, cell.width), LINE);
     }
-    // 信息行（横幅之后 1 行）：右侧状态栏，用 dim 底 + accent 数字
-    if (i === BANNER_FULL.length) {
-      drawSeg(i, 0, line, C.dim, false);
-      continue;
-    }
-    // 表格上边框
-    if (i === BANNER_FULL.length + 1) { drawSeg(i, 0, line, C.border, false, null, "Consolas"); continue; }
-    // 表头行
-    if (i === BANNER_FULL.length + 2) { drawSeg(i, 0, line, C.dim, true); continue; }
-    // 分组分隔行：整行用该组颜色
-    const g = groupMatch(line);
-    if (g) {
-      drawSeg(i, 0, line, GROUP_COLOR[g[1]] ?? C.dim, true);
-      continue;
-    }
-    // 任务行：识别列并逐段上色
-    if (i > BANNER_FULL.length + 2 && line.includes("│")) {
-      const body = line.replace(/[│╭╰]/gu, " ");
-      // 按显示宽度精确切段：全角字符占 2 列，半角占 1 列
-      const sliceDisplay = (text, from, width) => {
-        let used = 0;
-        let out = "";
-        let col = 0;
-        for (const ch of text) {
-          const w = charW(ch);
-          if (col + w > from + width) break;
-          if (col >= from) { out += ch; used += w; }
-          col += w;
-        }
-        return out;
-      };
-      // 日期段（列 2 起，占 DATE_W 显示列）
-      const dateText = sliceDisplay(body, TITLE_START, DATE_W).trim();
-      const titleText = sliceDisplay(body, TITLE_START + DATE_W, PRIO_START - TITLE_START - DATE_W).trim();
-      const prioText = sliceDisplay(body, PRIO_START, PRIORITY_W).trim();
-      const statusText = sliceDisplay(body, STATUS_START, STATUS_W).trim();
-      const extras = sliceDisplay(body, EXTRAS_START, 99).trim();
-      drawSeg(i, TITLE_START, dateText, C.dim, false);
-      drawSeg(i, TITLE_START + DATE_W, titleText, "#d8dee9", false);
-      drawSeg(i, PRIO_START, prioText, C.good, false);
-      const statusColor = STATUS_COLOR[statusText] ?? C.dim;
-      drawSeg(i, STATUS_START, statusText, statusColor, statusText === "waiting" || statusText === "meeting");
-      drawSeg(i, EXTRAS_START, extras, C.dim, false);
-      continue;
-    }
-    // 其余行（预览行/输入框/Footer）
-    drawSeg(i, 0, line, C.dim, false);
   }
 
-  // 用窄终端 banner 时重新画 banner（不做，默认走宽版）
-  const buf = canvas.toBuffer("image/png");
-  writeFileSync(path, buf);
+  // 制表符 / 方框绘制字符（U+2500–U+259F）：占 1 格。Consolas 的横线在小字号下
+  // 会断开，Segoe UI Symbol 的连得更实，所以这一段也交给它，但仍按窄字符定位。
+  const isBox = (ch) => /[\u2500-\u257f\u2580-\u259f]/u.test(ch);
+  // Consolas 缺字形的窄符号（↳ ↻ ◈ ✎ ● ∑ 等），一并回落到 Segoe UI Symbol。
+  const isSymbol = (ch) => /[\u2190-\u21ff\u2200-\u22ff\u2300-\u23ff\u25a0-\u25ff\u2600-\u27bf\u2b00-\u2bff]/u.test(ch);
+
+  // 逐格画字：x 由列号算出，对齐由数学保证，不依赖字体度量
+  for (let r = 0; r < grid.length; r += 1) {
+    const y = PAD + r * LINE + LINE / 2;
+    for (let c = 0; c < grid[r].length; c += 1) {
+      const cell = grid[r][c];
+      if (!cell.ch || cell.ch === " ") continue;
+      const wide = cell.width === 2;
+      const box = isBox(cell.ch);
+      const sym = isSymbol(cell.ch);
+      // 方框与缺字形符号走 Segoe UI Symbol；CJK 走 SimSun；其余 ASCII 走 Consolas
+      const font = box || sym ? "Segoe UI Symbol" : (wide ? "SimSun" : "Consolas");
+      const px = wide && !box && !sym ? CJK_PX : ASCII_PX;
+      ctx.font = `${cell.bold ? "bold " : ""}${px}px ${font}`;
+      ctx.fillStyle = cell.fg;
+      // 每个字符居中于它自己占的格子（宽字符是两格，所以中心在 +COL）
+      const x = PAD + c * COL + (wide ? COL : COL / 2);
+      ctx.textAlign = "center";
+      ctx.fillText(cell.ch, x, y);
+    }
+  }
+
+  writeFileSync(path, canvas.toBuffer("image/png"));
 };
 
 // ---------------------------------------------------------------- 样本数据（覆盖各分组与状态）
@@ -193,19 +210,22 @@ const iso = (offset, time = "") => {
 
 const seedTasks = async (store) => {
   const samples = [
-    { title: "项目复盘", due: iso(-3, "10:00"), priority: "很急", tags: ["工作"], project: "工作" },
-    { title: "例会", due: iso(-1, "14:00"), tags: ["meeting"] },
-    { title: "写周报", due: iso(1, "09:00"), priority: "高", tags: ["工作"], reminders: [{ at: iso(1, "08:30"), hooks: ["toast"], fired: false }] },
-    { title: "取快递", due: iso(2, "18:00"), priority: "低" },
-    { title: "读书笔记", due: iso(9, "20:00") },
-    { title: "买牛奶", priority: "中", tags: ["生活"] },
-    { title: "等待审批的报销", status: "waiting", wait: iso(-1) },
+    { id: "00000000", title: "项目复盘", due: iso(-3, "10:00"), priority: "很急", tags: ["工作"], project: "工作" },
+    { id: "00000001", title: "例会", due: iso(-1, "14:00"), tags: ["meeting"], status: "meeting" },
+    { id: "00000002", title: "写周报", due: iso(1, "09:00"), priority: "高", tags: ["工作"], notes: "带上上周的数据和这周的排期", reminders: [{ at: iso(1, "08:30"), hooks: ["toast"], fired: false }] },
+    { id: "00000003", title: "取快递", due: iso(2, "18:00"), priority: "低" },
+    { id: "00000004", title: "读书笔记", due: iso(9, "20:00") },
+    { id: "00000005", title: "倒垃圾", priority: "中", tags: ["生活"], recur: { kind: "daily", interval: 1 }, notes: "厨房那袋先扔" },
+    { id: "00000006", title: "等待审批的报销", status: "waiting", wait: iso(-1) },
+    { id: "00000007", title: "装修" },
+    { id: "00000008", title: "买瓷砖", parent: "00000007", tags: ["采购"] },
   ];
-  for (const [i, s] of samples.entries()) {
+  for (const s of samples) {
     await store.save(parseTask({
-      id: String(i).padStart(8, "0"), title: s.title, status: s.status ?? "todo",
+      id: s.id, title: s.title, status: s.status ?? "todo",
       ...(s.due ? { due: s.due } : {}), ...(s.priority ? { priority: s.priority } : {}),
       tags: s.tags ?? [], ...(s.project ? { project: s.project } : {}), ...(s.wait ? { wait: s.wait } : {}),
+      ...(s.parent ? { parent: s.parent } : {}), ...(s.notes ? { notes: s.notes } : {}), ...(s.recur ? { recur: s.recur } : {}),
       reminders: s.reminders ?? [], entry: "2026-08-20T10:00:00Z", modified: "2026-08-20T10:00:00Z",
     }));
   }
@@ -285,16 +305,16 @@ const scenarios = [
   },
   {
     id: "search-filter",
-    title: "搜索过滤 /报告",
+    title: "搜索过滤 /周报",
     rows: 24,
     run: async (app, signals) => {
       await press(app, signals, "/");
-      await press(app, signals, "报告");
+      await press(app, signals, "周报");
       const mutation = signals.mutation();
       app.stdin.write("\n");
       await mutation;
       const frame = app.lastFrame();
-      const ok = frame.includes("过滤") && frame.includes("报告") && !frame.includes("读书笔记");
+      const ok = frame.includes("过滤") && frame.includes("周报") && !frame.includes("读书笔记");
       await press(app, signals, ":");
       await press(app, signals, "list");
       app.stdin.write("\n");
@@ -329,16 +349,82 @@ const scenarios = [
   },
   {
     id: "delete-soft",
-    title: "x 软删除",
+    title: "x 删除：先弹确认框",
     rows: 24,
     run: async (app, signals, store) => {
       await press(app, signals, "j");
       const before = (await store.tasks()).length;
+      // 0.2.1 起 x 不再直接删除，先弹确认框；这一帧就是要展示那个确认框
+      await press(app, signals, "x");
+      const frame = app.lastFrame();
+      const asked = frame.includes("请确认") && frame.includes("删除");
+      const intact = (await store.tasks()).length === before;
+      // 按 y 真正执行删除
       const mutation = signals.mutation();
-      app.stdin.write("x");
+      app.stdin.write("y");
       await mutation;
       const after = (await store.tasks()).length;
-      return { frame: app.lastFrame(), asserts: [["删除后任务数减少", after === before - 1]] };
+      return { frame, asserts: [
+        ["弹出确认框", asked],
+        ["未确认前不删除", intact],
+        ["确认后任务数减少", after === before - 1],
+      ] };
+    },
+  },
+  {
+    id: "detail-overlay",
+    title: "l 详情浮层：备注、提醒、子任务",
+    rows: 30,
+    run: async (app, signals) => {
+      // 选到「写周报」（带备注和提醒的那条）
+      await press(app, signals, "g");
+      for (let i = 0; i < 2; i += 1) await press(app, signals, "j");
+      await press(app, signals, "l");
+      const frame = app.lastFrame();
+      return { frame, asserts: [
+        ["显示备注正文", frame.includes("带上上周")],
+        ["显示提醒投递状态", frame.includes("待发送")],
+        ["显示浮层操作提示", frame.includes("其他键关闭")],
+      ] };
+    },
+  },
+  {
+    id: "multi-select",
+    title: "空格多选 + 批量操作",
+    rows: 24,
+    run: async (app, signals) => {
+      await press(app, signals, "g");
+      await press(app, signals, " ");
+      await press(app, signals, " ");
+      const frame = app.lastFrame();
+      return { frame, asserts: [
+        ["顶栏显示已选数量", frame.includes("◉2")],
+        ["行首出现勾选标记", frame.includes("◉ ")],
+      ] };
+    },
+  },
+  {
+    id: "subtasks",
+    title: "子任务缩进显示",
+    rows: 24,
+    run: async (app, signals) => {
+      const frame = app.lastFrame();
+      return { frame, asserts: [
+        ["子任务缩进标记", frame.includes("↳")],
+        ["父任务在其上方", frame.indexOf("装修") < frame.indexOf("↳")],
+      ] };
+    },
+  },
+  {
+    id: "recur-marks",
+    title: "重复规则与备注标记",
+    rows: 24,
+    run: async (app, signals) => {
+      const frame = app.lastFrame();
+      return { frame, asserts: [
+        ["显示重复规则", frame.includes("↻每天")],
+        ["显示有备注标记", frame.includes("✎")],
+      ] };
     },
   },
   {
@@ -399,12 +485,12 @@ const scenarios = [
       const frame = app.lastFrame();
       // 进入搜索输入态：输入框前缀 /
       const entered = frame.includes("/");
-      await press(app, signals, "报告");
+      await press(app, signals, "周报");
       const mutation = signals.mutation();
       app.stdin.write("\n");
       await mutation;
       const filtered = app.lastFrame();
-      const ok = filtered.includes("过滤") && filtered.includes("报告") && !filtered.includes("读书笔记");
+      const ok = filtered.includes("过滤") && filtered.includes("周报") && !filtered.includes("读书笔记");
       return { frame: filtered, asserts: [["Ctrl+F 进入搜索态", entered], ["过滤生效且排除未匹配", ok]] };
     },
   },
@@ -443,6 +529,28 @@ const scenarios = [
 ];
 
 // ---------------------------------------------------------------- 执行
+/**
+ * ink-testing-library 的 lastFrame() 会吃掉横幅首行（BANNER_FULL[0]，那行只有
+ * 一个 `_` 和空格），于是截图里横幅顶端像被裁了一刀。真实终端里这行是在的，
+ * 所以采集后按 theme 里的定义补回去，让截图和实际观感一致。
+ */
+const restoreBannerTop = (frame) => {
+  const first = BANNER_FULL[0];
+  const second = BANNER_FULL[1];
+  if (!first || !second) return frame;
+  const lines = frame.split("\n");
+  const plain = (s) => s.replace(/\u001b\[[0-9;]*m/gu, "");
+  // Ink 给横幅加了 paddingLeft=1，所以帧里的缩进比 theme 定义多一格；
+  // 按 trim 后的内容判断，并沿用帧里实际的缩进量补首行
+  const head = plain(lines[0] ?? "");
+  if (head.trim() !== second.trim()) return frame;
+  const indent = " ".repeat(head.length - head.trimStart().length - (second.length - second.trimStart().length));
+  const color = (lines[0] ?? "").match(/^\u001b\[[0-9;]*m/u)?.[0] ?? "";
+  const restored = `${indent}${first}`;
+  lines.unshift(color ? `${color}${restored}\u001b[39m` : restored);
+  return lines.join("\n");
+};
+
 const report = [];
 const runScenario = async (scenario) => {
   const dir = mkdtempSync(join(tmpdir(), "atd-tui-shot-"));
@@ -453,8 +561,9 @@ const runScenario = async (scenario) => {
   await signals.ready();
   await signals.data();
   const result = await scenario.run(app, signals, store);
-  const text = result.frame ?? "";
-  writeFileSync(join(textDir, `${scenario.id}.txt`), text, "utf8");
+  const text = restoreBannerTop(result.frame ?? "");
+  // .txt 是给文档直接贴的，剥掉 ANSI；PNG 用带色原帧，颜色才来自真实渲染
+  writeFileSync(join(textDir, `${scenario.id}.txt`), text.replace(/\u001b\[[0-9;]*m/gu, ""), "utf8");
   drawFrame(text, join(shotDir, `${scenario.id}.png`), scenario.rows);
   const failed = result.asserts.filter(([, ok]) => !ok);
   report.push({ id: scenario.id, title: scenario.title, rows: scenario.rows, asserts: result.asserts.map(([name, ok]) => ({ name, ok })), pass: failed.length === 0, failed: failed.map(([name]) => name) });
@@ -462,8 +571,16 @@ const runScenario = async (scenario) => {
   rmSync(dir, { recursive: true, force: true });
 };
 
+// 每个场景单独限时：某个场景在等一个永不到来的信号时（比如按键语义变了），
+// 只让它自己失败，不要把整个采集器挂死——0.2.1 把 x 改成先弹确认框，
+// 旧的 delete-soft 场景就是这样把整次采集卡住的。
+const withDeadline = (promise, label, ms = 20_000) => new Promise((resolve, reject) => {
+  const timer = setTimeout(() => reject(new Error(`${label} 超过 ${ms}ms 未结束（按键语义可能变了）`)), ms);
+  promise.then((v) => { clearTimeout(timer); resolve(v); }, (e) => { clearTimeout(timer); reject(e); });
+});
+
 for (const scenario of scenarios) {
-  try { await runScenario(scenario); }
+  try { await withDeadline(runScenario(scenario), scenario.id); }
   catch (error) { report.push({ id: scenario.id, title: scenario.title, error: String(error), pass: false }); }
 }
 
