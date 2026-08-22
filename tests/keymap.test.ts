@@ -85,3 +85,51 @@ describe("tui-shortcuts frozen contract", () => {
     expect(mapKey(add, press("", { tab: true }))).toEqual({ type: "complete" });
   });
 });
+
+describe("keys added after the frozen contract", () => {
+  it("pages with PgUp / PgDn", () => {
+    expect(mapKey(list, press("", { pageUp: true }))).toEqual({ type: "page", delta: -1 });
+    expect(mapKey(list, press("", { pageDown: true }))).toEqual({ type: "page", delta: 1 });
+  });
+
+  it("marks with space and select-all with Ctrl+A", () => {
+    expect(mapKey(list, press(" "))).toEqual({ type: "shortcut", name: "mark" });
+    expect(mapKey(list, press("a", { ctrl: true }))).toEqual({ type: "shortcut", name: "markAll" });
+    // 输入区里空格还是空格，不能变成多选
+    expect(mapKey(add, press(" "))).toEqual({ type: "text", value: " " });
+  });
+
+  it("opens the detail view with l or right arrow", () => {
+    expect(mapKey(list, press("l"))).toEqual({ type: "shortcut", name: "v" });
+    expect(mapKey(list, press("", { rightArrow: true }))).toEqual({ type: "shortcut", name: "v" });
+    expect(mapKey(list, press("v"))).toEqual({ type: "shortcut", name: "v" });
+  });
+
+  it("maps the new status and reminder shortcuts", () => {
+    for (const [key, name] of [["c", "c"], ["o", "o"], ["s", "s"]] as const) {
+      expect(mapKey(list, press(key))).toEqual({ type: "shortcut", name });
+      // 输入区里它们必须还是普通文本
+      expect(mapKey(add, press(key))).toEqual({ type: "text", value: key });
+    }
+  });
+
+  it("only accepts yes or cancel inside a confirm dialog", () => {
+    const confirm: UiMode = { kind: "confirm", prompt: "删除？", pending: "delete" };
+    expect(mapKey(confirm, press("y"))).toEqual({ type: "confirmYes" });
+    expect(mapKey(confirm, press("Y"))).toEqual({ type: "confirmYes" });
+    expect(mapKey(confirm, press("\r"))).toEqual({ type: "confirmYes" });
+    // 任何别的键都当取消，不能把误触当成确认
+    expect(mapKey(confirm, press("d"))).toEqual({ type: "escape" });
+    expect(mapKey(confirm, press("n"))).toEqual({ type: "escape" });
+    expect(mapKey(confirm, press("", { escape: true }))).toEqual({ type: "escape" });
+  });
+
+  it("lets the detail view scroll and edit, and closes on anything else", () => {
+    const detail: UiMode = { kind: "detail", taskId: "abc" };
+    expect(mapKey(detail, press("j"))).toEqual({ type: "move", delta: 1 });
+    expect(mapKey(detail, press("k"))).toEqual({ type: "move", delta: -1 });
+    expect(mapKey(detail, press("e"))).toEqual({ type: "shortcut", name: "e" });
+    expect(mapKey(detail, press("", { escape: true }))).toEqual({ type: "escape" });
+    expect(mapKey(detail, press("z"))).toEqual({ type: "escape" });
+  });
+});

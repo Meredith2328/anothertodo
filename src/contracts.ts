@@ -40,6 +40,14 @@ export const ReminderSchema = z.object({
   leaseUntil: z.string().min(1).optional(),
 });
 
+export const RecurSchema = z.object({
+  kind: z.enum(["daily", "weekly", "monthly", "yearly", "weekdays"]),
+  // 每 N 天 / N 周 / N 月 / N 年；weekdays 忽略它
+  interval: z.number().int().positive().default(1),
+  // 0=周一 … 6=周日；只有 weekly 用，缺省时沿用当次截止日的星期
+  weekday: z.number().int().min(0).max(6).optional(),
+});
+
 export const TaskSchema = z.object({
   id: IdSchema,
   title: z.string().default(""),
@@ -53,6 +61,7 @@ export const TaskSchema = z.object({
   parent: z.string().min(1).optional(),
   wait: z.string().min(1).optional(),
   notes: z.string().default(""),
+  recur: RecurSchema.optional(),
   reminders: z.array(ReminderSchema).default([]),
   // Empty/non-UTC metadata exists in older Python files. New writes normalize
   // metadata to UTC, but reads must preserve old records instead of dropping them.
@@ -90,6 +99,10 @@ export const ConfigSchema = z.object({
   watch: z.object({
     interval_seconds: z.number().int().positive(),
   }),
+  ui: z.object({
+    // auto 跟随环境变量（认不出来按中文）；只影响界面文案，不影响输入与查询语法
+    lang: z.enum(["auto", "zh", "en"]).default("auto"),
+  }).default({ lang: "auto" }),
   email: z.object({
     host: z.string(),
     port: z.number().int().positive(),
@@ -102,6 +115,7 @@ export const ConfigSchema = z.object({
 });
 
 export type Reminder = z.infer<typeof ReminderSchema>;
+export type Recur = z.infer<typeof RecurSchema>;
 export type Task = z.infer<typeof TaskSchema>;
 export type Tombstone = z.infer<typeof TombstoneSchema>;
 export type Config = z.infer<typeof ConfigSchema>;

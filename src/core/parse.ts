@@ -1,16 +1,24 @@
-import { ReminderSchema, type Reminder } from "../contracts.js";
+import { ReminderSchema, RecurSchema, type Recur, type Reminder } from "../contracts.js";
+import { t, weekdayName } from "./i18n.js";
 
 export type ParsedReminder = Omit<Reminder, "dead"> & { dead?: boolean; relative: boolean };
+/** edit 时可以显式清空的字段名 */
+export type ParsedClear = "due" | "priority" | "project" | "parent" | "wait" | "tags" | "notes" | "recur" | "reminders";
 export type Parsed = {
   title: string;
   due?: string;
   dueHasTime: boolean;
   priority?: string;
   tags: string[];
+  /** `-#标签` 只摘掉指定标签，区别于 `-tags` 全清 */
+  removeTags: string[];
   project?: string;
   parent?: string;
   wait?: string;
+  notes?: string;
+  recur?: Recur;
   reminders: ParsedReminder[];
+  clears: Set<ParsedClear>;
 };
 
 type DateScan = { start: number; end: number; date: string; time?: string };
@@ -208,16 +216,144 @@ const ensureReminder = (value: Omit<ParsedReminder, "fired">): ParsedReminder =>
   return { ...ReminderSchema.parse({ ...persisted, fired: false }), relative };
 };
 
+/** `-due` 这类清空指令的写法 → 字段名 */
+const CLEAR_ALIASES: Record<string, ParsedClear> = {
+  due: "due", date: "due", 日期: "due", 截止: "due",
+  priority: "priority", prio: "priority", 优先级: "priority", 档位: "priority",
+  project: "project", proj: "project", 项目: "project",
+  parent: "parent", 父: "parent", 父任务: "parent",
+  wait: "wait", 等待: "wait",
+  tag: "tags", tags: "tags", 标签: "tags",
+  note: "notes", notes: "notes", 备注: "notes",
+  recur: "recur", repeat: "recur", 重复: "recur",
+  reminder: "reminders", reminders: "reminders", 提醒: "reminders",
+};
+
+const RECUR_CN_WEEKDAY: Record<string, number> = { 一: 0, 二: 1, 三: 2, 四: 3, 五: 4, 六: 5, 日: 6, 天: 6 };
+
+const CLEAR_LABELS: Record<ParsedClear, string> = {
+  due: "日期", priority: "优先级", project: "项目", parent: "父任务",
+  wait: "等待", tags: "标签", notes: "备注", recur: "重复", reminders: "提醒",
+};
+
+/**
+ * `*每天` / `*每2周` / `*每周三` / `*工作日` / `*weekly:mon` / `*3d`。
+ * 认不出来就返回 undefined，让这个 token 退回标题，而不是静默丢掉。
+ */
+export const parseRecur = (raw: string): Recur | undefined => {
+  const text = raw.trim().toLowerCase();
+  if (!text) return undefined;
+  if (text === "工作日" || text === "每个工作日" || text === "每工作日" || text === "weekday" || text === "weekdays") return RecurSchema.parse({ kind: "weekdays" });
+  const cn = text.match(/^每(?<n>\d+)?(?<unit>[天日周月年])(?<wd>[一二三四五六日天])?$/u);
+  if (cn?.groups) {
+    const interval = cn.groups.n ? Number(cn.groups.n) : 1;
+    if (interval < 1) return undefined;
+    const unit = cn.groups.unit!;
+    if (unit === "天" || unit === "日") return RecurSchema.parse({ kind: "daily", interval });
+    if (unit === "月") return RecurSchema.parse({ kind: "monthly", interval });
+    if (unit === "年") return RecurSchema.parse({ kind: "yearly", interval });
+    const weekday = cn.groups.wd ? RECUR_CN_WEEKDAY[cn.groups.wd] : undefined;
+    return RecurSchema.parse({ kind: "weekly", interval, ...(weekday === undefined ? {} : { weekday }) });
+  }
+  const en = text.match(/^(?:every\s*)?(?<n>\d+)?\s*(?<unit>d|w|m|y|day|days|daily|week|weeks|weekly|month|months|monthly|year|years|yearly)(?::(?<wd>[a-z]{3,9}))?$/u);
+  if (en?.groups) {
+    const interval = en.groups.n ? Number(en.groups.n) : 1;
+    if (interval < 1) return undefined;
+    const unit = en.groups.unit!;
+    const kind = unit.startsWith("d") ? "daily" : unit.startsWith("w") ? "weekly" : unit.startsWith("m") ? "monthly" : "yearly";
+    if (kind !== "weekly") return RecurSchema.parse({ kind, interval });
+    const stem = en.groups.wd?.replace(/day$/u, "");
+    const weekday = stem === undefined ? undefined : EN_WEEKDAY[stem];
+    if (stem !== undefined && weekday === undefined) return undefined;
+    return RecurSchema.parse({ kind: "weekly", interval, ...(weekday === undefined ? {} : { weekday }) });
+  }
+  return undefined;
+};
+
+/** 按 recur 规则把日期推到下一次；weekly 带星期时对齐到那一天 */
+export const nextOccurrence = (date: string, recur: Recur): string => {
+  if (recur.kind === "weekdays") {
+    let next = addDays(date, 1);
+    while (weekday(next) >= 5) next = addDays(next, 1);
+    return next;
+  }
+  if (recur.kind === "daily") return addDays(date, recur.interval);
+  if (recur.kind === "weekly") {
+    const base = addDays(date, 7 * recur.interval);
+    if (recur.weekday === undefined) return base;
+    return addDays(base, (recur.weekday - weekday(base) + 7) % 7);
+  }
+  const { year, month, day } = parseDate(date);
+  if (recur.kind === "monthly") {
+    const total = month - 1 + recur.interval;
+    const targetYear = year + Math.floor(total / 12);
+    const targetMonth = (total % 12) + 1;
+    // 31 号遇上短月就压到月末，而不是滚到下个月
+    return dateOnly(targetYear, targetMonth, Math.min(day, daysInMonth(targetYear, targetMonth)));
+  }
+  const targetYear = year + recur.interval;
+  return dateOnly(targetYear, month, Math.min(day, daysInMonth(targetYear, month)));
+};
+
+/** 只按天平移日期字符串，给「下一次任务」搬 due/wait/提醒用 */
+export const shiftDateOnly = (date: string, days: number): string => addDays(date, days);
+export const daysBetweenDates = (from: string, to: string): number => Math.round((dateMs(to) - dateMs(from)) / 86_400_000);
+
+export const describeRecur = (recur: Recur): string => {
+  if (recur.kind === "weekdays") return t("recur.weekdays");
+  const plural = { daily: "recur.everyNDays", weekly: "recur.everyNWeeks", monthly: "recur.everyNMonths", yearly: "recur.everyNYears" }[recur.kind];
+  const every = recur.interval === 1 ? t(`recur.${recur.kind}`) : t(plural, { n: recur.interval });
+  if (recur.kind !== "weekly" || recur.weekday === undefined) return every;
+  const day = weekdayName(recur.weekday);
+  return recur.interval === 1 ? t("recur.weeklyOn", { day }) : t("recur.everyNWeeksOn", { n: recur.interval, day });
+};
+
+/** 反向输出 recur 的输入写法，供 taskToInput 回填编辑框 */
+export const recurToInput = (recur: Recur): string => {
+  if (recur.kind === "weekdays") return "*工作日";
+  const unit = recur.kind === "daily" ? "天" : recur.kind === "weekly" ? "周" : recur.kind === "monthly" ? "月" : "年";
+  const count = recur.interval === 1 ? "" : String(recur.interval);
+  return recur.kind === "weekly" && recur.weekday !== undefined ? `*每${count}周${"一二三四五六日"[recur.weekday]}` : `*每${count}${unit}`;
+};
+
 export const parse = (text: string, now = localNow(), levels = ["低", "中", "高"]): Parsed => {
-  const parsed: Parsed = { title: "", dueHasTime: false, tags: [], reminders: [] };
+  const parsed: Parsed = { title: "", dueHasTime: false, tags: [], removeTags: [], reminders: [], clears: new Set() };
   let source = text.trim();
   if (!source) return parsed;
   const today = now.slice(0, 10);
 
+  // 备注最先剥离：`>>` 之后到行尾都是原文，里面的 # @ 日期都不该再被当成字段
+  const notesAt = source.indexOf(">>");
+  if (notesAt !== -1) {
+    const body = source.slice(notesAt + 2).trim();
+    // `>>` 后面什么都不写，就是「把备注清掉」的意思
+    if (body) parsed.notes = body; else parsed.clears.add("notes");
+    source = source.slice(0, notesAt).trim();
+  }
+
+  // 清空指令要在各字段抽取之前拿掉，否则 `-proj` 会被当成标题词
+  source = source.replace(/(?:^|\s)-([A-Za-z\u4e00-\u9fff]+)(?=\s|$)/gu, (whole, name: string) => {
+    const field = CLEAR_ALIASES[name.toLowerCase()];
+    if (!field) return whole;
+    parsed.clears.add(field);
+    return " ";
+  }).trim();
+  // `-#标签` 只摘掉一个标签
+  source = source.replace(/(?:^|\s)-#([^\s#：:，,]+)(?=\s|$)/gu, (_whole, name: string) => {
+    if (!parsed.removeTags.includes(name)) parsed.removeTags.push(name);
+    return " ";
+  }).trim();
+
+  const recurMatch = source.match(/(?:^|\s)\*([^\s*]+)/u);
+  if (recurMatch) {
+    const recur = parseRecur(recurMatch[1]!);
+    if (recur) { parsed.recur = recur; source = `${source.slice(0, recurMatch.index!)} ${source.slice(recurMatch.index! + recurMatch[0].length)}`.trim(); }
+  }
+
   // 关闭默认提醒的说法要在 @ 提醒循环之前剥掉，否则 @none 会被当成提醒
   // token 卡住循环、落进标题（自 rust-rewrite 同步）
   const remindersDisabled = /@(?:none|off)\b|\bno\s+reminders?\b/iu.test(source);
-  if (remindersDisabled) source = source.replace(/@(?:none|off)\b|\bno\s+reminders?\b/giu, " ").trim();
+  if (remindersDisabled) { source = source.replace(/@(?:none|off)\b|\bno\s+reminders?\b/giu, " ").trim(); parsed.clears.add("reminders"); }
 
   for (const match of source.matchAll(/#([^\s#：:，,]+)/gu)) if (match[1] && !parsed.tags.includes(match[1])) parsed.tags.push(match[1]);
   source = source.replace(/#[^\s#：:，,]+/gu, " ").trim();
@@ -319,7 +455,11 @@ export const preview = (text: string, now = localNow(), levels = ["低", "中", 
   if (p.project) parts.push(`proj:${p.project}`);
   if (p.tags.length) parts.push(p.tags.map((tag) => `#${tag}`).join(" "));
   if (p.wait) parts.push(`等到${p.wait}`);
+  if (p.recur) parts.push(`↻${describeRecur(p.recur)}`);
   for (const reminder of p.reminders) parts.push(`⏰${reminder.at.replace("T", " ")}(${reminder.hooks.join(",")})`);
   if (p.parent) parts.push(`父:${p.parent}`);
+  if (p.notes) parts.push(`备注:${p.notes.length > 20 ? `${p.notes.slice(0, 20)}…` : p.notes}`);
+  for (const tag of p.removeTags) parts.push(`去#${tag}`);
+  for (const field of p.clears) parts.push(`清空${CLEAR_LABELS[field]}`);
   return `→ ${parts[0] ?? "无字段"} | 标题：${p.title || "（标题为空）"}${parts.length > 1 ? `  ${parts.slice(1).join(" ")}` : ""}`;
 };

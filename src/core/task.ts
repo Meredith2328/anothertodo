@@ -43,7 +43,8 @@ export const cloneTask = (task: Task): Task => TaskSchema.parse(structuredClone(
 export const taskToLine = (task: Task): string => JSON.stringify(parseTask(task));
 export const tombstone = (id: string, modified = utcNow()): Tombstone => TombstoneSchema.parse({ id, deleted: true, modified });
 export const localDate = (value: string): string => value.slice(0, 10);
-export const isOverdue = (task: Task, today: string): boolean => task.status === "todo" && task.due !== undefined && localDate(task.due) < today;
+/** 会议过了时间同样算逾期；waiting 交给 wait 日期管，不进逾期 */
+export const isOverdue = (task: Task, today: string): boolean => (task.status === "todo" || task.status === "meeting") && task.due !== undefined && localDate(task.due) < today;
 export const hiddenByWait = (task: Task, today: string): boolean => task.wait !== undefined && task.wait > today;
 
 export const parseJsonl = (text: string, onMalformed?: (line: string) => void): unknown[] => {
