@@ -247,4 +247,108 @@ describe("footer mouse interaction", () => {
     expect(result.kind).toBe("success");
     expect((await store.get("00000043"))?.status).toBe("done");
   });
+
+  it("shows notes and subtasks in the detail overlay", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atd-ink-"));
+    const store = new Store(dir);
+    await store.save(parseTask({ id: "00000051", title: "装修", status: "todo", notes: "预算三万，先找师傅报价", recur: { kind: "weekly", interval: 1 }, tags: [], reminders: [], entry: "2026-08-20T10:00:00Z", modified: "2026-08-20T10:00:00Z" }));
+    await store.save(parseTask({ id: "00000052", title: "买瓷砖", status: "todo", parent: "00000051", tags: [], reminders: [], entry: "2026-08-20T10:00:00Z", modified: "2026-08-20T10:00:00Z" }));
+    const signals = createSignals();
+    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={30} />);
+    await signals.ready();
+    await signals.data();
+    const detailAction = signals.action();
+    app.stdin.write("l");
+    await detailAction;
+    const frame = app.lastFrame() ?? "";
+    // notes 之前只存不显示，详情浮层是它唯一露面的地方
+    expect(frame).toContain("预算三万，先找师傅报价");
+    expect(frame).toContain("每周");
+    expect(frame).toContain("买瓷砖");
+    const closeAction = signals.action();
+    app.stdin.write("\u001b");
+    await closeAction;
+    expect(app.lastFrame()).toContain("标签 / 提醒");
+  });
+
+  it("asks before deleting and does nothing when the answer is not yes", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atd-ink-"));
+    const store = new Store(dir);
+    await store.save(parseTask({ id: "00000061", title: "别删我", status: "todo", tags: [], reminders: [], entry: "2026-08-20T10:00:00Z", modified: "2026-08-20T10:00:00Z" }));
+    const signals = createSignals();
+    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={30} />);
+    await signals.ready();
+    await signals.data();
+    const askAction = signals.action();
+    app.stdin.write("x");
+    await askAction;
+    expect(app.lastFrame()).toContain("请确认");
+    expect(app.lastFrame()).toContain("别删我");
+    // 按了别的键就等于取消，任务必须还在
+    const cancelAction = signals.action();
+    app.stdin.write("n");
+    await cancelAction;
+    expect(await store.get("00000061")).toBeDefined();
+    // 再来一次，这次确认
+    const askAgain = signals.action();
+    app.stdin.write("x");
+    await askAgain;
+    const mutation = signals.mutation();
+    app.stdin.write("y");
+    expect((await mutation).kind).toBe("success");
+    expect(await store.get("00000061")).toBeUndefined();
+  });
+
+  it("marks several tasks with space and completes them in one go", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atd-ink-"));
+    const store = new Store(dir);
+    for (const id of ["00000071", "00000072", "00000073"]) {
+      await store.save(parseTask({ id, title: `批量${id.slice(-1)}`, status: "todo", tags: [], reminders: [], entry: "2026-08-20T10:00:00Z", modified: "2026-08-20T10:00:00Z" }));
+    }
+    const signals = createSignals();
+    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={30} />);
+    await signals.ready();
+    await signals.data();
+    for (let index = 0; index < 2; index += 1) {
+      const markAction = signals.action();
+      app.stdin.write(" ");
+      await markAction;
+    }
+    expect(app.lastFrame()).toContain("◉2");
+    const mutation = signals.mutation();
+    app.stdin.write("d");
+    expect((await mutation).kind).toBe("success");
+    const done = (await store.tasks()).filter((item) => item.status === "done");
+    expect(done).toHaveLength(2);
+    // 没打勾的那条不受影响
+    expect((await store.tasks()).filter((item) => item.status === "todo")).toHaveLength(1);
+  });
+
+  it("cancels and reopens through the new c and o keys", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atd-ink-"));
+    const store = new Store(dir);
+    await store.save(parseTask({ id: "00000081", title: "也许不做", status: "todo", tags: [], reminders: [], entry: "2026-08-20T10:00:00Z", modified: "2026-08-20T10:00:00Z" }));
+    const signals = createSignals();
+    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={30} />);
+    await signals.ready();
+    await signals.data();
+    const cancelMutation = signals.mutation();
+    app.stdin.write("c");
+    expect((await cancelMutation).kind).toBe("success");
+    expect((await store.get("00000081"))?.status).toBe("cancelled");
+    // cancelled 的任务不在默认议程里，用查询把它找回来再重开
+    const searchAction = signals.action();
+    app.stdin.write(":");
+    await searchAction;
+    const typeAction = signals.action();
+    app.stdin.write("list status:cancelled");
+    await typeAction;
+    const applied = signals.mutation();
+    app.stdin.write("\r");
+    await applied;
+    const reopenMutation = signals.mutation();
+    app.stdin.write("o");
+    expect((await reopenMutation).kind).toBe("success");
+    expect((await store.get("00000081"))?.status).toBe("todo");
+  });
 });

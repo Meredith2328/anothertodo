@@ -1,13 +1,14 @@
 {
   "name": "anothertodo",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": false,
   "main": "dist-node/cli.js",
   "files": [
     "dist-node/**",
     "bin/atd.mjs",
     "README.md",
-    "README.en.md"
+    "README.en.md",
+    "CHANGELOG.md"
   ],
   "bin": {
     "atd": "bin/atd.mjs"
