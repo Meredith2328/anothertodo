@@ -1,7 +1,7 @@
 $ atd preview "tomorrow buy milk urgent"
-→ 2026-08-22 10:00 | 标题：buy milk  [高] ⏰2026-08-22 09:45(toast)
+→ 2026-08-23 10:00 | 标题：buy milk  [高] ⏰2026-08-23 09:45(toast)
 $ atd preview "next friday report very urgent"
-→ 2026-08-28 | 标题：report  [高] ⏰2026-08-27 00:00(toast)
+→ 2026-09-04 | 标题：report  [高] ⏰2026-09-03 00:00(toast)
 $ atd preview "clean desk no rush"
 → [低] | 标题：clean desk
 $ atd preview "urgent vs urgency"

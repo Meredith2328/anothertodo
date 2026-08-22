@@ -9,16 +9,30 @@
 | `overdue` | 已逾期 |
 | `due:today` `due:tomorrow` `due:yesterday` | 指定日 |
 | `due:周五` `due:8.20` | 任意日期写法 |
-| `due:before:周五` | 周五之前到期 |
-| `due:after:8.20` | 8.20 之后到期 |
-| `due:week` | 本周（周一起 7 天） |
+| `due:before:周五` `due:after:8.20` | 之前 / 之后到期 |
+| `due:week` `due:month` `due:nextweek` | 本周 / 本月 / 下周到期 |
+| `due:none` `due:any` | 没有 / 有截止日期 |
+| `wait:week` `wait:any` `wait:none` | 等待日期在本周内 / 有 / 没有 |
+| `wait:after:2026-09-01` | 等待日期在指定日之后 |
 | `status:todo` `status:waiting` `status:done` `status:cancelled` `status:meeting` | 按状态 |
 | `project:读书` `proj:读书` | 按项目（精确匹配） |
 | `priority:高` `priority:Sol` | 按档位 |
-| `+urgent` `+#学习` | 含该标签 |
-| `-低` `-#生活` | 排除该档位 / 标签 |
-| `/关键字` | 标题或标签包含关键字（英文不区分大小写） |
+| `+高` `-低` `!高` | 按优先级档位过滤（`!` 与 `-` 等价） |
+| `+urgent` `+#学习` `-#生活` | 含 / 不含标签（档位名对不上时按标签） |
+| `parent:a1b2` | 某个任务的子任务（id 前缀即可） |
+| `parent:none` `parent:any` | 没有父任务 / 有父任务（即子任务） |
+| `has:notes` `has:recur` `has:due` `has:reminder` `has:parent` `has:tags` `has:time` | 有对应字段；前面加 `-` 取反（如 `-has:due`） |
+| `-status:waiting` `-project:读书` `-#标签` `-/关键字` | 取反过滤 |
+| `/关键字` | 标题、标签、项目名或备注包含关键字（英文不区分大小写） |
 | 裸词 `采购` | 等价于 `/采购` |
+
+几处是 0.2.1 修掉或补上的：
+
+- `+高` 现在按优先级档位过滤，和 `-低` 对称（以前 `+X` 一律当标签）。
+- `wait:` 的范围写法以前是坏的，`wait:week` 会筛出所有*没有*等待日期的任务，现在正常。
+- `/关键字` 现在也搜项目名和备注，不再只看标题和标签。
+- 查询里点名写了 `wait:` 条件时，等待未到期的任务不再被折叠隐藏。
+- `atd list -低` 这种以 `-` 开头的查询以前会被命令行当成未知选项拒绝，现在正常，不需要再加 `--`。
 
 ## 实测示例
 
@@ -38,9 +52,9 @@
   0f4e7b9f 后天     例会  #meeting
   72cbb033 周一     交季度报告  高  #工作</pre>
 
-`--` 用于排除标签（避免被当作命令行选项）：
+排除标签直接写 `-` 前缀，0.2.1 起不会再被当成命令行选项，不用再加 `--` 分隔：
 
-<pre class="terminal-output">$ atd list -- -生活
+<pre class="terminal-output">$ atd list -生活
 == 今天 ==
   0eeadd6a 今天     健身
 == 接下来 ==
@@ -72,6 +86,14 @@
 == 接下来 ==
   72cbb033 周一     交季度报告  高  #工作
 隐藏(等待未到) 0 项</pre>
+
+几个组合起来的例子：
+
+```bash
+atd list due:week -低 has:notes    # 本周到期、非低档、带备注
+atd list parent:a1b2               # a1b2 的全部子任务
+atd list -has:due                  # 没有截止日期的任务
+```
 
 ### 显示已完成
 

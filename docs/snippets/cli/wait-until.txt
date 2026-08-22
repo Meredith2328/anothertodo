@@ -1,0 +1,4 @@
+$ atd add 等回复
+已添加 ebdcde48  等回复
+$ atd wait ebdcde48 --until 下周一
+已设为等待 等回复（等到 2026-08-24）

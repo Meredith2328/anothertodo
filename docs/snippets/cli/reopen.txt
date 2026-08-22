@@ -1,2 +1,2 @@
-$ atd reopen c2411f09
+$ atd reopen 9719dfa5
 ↩ 重新打开 例会

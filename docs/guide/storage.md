@@ -64,9 +64,13 @@ $ atd restore f8aae6b7
 {"id": "3fbd8742", "title": "买牛奶", "status": "todo",
  "due": "2026-08-20T00:00:00", "priority": "Sol",
  "tags": ["采购"], "project": "学习",
+ "notes": "低脂的那种",
+ "recur": {"kind": "weekly", "interval": 1, "weekday": 3},
  "reminders": [{"at": "2026-08-20T18:30", "hooks": ["toast"], "fired": false}],
  "entry": "...", "modified": "..."}
 ```
+
+`notes` 是纯文本备注，`recur` 是重复规则，形如 `{ kind, interval, weekday? }`，`kind` 是 daily / weekly / monthly / yearly / weekdays 之一，`weekday` 只在按周重复时出现。数据格式向后兼容，老版本写下的文件照样能读。
 
 手工改时建议顺手把 `modified` 更新为当前 UTC ISO 时间（同步合并按它裁决）。编辑期间确保 `atd watch` / TUI 没在写（有文件锁，一般也安全）。
 

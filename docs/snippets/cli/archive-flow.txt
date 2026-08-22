@@ -1,12 +1,11 @@
-$ atd done 93536f2e
+$ atd done 4f5f0706
 ✓ 完成 写学习总结
 $ atd archive 0
 归档了 1 行
 $ atd archive-list
-93536f2e 写学习总结
-$ atd restore 93536f2e
+4f5f0706 写学习总结
+$ atd restore 4f5f0706
 已恢复 写学习总结
 $ atd list status:done
 == 已完成/已取消 ==
-  93536f2e 8/30   写学习总结  [done]  #学习
-隐藏(等待未到) 0 项
+  4f5f0706 8/30   写学习总结  [done]  #学习

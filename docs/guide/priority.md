@@ -55,6 +55,8 @@ TaskWarrior 式加权评分，分数越高越靠前。构成（系数在 `[prior
 | 任务年龄 | 0.05/天 | 封顶 2.0，防止老任务永久霸榜 |
 | waiting 惩罚 | -3.0 | |
 
+系数除了改 `config.toml`，也能用命令直接改，比如 `atd config set priority.urgency.overdue 20`——以前 `config set` 只认两段 key，这个三层路径设不了，现在任意层级都行。
+
 ```bash
 atd list -m urgency     # 行尾显示 U=8.7 这样的分数
 ```

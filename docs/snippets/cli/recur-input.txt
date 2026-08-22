@@ -1,0 +1,10 @@
+$ atd preview "倒垃圾 *每天 晚上8点"
+→ 2026-08-22 20:00 | 标题：倒垃圾  ↻每天 ⏰2026-08-22 19:45(toast)
+$ atd preview "大扫除 *每2周"
+→ ↻每2周 | 标题：大扫除
+$ atd preview "周会 *每周三"
+→ ↻每周三 | 标题：周会
+$ atd preview "打卡 *工作日"
+→ ↻每个工作日 | 标题：打卡
+$ atd preview "standup *weekly:mon"
+→ ↻每周一 | 标题：standup

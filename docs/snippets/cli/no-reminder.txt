@@ -1,4 +1,4 @@
 $ atd preview "下周五 交报告 @none"
-→ 2026-08-28 | 标题：交报告
+→ 2026-08-28 | 标题：交报告  不加提醒
 $ atd preview "next friday submit report no reminders"
-→ 2026-08-28 | 标题：submit report
+→ 2026-09-04 | 标题：submit report  不加提醒

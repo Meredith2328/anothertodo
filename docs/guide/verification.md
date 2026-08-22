@@ -5,8 +5,8 @@
 ## 测试基线
 
 - **单元/集成测试**：110 个测试全部通过（vitest）
-- **CLI 实测**：37 个场景真实运行，捕获每条命令的终端输出和退出码
-- **TUI 实测**：16 个场景用真实 Ink 渲染管线驱动，每个场景断言帧内容符合预期
+- **CLI 实测**：51 个场景真实运行，捕获每条命令的终端输出和退出码
+- **TUI 实测**：20 个场景用真实 Ink 渲染管线驱动，每个场景断言帧内容符合预期
 
 ## CLI 实测场景
 
@@ -35,8 +35,30 @@
 | `config-show` / `config-set` | 配置查看与修改 |
 | `watch-once` | 守护进程单次检查 |
 | `error-show-missing` / `error-empty-title` | 错误处理 |
+| `notes-input` | 备注语法 `>>`：之后的内容整段按备注处理，不再解析成字段 |
+| `recur-input` | 重复规则的中英文写法（`*每天` `*每2周` `*每周三` `*工作日` `*weekly:mon`） |
+| `recur-spawn` | 重复任务完成时派生出下一次，原任务留在历史里 |
+| `clear-fields` | `edit` 用 `-due -proj -#标签` 清空字段 |
+| `query-new` | 新增查询：`+高` 按档位、`!高`、`has:notes`、`-has:due`、`wait:none` |
+| `subtasks` | 子任务缩进显示，父任务完成时点名未完成的子任务 |
+| `status-entries` | 新状态入口 `cancel` / `meeting` / `todo` |
+| `wait-until` | `wait --until 下周一` 押后到指定日期 |
+| `show-human` | `show` 默认给出人读字段表，`--json` 输出原始 JSON |
+| `summaries` | `projects` / `tags` / `stats` 三个汇总命令 |
+| `export` | 导出 markdown 与 csv |
+| `config-deep` | `config set` 写入任意层级 key、`config get` 读取，坏值与拼错 key 被当场拒绝 |
+| `ui-lang` | 界面语言中英切换 |
+| `done-twice` | 重复完成同一任务被拒绝 |
 
-所有场景的非零退出码仅出现在预期的错误演示中（`show deadbeef`、空标题 `add`）。
+所有场景的非零退出码共 5 处，全部出现在刻意设计的错误演示里：
+
+- `show deadbeef` —— 任务不存在
+- `add "   "` —— 空标题
+- `config set priority.mode nonsense` —— 配置值类型不对，被当场拒绝
+- `config set priorty.mode urgency` —— key 拼错，被当场拒绝
+- `done <已完成的 id>` —— 重复完成同一任务，被拒绝
+
+这些非零退出码都是正确行为，恰好证明错误处理生效了。
 
 ## TUI 实测场景
 
@@ -52,7 +74,11 @@
 | `search-filter` | `/报告` 过滤生效且排除未匹配 |
 | `edit-task` | `e` 进入编辑态并回填内容 |
 | `complete-done` | `d` 完成任务、状态落库 |
-| `delete-soft` | `x` 软删除、任务数减少 |
+| `delete-soft` | `x` 先弹确认框；未确认前不删除；按 `y` 后任务数减少 |
+| `detail-overlay` | `l` 打开详情浮层，显示备注正文、提醒投递状态、浮层操作提示 |
+| `multi-select` | 空格多选后顶栏显示 `◉2`，行首出现勾选标记 |
+| `subtasks` | 子任务有 `↳` 缩进标记，父任务排在其上方 |
+| `recur-marks` | 列表里显示 `↻每天` 重复规则和 `✎` 有备注标记 |
 | `wait-defer` | `w` 设为等待 |
 | `date-format` | `t` 切换日期列格式 |
 | `undo` | `Ctrl+Z` 撤销 |
@@ -61,7 +87,7 @@
 | `sort-2` | `2` 切换 urgency 排序 |
 | `exit-armed` | 双击 Esc 出现二次提示 |
 
-16 个场景全部通过。
+20 个场景全部通过。
 
 ## 实测发现并已修复的问题
 

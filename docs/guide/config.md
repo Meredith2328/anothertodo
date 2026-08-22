@@ -33,6 +33,10 @@ user = ""
 password = ""
 from = ""
 to = ""
+
+[ui]
+# auto 跟随系统语言（认不出来按中文）；也可写成 "zh" 或 "en" 固定
+lang = "auto"
 ```
 
 ## 查看当前配置
@@ -55,16 +59,29 @@ levels = ["低", "中", "高"]
 ```bash
 atd config                              # 查看当前配置
 atd config path                         # 数据目录位置
+atd config get priority.mode            # 读单个配置项
 atd config set priority.mode urgency    # 切换到 urgency 模式
 atd config set priority.levels '["Terra", "Sol"]'   # 改档位（数组原样写）
 atd config set agenda.week_days 14      # "接下来"看两周
 atd config set watch.interval_seconds 60
+atd config set priority.urgency.overdue 20   # 任意层级 key
+atd config set ui.lang en               # 切换界面语言
 ```
 
 <pre class="terminal-output">$ atd config set priority.mode urgency
 已设置 priority.mode = urgency</pre>
 
-> `config set` 只支持两段 key（`段.键`），复杂改动直接编辑文件。
+> `config set` 支持任意层级的 key，比如 `atd config set priority.urgency.overdue 20`——以前只认两段 key（`段.键`），这个三层路径设不了。拼错的 key 和类型不对的值会当场报错，不会写坏配置文件。
+
+## 界面语言
+
+`[ui] lang` 控制界面语言，可选 `auto`（默认）、`zh`、`en`：
+
+```bash
+atd config set ui.lang en
+```
+
+`auto` 会读 `ATD_LANG` / `LC_ALL` / `LANG`，认不出来一律按中文，不会把现有中文用户翻成英文。切成 `en` 后议程分组名、日期列、重复规则描述和字段名表都是英文；一行输入语法和查询语法在两种语言下完全一样。
 
 ## 自定义状态名？
 

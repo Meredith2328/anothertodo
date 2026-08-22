@@ -5,9 +5,8 @@
 ## 首次设置
 
 ```bash
-cd ~/.atd
-git remote add origin <你的私有仓库URL>
-atd sync        # 首次：本地 commit 后 push，建立分支
+atd sync --setup <你的私有仓库URL>   # 直接配置 origin 远程（手敲 git remote add 也行）
+atd sync                            # 首次：本地 commit 后 push，建立分支
 ```
 
 <pre class="terminal-output">$ atd sync
@@ -46,8 +45,7 @@ atd list        # 直接可用
 atd sync-status
 ```
 
-<pre class="terminal-output">$ atd sync-status
-无远程，待提交变更 1 项</pre>
+输出分支、远程地址、未提交变更数、领先/落后提交数和最近一次提交，不用联网也能用。
 
 ## 数据安全
 

@@ -28,13 +28,19 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "smoke": "node tools/smoke-node.mjs",
-    "test:tui:stable": "node tools/test-tui-stability.mjs 20"
+    "test:tui:stable": "node tools/test-tui-stability.mjs 20",
+    "docs:api": "typedoc",
+    "docs:build": "vitepress build docs",
+    "docs:dev": "vitepress dev docs",
+    "docs:shots": "node --import tsx tools/docs-tui-shots.mjs",
+    "docs:cli": "node --import tsx tools/docs-capture-cli.mjs"
   },
   "engines": {
     "node": ">=22"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
+    "@napi-rs/canvas": "^1.0.7",
     "@types/node": "^22.10.0",
     "@types/nodemailer": "^8.0.1",
     "@types/proper-lockfile": "^4.1.4",
@@ -44,8 +50,11 @@
     "postject": "1.0.0-alpha.6",
     "tsup": "^8.3.5",
     "tsx": "^4.19.2",
+    "typedoc": "^0.28.20",
+    "typedoc-plugin-markdown": "^4.12.0",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.67.0",
+    "vitepress": "^1.6.4",
     "vitest": "^2.1.8"
   },
   "dependencies": {
