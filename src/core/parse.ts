@@ -19,6 +19,13 @@ export type Parsed = {
   recur?: Recur;
   reminders: ParsedReminder[];
   clears: Set<ParsedClear>;
+  /**
+   * 提醒是被 `@none` / `no reminders` 关掉的，而不是被 `-提醒` 清掉的。
+   * 两者对 store 的作用一样（都落成 clears.reminders），但语义不同：
+   * 前者是「这条任务不要自动补提醒」，后者是「把已有提醒删掉」。
+   * preview 靠这个标记给出不会误导的措辞。
+   */
+  remindersOptedOut: boolean;
 };
 
 type DateScan = { start: number; end: number; date: string; time?: string };
@@ -317,7 +324,7 @@ export const recurToInput = (recur: Recur): string => {
 };
 
 export const parse = (text: string, now = localNow(), levels = ["低", "中", "高"]): Parsed => {
-  const parsed: Parsed = { title: "", dueHasTime: false, tags: [], removeTags: [], reminders: [], clears: new Set() };
+  const parsed: Parsed = { title: "", dueHasTime: false, tags: [], removeTags: [], reminders: [], clears: new Set(), remindersOptedOut: false };
   let source = text.trim();
   if (!source) return parsed;
   const today = now.slice(0, 10);
@@ -353,7 +360,7 @@ export const parse = (text: string, now = localNow(), levels = ["低", "中", "�
   // 关闭默认提醒的说法要在 @ 提醒循环之前剥掉，否则 @none 会被当成提醒
   // token 卡住循环、落进标题（自 rust-rewrite 同步）
   const remindersDisabled = /@(?:none|off)\b|\bno\s+reminders?\b/iu.test(source);
-  if (remindersDisabled) { source = source.replace(/@(?:none|off)\b|\bno\s+reminders?\b/giu, " ").trim(); parsed.clears.add("reminders"); }
+  if (remindersDisabled) { source = source.replace(/@(?:none|off)\b|\bno\s+reminders?\b/giu, " ").trim(); parsed.clears.add("reminders"); parsed.remindersOptedOut = true; }
 
   for (const match of source.matchAll(/#([^\s#：:，,]+)/gu)) if (match[1] && !parsed.tags.includes(match[1])) parsed.tags.push(match[1]);
   source = source.replace(/#[^\s#：:，,]+/gu, " ").trim();
@@ -460,6 +467,11 @@ export const preview = (text: string, now = localNow(), levels = ["低", "中", 
   if (p.parent) parts.push(`父:${p.parent}`);
   if (p.notes) parts.push(`备注:${p.notes.length > 20 ? `${p.notes.slice(0, 20)}…` : p.notes}`);
   for (const tag of p.removeTags) parts.push(`去#${tag}`);
-  for (const field of p.clears) parts.push(`清空${CLEAR_LABELS[field]}`);
+  for (const field of p.clears) {
+    // `@none` 和 `-提醒` 都落成 clears.reminders，但一个是「不要自动补提醒」、
+    // 一个是「把已有提醒删掉」。都说「清空提醒」会让 add 的用户以为要删东西。
+    if (field === "reminders" && p.remindersOptedOut) parts.push("不加提醒");
+    else parts.push(`清空${CLEAR_LABELS[field]}`);
+  }
   return `→ ${parts[0] ?? "无字段"} | 标题：${p.title || "（标题为空）"}${parts.length > 1 ? `  ${parts.slice(1).join(" ")}` : ""}`;
 };
