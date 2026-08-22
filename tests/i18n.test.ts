@@ -16,12 +16,27 @@ const task = (value: Record<string, unknown>) => TaskSchema.parse({ entry: "2026
 describe("interface language", () => {
   afterEach(() => setLang("zh"));
 
+  it("runs the suite under a pinned language", () => {
+    // 回归：CI 上 macOS runner 的 LANG 是 en_US.UTF-8，Windows 没有 LANG，
+    // Ubuntu 是 C.UTF-8。断言中文分组名的测试一旦跟着环境走，就会「换台机器跑就红」。
+    // vitest.config.ts 里把 ATD_LANG 钉成 zh_CN.UTF-8，这里守住这个前提。
+    expect(process.env.ATD_LANG).toBe("zh_CN.UTF-8");
+    expect(detectLang(process.env)).toBe("zh");
+  });
+
   it("falls back to Chinese when the environment says nothing useful", () => {
     expect(detectLang({})).toBe("zh");
     expect(detectLang({ LANG: "C" })).toBe("zh");
     expect(detectLang({ LANG: "zh_CN.UTF-8" })).toBe("zh");
     // 认不出来时宁可留中文，也不要把现有中文用户翻成英文
     expect(detectLang({ LANG: "de_DE.UTF-8" })).toBe("zh");
+  });
+
+  it("is not fooled by the locales real CI runners use", () => {
+    // 三个 runner 的真实取值，逐个钉住
+    expect(detectLang({ LANG: "en_US.UTF-8" })).toBe("en");   // macOS runner
+    expect(detectLang({ LANG: "C.UTF-8" })).toBe("zh");       // Ubuntu runner
+    expect(detectLang({})).toBe("zh");                        // Windows runner（无 LANG）
   });
 
   it("picks English from the usual environment variables", () => {
