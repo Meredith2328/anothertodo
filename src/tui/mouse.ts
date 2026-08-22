@@ -8,6 +8,15 @@ import type { ReadableOptions } from "node:stream";
 export type MouseKind = "press" | "release" | "wheel-up" | "wheel-down" | "move";
 export type MouseEvent = { kind: MouseKind; button: number; x: number; y: number };
 
+/**
+ * 鼠标跟踪档位 → SGR 模式号。
+ * - hover：1003 上报所有移动，悬浮高亮要靠它
+ * - drag：1002 只在按住时上报移动，事件量小得多，代价是没有纯悬浮高亮
+ * - click：1000 只报按下/释放，点击和滚轮照常可用
+ */
+export type MouseTracking = "hover" | "drag" | "click";
+const TRACKING_MODE: Record<MouseTracking, string> = { hover: "1003", drag: "1002", click: "1000" };
+
 const ESC = "\x1b";
 const PREFIX = "\x1b[<";
 
@@ -144,9 +153,14 @@ export const subscribeMouse = (listener: (event: MouseEvent) => void): (() => vo
   return () => { bus.removeListener("mouse", listener); };
 };
 
-export const createMouseBridge = (stdin: NodeJS.ReadStream & { fd: number }, stdout: NodeJS.WriteStream): MouseBridge => {
+export const createMouseBridge = (
+  stdin: NodeJS.ReadStream & { fd: number },
+  stdout: NodeJS.WriteStream,
+  tracking: MouseTracking = "hover",
+): MouseBridge => {
   const stream = new ProxyStdin(stdin);
   const events = new EventEmitter();
+  const mode = TRACKING_MODE[tracking] ?? TRACKING_MODE.hover;
   let pending = "";
   let enabled = false;
 
@@ -174,15 +188,15 @@ export const createMouseBridge = (stdin: NodeJS.ReadStream & { fd: number }, std
     stdin.pause();
     stdin.addListener("readable", onReadable);
     stdin.resume();
-    // 1003 = 任意移动都上报（悬浮高亮需要它；1000 只报按下/释放）；
-    // 1006 = SGR 扩展编码（Windows Terminal / xterm 通用，坐标不受 223 列限制）
-    stdout.write("\x1b[?1003h\x1b[?1006h");
+    // 档位由 config.ui.mouse 决定（见 TRACKING_MODE）；1006 = SGR 扩展编码，
+    // Windows Terminal / xterm 通用，坐标不受 223 列限制，三档都要开
+    stdout.write(`\x1b[?${mode}h\x1b[?1006h`);
   };
 
   const disable = (): void => {
     if (!enabled) return;
     enabled = false;
-    stdout.write("\x1b[?1003l\x1b[?1006l");
+    stdout.write(`\x1b[?${mode}l\x1b[?1006l`);
     stdin.removeListener("readable", onReadable);
   };
 

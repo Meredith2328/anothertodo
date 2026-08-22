@@ -253,7 +253,10 @@ export const main = async (argv = process.argv.slice(2)): Promise<number> => {
   if (!argv.length) {
     const [{ render }, React, { TuiApp }, { createMouseBridge }] = await Promise.all([import("ink"), import("react"), import("./tui/app.js"), import("./tui/mouse.js")]);
     const interactive = process.stdin.isTTY === true;
-    const bridge = interactive ? createMouseBridge(process.stdin as NodeJS.ReadStream & { fd: number }, process.stdout) : undefined;
+    // 鼠标档位来自 config.ui.mouse；配置坏了不该让 TUI 起不来，退回默认
+    let tracking: "hover" | "drag" | "click" = "hover";
+    try { tracking = (await loadConfig()).ui.mouse; } catch { tracking = "hover"; }
+    const bridge = interactive ? createMouseBridge(process.stdin as NodeJS.ReadStream & { fd: number }, process.stdout, tracking) : undefined;
     // 备用屏幕：TUI 独占整屏，退出后恢复终端原内容；鼠标坐标也与
     // 渲染行号精确对齐（每帧从 1,1 重绘）
     if (interactive) process.stdout.write("\x1b[?1049h");

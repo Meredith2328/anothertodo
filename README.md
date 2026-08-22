@@ -163,6 +163,16 @@ atd sync          # commit + fetch + rebase + push
 
 `atd config set` 支持任意层级的 key，比如 `atd config set priority.urgency.overdue 20`；拼错的 key 和类型不对的值会当场报错，不会写坏配置文件。界面语言用 `[ui] lang` 配置：`auto`（默认，跟随 `ATD_LANG` / `LC_ALL` / `LANG`，认不出来按中文）、`zh`、`en`，`atd config set ui.lang en` 即可切换。切到 `en` 后议程分组名、日期列、重复规则描述、字段名表都是英文；一行输入语法和查询语法两种语言下完全一样。
 
+鼠标行为用 `[ui] mouse` 配置，三档：
+
+| 档位 | 效果 |
+|---|---|
+| `hover`（默认） | 上报所有移动，悬浮到任务行和底部按钮上会高亮 |
+| `drag` | 只在按住时上报移动，没有纯悬浮高亮，事件量小很多 |
+| `click` | 只上报按下 / 释放 |
+
+点击和滚轮在三档下都照常可用，降档只是让终端少报移动事件。鼠标在终端里划动时 `hover` 档会持续产生事件，嫌费 CPU 就 `atd config set ui.mouse drag`。
+
 ## 开发与打包
 
 ```bash

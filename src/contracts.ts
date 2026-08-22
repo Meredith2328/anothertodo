@@ -102,7 +102,15 @@ export const ConfigSchema = z.object({
   ui: z.object({
     // auto 跟随环境变量（认不出来按中文）；只影响界面文案，不影响输入与查询语法
     lang: z.enum(["auto", "zh", "en"]).default("auto"),
-  }).default({ lang: "auto" }),
+    /**
+     * 鼠标跟踪档位：
+     * - hover：SGR 1003，上报所有移动，悬浮高亮可用（默认）
+     * - drag：SGR 1002，只在按住时上报移动，没有纯悬浮高亮，事件量小得多
+     * - click：SGR 1000，只上报按下/释放，点击和滚轮仍可用
+     * 终端里鼠标划动会持续产生事件；嫌吵或嫌费 CPU 就往下降一档。
+     */
+    mouse: z.enum(["hover", "drag", "click"]).default("hover"),
+  }).default({ lang: "auto", mouse: "hover" }),
   email: z.object({
     host: z.string(),
     port: z.number().int().positive(),

@@ -163,6 +163,16 @@ All commands: `add list done rm edit show undo reopen archive cancel meeting tod
 
 `atd config set` accepts keys at any depth, e.g. `atd config set priority.urgency.overdue 20`; a misspelled key or a value of the wrong type is rejected on the spot and never corrupts the config file. The UI language is set with `[ui] lang`: `auto` (default; follows `ATD_LANG` / `LC_ALL` / `LANG`, falls back to Chinese when unrecognized), `zh`, or `en` — `atd config set ui.lang en` switches. With `en`, agenda group names, the date column, recurrence descriptions and field-name tables are all in English; the one-line input and query syntax stay identical in both languages.
 
+Mouse behaviour is set with `[ui] mouse`, three levels:
+
+| Level | Effect |
+|---|---|
+| `hover` (default) | reports all movement; task rows and footer buttons highlight under the pointer |
+| `drag` | reports movement only while a button is held — no hover highlight, far fewer events |
+| `click` | reports press / release only |
+
+Clicks and the wheel work on all three levels; lowering it only asks the terminal to report less movement. On `hover` the terminal emits events continuously while the pointer moves, so if that costs too much CPU run `atd config set ui.mouse drag`.
+
 ## Development and packaging
 
 ```bash
