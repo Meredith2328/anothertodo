@@ -18,6 +18,8 @@ export const C = {
   flash: "#ffd866",
   bg: "#10101a",
   select: "#26264a",
+  /** 正文级文字：比 dim 亮，用在 Footer 标签这类"要看清但不抢戏"的地方 */
+  label: "#c8ccd4",
 } as const;
 
 export const MODE_LABEL: Record<"levels" | "urgency", string> = { levels: "档位", urgency: "urgency" };
