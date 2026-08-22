@@ -1,0 +1,6 @@
+$ atd add 只能完成一次
+已添加 8f1cf9ca  只能完成一次
+$ atd done 8f1cf9ca
+✓ 完成 只能完成一次
+$ atd done 8f1cf9ca
+跳过：只能完成一次（已经是已完成）

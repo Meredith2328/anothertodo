@@ -1,0 +1,10 @@
+$ atd add 装修
+已添加 14d56fe5  装修
+$ atd add "买瓷砖 ^14d56fe5"
+已添加 92568961  买瓷砖
+$ atd list parent:14d56fe5
+== 无日期 ==
+  92568961 买瓷砖  U=0.0
+$ atd done 14d56fe5
+✓ 完成 装修
+  ⚠ 还有 1 个子任务没完成：买瓷砖（加 --with-subtasks 一起完成）

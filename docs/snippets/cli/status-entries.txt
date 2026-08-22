@@ -1,0 +1,8 @@
+$ atd add 也许不做的事
+已添加 b98a187f  也许不做的事
+$ atd cancel b98a187f
+✗ 已取消 也许不做的事
+$ atd meeting b98a187f
+已标记为会议 也许不做的事
+$ atd todo b98a187f
+↩ 已退回待办 也许不做的事

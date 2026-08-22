@@ -1,10 +1,10 @@
 $ atd preview "tomorrow buy milk"
-→ 2026-08-22 10:00 | 标题：buy milk  ⏰2026-08-22 09:45(toast)
+→ 2026-08-23 10:00 | 标题：buy milk  ⏰2026-08-23 09:45(toast)
 $ atd preview "next monday submit report"
 → 2026-08-31 | 标题：submit report  ⏰2026-08-30 00:00(toast)
 $ atd preview "tonight 21:00 gym"
-→ 2026-08-21 21:00 | 标题：gym  ⏰2026-08-21 20:45(toast)
+→ 2026-08-22 21:00 | 标题：gym  ⏰2026-08-22 20:45(toast)
 $ atd preview "day after tomorrow pick up parcel"
-→ 2026-08-23 | 标题：pick up parcel  ⏰2026-08-22 00:00(toast)
+→ 2026-08-24 | 标题：pick up parcel  ⏰2026-08-23 00:00(toast)
 $ atd preview "this weekend retro #work"
-→ 2026-08-22 | 标题：retro  #work ⏰2026-08-21 23:45(toast)
+→ 2026-08-22 | 标题：retro  #work

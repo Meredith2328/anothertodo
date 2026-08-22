@@ -65,11 +65,12 @@ $ atd done 0eeadd6a
 ## 查看一条任务的完整信息
 
 ```bash
-atd show <id>    # 打印任务的全部字段（JSON）
+atd show <id> --json    # 原始 JSON
+atd show <id>           # 给人读的字段表（备注、提醒投递状态、父子任务）
 ```
 
 ```
-$ atd show 22f45066
+$ atd show 22f45066 --json
 {
   "id": "22f45066",
   "title": "买牛奶和酸奶",

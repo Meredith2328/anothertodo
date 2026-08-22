@@ -1,2 +1,2 @@
-$ atd done c2411f09
+$ atd done 9719dfa5
 ✓ 完成 例会

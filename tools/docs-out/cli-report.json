@@ -1,5 +1,5 @@
 {
-  "home": "C:\\Users\\10pi\\AppData\\Local\\Temp\\atd-docs-cli-p8zeN5",
+  "home": "C:\\Users\\10pi\\AppData\\Local\\Temp\\atd-docs-cli-glGKmi",
   "scenarios": [
     {
       "id": "add-multi",
@@ -15,7 +15,7 @@
             "大后天 取快递 低",
             "8月30日 写学习总结 #学习"
           ],
-          "stdout": "已添加 c2411f09  例会\n已添加 16e5332c  买牛奶\n已添加 9653994d  健身\n已添加 37974c4b  交季度报告\n已添加 dff6a1e7  取快递\n已添加 93536f2e  写学习总结\n",
+          "stdout": "已添加 9719dfa5  例会\n已添加 2930d8eb  买牛奶\n已添加 7d213e16  健身\n已添加 26711d31  交季度报告\n已添加 07f38675  取快递\n已添加 4f5f0706  写学习总结\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -30,7 +30,7 @@
             "preview",
             "后天 买牛奶 很急 @18:30"
           ],
-          "stdout": "→ 2026-08-23 | 标题：买牛奶  [高] ⏰2026-08-23 18:30(toast)\n",
+          "stdout": "→ 2026-08-24 | 标题：买牛奶  [高] ⏰2026-08-24 18:30(toast)\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -45,7 +45,7 @@
             "preview",
             "tomorrow buy milk"
           ],
-          "stdout": "→ 2026-08-22 10:00 | 标题：buy milk  ⏰2026-08-22 09:45(toast)\n",
+          "stdout": "→ 2026-08-23 10:00 | 标题：buy milk  ⏰2026-08-23 09:45(toast)\n",
           "stderr": "",
           "exitCode": 0
         },
@@ -63,7 +63,7 @@
             "preview",
             "tonight 21:00 gym"
           ],
-          "stdout": "→ 2026-08-21 21:00 | 标题：gym  ⏰2026-08-21 20:45(toast)\n",
+          "stdout": "→ 2026-08-22 21:00 | 标题：gym  ⏰2026-08-22 20:45(toast)\n",
           "stderr": "",
           "exitCode": 0
         },
@@ -72,7 +72,7 @@
             "preview",
             "day after tomorrow pick up parcel"
           ],
-          "stdout": "→ 2026-08-23 | 标题：pick up parcel  ⏰2026-08-22 00:00(toast)\n",
+          "stdout": "→ 2026-08-24 | 标题：pick up parcel  ⏰2026-08-23 00:00(toast)\n",
           "stderr": "",
           "exitCode": 0
         },
@@ -81,7 +81,7 @@
             "preview",
             "this weekend retro #work"
           ],
-          "stdout": "→ 2026-08-22 | 标题：retro  #work ⏰2026-08-21 23:45(toast)\n",
+          "stdout": "→ 2026-08-22 | 标题：retro  #work\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -96,7 +96,7 @@
             "preview",
             "tomorrow buy milk urgent"
           ],
-          "stdout": "→ 2026-08-22 10:00 | 标题：buy milk  [高] ⏰2026-08-22 09:45(toast)\n",
+          "stdout": "→ 2026-08-23 10:00 | 标题：buy milk  [高] ⏰2026-08-23 09:45(toast)\n",
           "stderr": "",
           "exitCode": 0
         },
@@ -105,7 +105,7 @@
             "preview",
             "next friday report very urgent"
           ],
-          "stdout": "→ 2026-08-28 | 标题：report  [高] ⏰2026-08-27 00:00(toast)\n",
+          "stdout": "→ 2026-09-04 | 标题：report  [高] ⏰2026-09-03 00:00(toast)\n",
           "stderr": "",
           "exitCode": 0
         },
@@ -138,7 +138,7 @@
             "preview",
             "tomorrow 2:30pm meeting"
           ],
-          "stdout": "→ 2026-08-22 14:30 | 标题：meeting  ⏰2026-08-22 14:15(toast)\n",
+          "stdout": "→ 2026-08-23 14:30 | 标题：meeting  ⏰2026-08-22 14:30(toast)\n",
           "stderr": "",
           "exitCode": 0
         },
@@ -147,7 +147,7 @@
             "preview",
             "tonight 9am gym"
           ],
-          "stdout": "→ 2026-08-21 09:00 | 标题：gym\n",
+          "stdout": "→ 2026-08-22 09:00 | 标题：gym\n",
           "stderr": "",
           "exitCode": 0
         },
@@ -156,7 +156,7 @@
             "preview",
             "next friday 12pm lunch"
           ],
-          "stdout": "→ 2026-08-28 12:00 | 标题：lunch  ⏰2026-08-27 12:00(toast)\n",
+          "stdout": "→ 2026-09-04 12:00 | 标题：lunch  ⏰2026-09-03 12:00(toast)\n",
           "stderr": "",
           "exitCode": 0
         },
@@ -198,7 +198,7 @@
             "preview",
             "await reply ~day after tomorrow"
           ],
-          "stdout": "→ 等到2026-08-23 | 标题：await reply\n",
+          "stdout": "→ 等到2026-08-24 | 标题：await reply\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -213,16 +213,16 @@
             "add",
             "后天 还书"
           ],
-          "stdout": "已添加 ccb86ccb  还书\n",
+          "stdout": "已添加 c4fa823d  还书\n",
           "stderr": "",
           "exitCode": 0
         },
         {
           "argv": [
             "show",
-            "ccb86ccb"
+            "c4fa823d"
           ],
-          "stdout": "{\n  \"id\": \"ccb86ccb\",\n  \"title\": \"还书\",\n  \"status\": \"todo\",\n  \"due\": \"2026-08-23T00:00:00\",\n  \"tags\": [],\n  \"notes\": \"\",\n  \"reminders\": [\n    {\n      \"id\": \"rem-ef71e1659a92b68b\",\n      \"at\": \"2026-08-22T00:00\",\n      \"hooks\": [\n        \"toast\"\n      ],\n      \"fired\": false,\n      \"dead\": false\n    }\n  ],\n  \"entry\": \"2026-08-21T12:47:57.107Z\",\n  \"modified\": \"2026-08-21T12:47:57.111Z\"\n}\n",
+          "stdout": "id      c4fa823d\n标题    还书\n状态    todo\n截止    2026-08-24 00:00\n优先级  —\n项目    —\n标签    —\n等待到  —\n重复    —\n父任务  —\n子任务  —\n创建    2026-08-22 04:47\n完成    —\n提醒：\n  2026-08-23 00:00  toast  待发送\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -237,7 +237,7 @@
             "preview",
             "下周五 交报告 @none"
           ],
-          "stdout": "→ 2026-08-28 | 标题：交报告\n",
+          "stdout": "→ 2026-08-28 | 标题：交报告  不加提醒\n",
           "stderr": "",
           "exitCode": 0
         },
@@ -246,7 +246,7 @@
             "preview",
             "next friday submit report no reminders"
           ],
-          "stdout": "→ 2026-08-28 | 标题：submit report\n",
+          "stdout": "→ 2026-09-04 | 标题：submit report  不加提醒\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -259,9 +259,9 @@
         {
           "argv": [
             "preview",
-            "下周五 18:30 交季度报告 非常急 #工作 proj:q3 ^c2411f09 @30m"
+            "下周五 18:30 交季度报告 非常急 #工作 proj:q3 ^9719dfa5 @30m"
           ],
-          "stdout": "→ 2026-08-28 18:30 | 标题：交季度报告  [高] proj:q3 #工作 ⏰2026-08-21 21:17(toast) 父:c2411f09\n",
+          "stdout": "→ 2026-08-28 18:30 | 标题：交季度报告  [高] proj:q3 #工作 ⏰2026-08-22 13:17(toast) 父:9719dfa5\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -275,7 +275,7 @@
           "argv": [
             "list"
           ],
-          "stdout": "== 今天 ==\n  9653994d 今天     健身\n== 接下来 ==\n  16e5332c 明天     买牛奶  低  #生活\n  ccb86ccb 后天     还书\n  c2411f09 后天     例会  #meeting\n  37974c4b 周一     交季度报告  高  #工作\n  dff6a1e7 周一     取快递  低\n== 更远 ==\n  93536f2e 8/30   写学习总结  #学习\n隐藏(等待未到) 0 项\n",
+          "stdout": "== 今天 ==\n  7d213e16 今天     健身\n== 接下来 ==\n  2930d8eb 明天     买牛奶  低  #生活\n  26711d31 后天     交季度报告  高  #工作\n  c4fa823d 后天     还书\n  9719dfa5 后天     例会  #meeting\n  07f38675 周二     取快递  低\n== 更远 ==\n  4f5f0706 8/30   写学习总结  #学习\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -290,7 +290,7 @@
             "list",
             "报告"
           ],
-          "stdout": "== 接下来 ==\n  37974c4b 周一     交季度报告  高  #工作\n隐藏(等待未到) 0 项\n",
+          "stdout": "== 接下来 ==\n  26711d31 后天     交季度报告  高  #工作\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -305,7 +305,7 @@
             "list",
             "+工作"
           ],
-          "stdout": "== 接下来 ==\n  37974c4b 周一     交季度报告  高  #工作\n隐藏(等待未到) 0 项\n",
+          "stdout": "== 接下来 ==\n  26711d31 后天     交季度报告  高  #工作\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -313,15 +313,14 @@
     },
     {
       "id": "list-notag",
-      "title": "排除标签 -生活（注意 -- 分隔符）",
+      "title": "排除标签 -生活（0.2.1 起不需要 -- 分隔符）",
       "entries": [
         {
           "argv": [
             "list",
-            "--",
             "-生活"
           ],
-          "stdout": "== 今天 ==\n  9653994d 今天     健身\n== 接下来 ==\n  ccb86ccb 后天     还书\n  c2411f09 后天     例会  #meeting\n  37974c4b 周一     交季度报告  高  #工作\n  dff6a1e7 周一     取快递  低\n== 更远 ==\n  93536f2e 8/30   写学习总结  #学习\n隐藏(等待未到) 0 项\n",
+          "stdout": "== 今天 ==\n  7d213e16 今天     健身\n== 接下来 ==\n  26711d31 后天     交季度报告  高  #工作\n  c4fa823d 后天     还书\n  9719dfa5 后天     例会  #meeting\n  07f38675 周二     取快递  低\n== 更远 ==\n  4f5f0706 8/30   写学习总结  #学习\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -336,7 +335,7 @@
             "list",
             "/奶"
           ],
-          "stdout": "== 接下来 ==\n  16e5332c 明天     买牛奶  低  #生活\n隐藏(等待未到) 0 项\n",
+          "stdout": "== 接下来 ==\n  2930d8eb 明天     买牛奶  低  #生活\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -351,7 +350,7 @@
             "add",
             "昨天 交水电费 不急"
           ],
-          "stdout": "已添加 8fa1797d  昨天 交水电费\n",
+          "stdout": "已添加 31165e2d  昨天 交水电费\n",
           "stderr": "",
           "exitCode": 0
         },
@@ -375,7 +374,7 @@
             "list",
             "due:before:明天"
           ],
-          "stdout": "== 今天 ==\n  9653994d 今天     健身\n隐藏(等待未到) 0 项\n",
+          "stdout": "== 今天 ==\n  7d213e16 今天     健身\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -391,7 +390,7 @@
             "proj:q3",
             "priority:高"
           ],
-          "stdout": "== 接下来 ==\n  37974c4b 周一     交季度报告  高  #工作\n隐藏(等待未到) 0 项\n",
+          "stdout": "== 接下来 ==\n  26711d31 后天     交季度报告  高  #工作\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -422,7 +421,7 @@
             "-m",
             "urgency"
           ],
-          "stdout": "== 今天 ==\n  9653994d 今天     健身  U=8.0\n== 接下来 ==\n  16e5332c 明天     买牛奶  低  #生活  U=7.9\n  37974c4b 周一     交季度报告  高  #工作  U=7.6\n  ccb86ccb 后天     还书  U=5.7\n  c2411f09 后天     例会  #meeting  U=5.7\n  dff6a1e7 周一     取快递  低  U=5.6\n== 更远 ==\n  93536f2e 8/30   写学习总结  #学习  U=0.0\n== 无日期 ==\n  8fa1797d 昨天 交水电费  低  U=1.0\n隐藏(等待未到) 0 项\n",
+          "stdout": "== 今天 ==\n  7d213e16 今天     健身  U=8.0\n== 接下来 ==\n  26711d31 后天     交季度报告  高  #工作  U=8.7\n  2930d8eb 明天     买牛奶  低  #生活  U=7.9\n  c4fa823d 后天     还书  U=5.7\n  9719dfa5 后天     例会  #meeting  U=5.7\n  07f38675 周二     取快递  低  U=5.6\n== 更远 ==\n  4f5f0706 8/30   写学习总结  #学习  U=0.0\n== 无日期 ==\n  31165e2d 昨天 交水电费  低  U=1.0\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -435,7 +434,7 @@
         {
           "argv": [
             "done",
-            "c2411f09"
+            "9719dfa5"
           ],
           "stdout": "✓ 完成 例会\n",
           "stderr": "",
@@ -450,7 +449,7 @@
         {
           "argv": [
             "edit",
-            "16e5332c",
+            "2930d8eb",
             "明天 18:00 买牛奶和酸奶 #生活 @17:30"
           ],
           "stdout": "已更新 买牛奶和酸奶\n",
@@ -466,7 +465,7 @@
         {
           "argv": [
             "wait",
-            "dff6a1e7"
+            "07f38675"
           ],
           "stdout": "已设为等待 取快递\n",
           "stderr": "",
@@ -481,9 +480,9 @@
         {
           "argv": [
             "show",
-            "9653994d"
+            "7d213e16"
           ],
-          "stdout": "{\n  \"id\": \"9653994d\",\n  \"title\": \"健身\",\n  \"status\": \"todo\",\n  \"due\": \"2026-08-21T20:30:00\",\n  \"tags\": [],\n  \"notes\": \"\",\n  \"reminders\": [\n    {\n      \"id\": \"rem-358d2e459d1fb957\",\n      \"at\": \"2026-08-22T20:00\",\n      \"hooks\": [\n        \"toast\"\n      ],\n      \"fired\": false,\n      \"dead\": false\n    }\n  ],\n  \"entry\": \"2026-08-21T12:47:51.354Z\",\n  \"modified\": \"2026-08-21T12:47:51.363Z\"\n}\n",
+          "stdout": "id      7d213e16\n标题    健身\n状态    todo\n截止    2026-08-22 20:30\n优先级  —\n项目    —\n标签    —\n等待到  —\n重复    —\n父任务  —\n子任务  —\n创建    2026-08-22 04:46\n完成    —\n提醒：\n  2026-08-22 20:00  toast  待发送\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -496,19 +495,19 @@
         {
           "argv": [
             "snooze",
-            "9653994d",
+            "7d213e16",
             "30m"
           ],
-          "stdout": "",
+          "stdout": "已推迟 30 分钟\n",
           "stderr": "",
           "exitCode": 0
         },
         {
           "argv": [
             "show",
-            "9653994d"
+            "7d213e16"
           ],
-          "stdout": "{\n  \"id\": \"9653994d\",\n  \"title\": \"健身\",\n  \"status\": \"todo\",\n  \"due\": \"2026-08-21T20:30:00\",\n  \"tags\": [],\n  \"notes\": \"\",\n  \"reminders\": [\n    {\n      \"id\": \"rem-358d2e459d1fb957\",\n      \"at\": \"2026-08-22T20:30\",\n      \"hooks\": [\n        \"toast\"\n      ],\n      \"fired\": false,\n      \"attempts\": 0,\n      \"dead\": false\n    }\n  ],\n  \"entry\": \"2026-08-21T12:47:51.354Z\",\n  \"modified\": \"2026-08-21T12:48:03.659Z\"\n}\n",
+          "stdout": "id      7d213e16\n标题    健身\n状态    todo\n截止    2026-08-22 20:30\n优先级  —\n项目    —\n标签    —\n等待到  —\n重复    —\n父任务  —\n子任务  —\n创建    2026-08-22 04:46\n完成    —\n提醒：\n  2026-08-22 20:30  toast  待发送\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -529,9 +528,9 @@
         {
           "argv": [
             "show",
-            "9653994d"
+            "7d213e16"
           ],
-          "stdout": "{\n  \"id\": \"9653994d\",\n  \"title\": \"健身\",\n  \"status\": \"todo\",\n  \"due\": \"2026-08-21T20:30:00\",\n  \"tags\": [],\n  \"notes\": \"\",\n  \"reminders\": [\n    {\n      \"id\": \"rem-358d2e459d1fb957\",\n      \"at\": \"2026-08-22T20:00\",\n      \"hooks\": [\n        \"toast\"\n      ],\n      \"fired\": false,\n      \"attempts\": 0,\n      \"dead\": false\n    }\n  ],\n  \"entry\": \"2026-08-21T12:47:51.354Z\",\n  \"modified\": \"2026-08-21T12:48:04.277Z\"\n}\n",
+          "stdout": "id      7d213e16\n标题    健身\n状态    todo\n截止    2026-08-22 20:30\n优先级  —\n项目    —\n标签    —\n等待到  —\n重复    —\n父任务  —\n子任务  —\n创建    2026-08-22 04:46\n完成    —\n提醒：\n  2026-08-22 20:00  toast  待发送\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -544,7 +543,7 @@
         {
           "argv": [
             "reopen",
-            "c2411f09"
+            "9719dfa5"
           ],
           "stdout": "↩ 重新打开 例会\n",
           "stderr": "",
@@ -559,7 +558,7 @@
         {
           "argv": [
             "rm",
-            "16e5332c"
+            "2930d8eb"
           ],
           "stdout": "已删除 买牛奶和酸奶\n",
           "stderr": "",
@@ -588,7 +587,7 @@
         {
           "argv": [
             "done",
-            "93536f2e"
+            "4f5f0706"
           ],
           "stdout": "✓ 完成 写学习总结\n",
           "stderr": "",
@@ -607,14 +606,14 @@
           "argv": [
             "archive-list"
           ],
-          "stdout": "93536f2e 写学习总结\n",
+          "stdout": "4f5f0706 写学习总结\n",
           "stderr": "",
           "exitCode": 0
         },
         {
           "argv": [
             "restore",
-            "93536f2e"
+            "4f5f0706"
           ],
           "stdout": "已恢复 写学习总结\n",
           "stderr": "",
@@ -625,7 +624,7 @@
             "list",
             "status:done"
           ],
-          "stdout": "== 已完成/已取消 ==\n  93536f2e 8/30   写学习总结  [done]  #学习\n隐藏(等待未到) 0 项\n",
+          "stdout": "== 已完成/已取消 ==\n  4f5f0706 8/30   写学习总结  [done]  #学习\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -639,7 +638,7 @@
           "argv": [
             "sync-status"
           ],
-          "stdout": "无远程，待提交变更 1 项\n",
+          "stdout": "分支：master\n远程：未配置（atd sync --setup <url> 可以配）\n未提交变更：1 项\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -689,7 +688,7 @@
           "argv": [
             "config"
           ],
-          "stdout": "配置文件：C:\\Users\\10pi\\AppData\\Local\\Temp\\atd-docs-cli-p8zeN5\\config.toml\n# atd 配置文件。手工编辑保存即可，下次操作生效。\n\n[priority]\nmode = \"levels\"\nlevels = [\"低\", \"中\", \"高\"]\n\n[priority.urgency]\noverdue = 12.0\ndue_today = 8.0\ndue_week_decay = 8.0\nper_level = 3.0\nage_per_day = 0.05\nage_cap = 2.0\nwaiting_penalty = 3.0\n\n[agenda]\nweek_days = 7\ndate_format = \"auto\"\n\n[watch]\ninterval_seconds = 30\n\n[email]\nhost = \"\"\nport = 465\nssl = true\nuser = \"\"\npassword = \"***\"\nfrom = \"\"\nto = \"\"\n\n",
+          "stdout": "配置文件：C:\\Users\\10pi\\AppData\\Local\\Temp\\atd-docs-cli-glGKmi\\config.toml\n# atd 配置文件。手工编辑保存即可，下次操作生效。\n\n[priority]\nmode = \"levels\"\nlevels = [\"低\", \"中\", \"高\"]\n\n[priority.urgency]\noverdue = 12.0\ndue_today = 8.0\ndue_week_decay = 8.0\nper_level = 3.0\nage_per_day = 0.05\nage_cap = 2.0\nwaiting_penalty = 3.0\n\n[agenda]\nweek_days = 7\ndate_format = \"auto\"\n\n[watch]\ninterval_seconds = 30\n\n[ui]\n# auto 跟随系统语言（认不出来按中文）；可写成 \"zh\" 或 \"en\" 固定界面语言。\n# 只影响界面文案，一行输入语法和查询语法两种语言下都一样。\nlang = \"auto\"\n\n[email]\nhost = \"\"\nport = 465\nssl = true\nuser = \"\"\npassword = \"***\"\nfrom = \"\"\nto = \"\"\n\n",
           "stderr": "",
           "exitCode": 0
         }
@@ -764,6 +763,517 @@
           ],
           "stdout": "",
           "stderr": "标题不能为空\n",
+          "exitCode": 1
+        }
+      ]
+    },
+    {
+      "id": "notes-input",
+      "title": "备注：>> 之后整段不再解析字段",
+      "entries": [
+        {
+          "argv": [
+            "preview",
+            "买礼物 明天 >>她说想要那个手账本，别买错型号"
+          ],
+          "stdout": "→ 2026-08-23 | 标题：买礼物  ⏰2026-08-22 23:45(toast) 备注:她说想要那个手账本，别买错型号\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "add",
+            "买礼物 明天 >>她说想要那个手账本，别买错型号"
+          ],
+          "stdout": "已添加 b2bde16e  买礼物\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "recur-input",
+      "title": "重复规则：中英文写法",
+      "entries": [
+        {
+          "argv": [
+            "preview",
+            "倒垃圾 *每天 晚上8点"
+          ],
+          "stdout": "→ 2026-08-22 20:00 | 标题：倒垃圾  ↻每天 ⏰2026-08-22 19:45(toast)\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "preview",
+            "大扫除 *每2周"
+          ],
+          "stdout": "→ ↻每2周 | 标题：大扫除\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "preview",
+            "周会 *每周三"
+          ],
+          "stdout": "→ ↻每周三 | 标题：周会\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "preview",
+            "打卡 *工作日"
+          ],
+          "stdout": "→ ↻每个工作日 | 标题：打卡\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "preview",
+            "standup *weekly:mon"
+          ],
+          "stdout": "→ ↻每周一 | 标题：standup\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "recur-spawn",
+      "title": "重复任务：完成时派生下一次",
+      "entries": [
+        {
+          "argv": [
+            "add",
+            "交房租 *每月 月初"
+          ],
+          "stdout": "已添加 07710aa8  交房租\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "done",
+            "07710aa8"
+          ],
+          "stdout": "✓ 完成 交房租\n  ↻ 下一次：7ad92313 2026-10-01\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "list",
+            "has:recur"
+          ],
+          "stdout": "== 更远 ==\n  7ad92313 2026-10-01  交房租  ↻每月  U=0.0\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "clear-fields",
+      "title": "清空字段：edit 现在能删掉字段",
+      "entries": [
+        {
+          "argv": [
+            "add",
+            "清空演示 明天 高 #临时 proj:demo"
+          ],
+          "stdout": "已添加 a003a045  清空演示\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "edit",
+            "a003a045",
+            "-due -proj -#临时"
+          ],
+          "stdout": "已更新 清空演示\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "show",
+            "a003a045"
+          ],
+          "stdout": "id      a003a045\n标题    清空演示\n状态    todo\n截止    —\n优先级  高\n项目    —\n标签    —\n等待到  —\n重复    —\n父任务  —\n子任务  —\n创建    2026-08-22 04:47\n完成    —\n提醒：\n  2026-08-22 23:45  toast  待发送\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "query-new",
+      "title": "新增查询：档位、has:、parent:、取反",
+      "entries": [
+        {
+          "argv": [
+            "list",
+            "+高"
+          ],
+          "stdout": "== 接下来 ==\n  26711d31 2026-08-24  交季度报告  高  #工作  U=8.7\n== 无日期 ==\n  a003a045 清空演示  高  U=3.0\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "list",
+            "!高"
+          ],
+          "stdout": "== 今天 ==\n  7d213e16 2026-08-22  健身  U=8.0\n== 接下来 ==\n  2930d8eb 2026-08-23  买牛奶和酸奶  低  #生活  U=7.9\n  b2bde16e 2026-08-23  买礼物  >>  U=6.9\n  c4fa823d 2026-08-24  还书  U=5.7\n  9719dfa5 2026-08-24  例会  #meeting  U=5.7\n== 更远 ==\n  7ad92313 2026-10-01  交房租  ↻每月  U=0.0\n== 等待中 ==\n  07f38675 2026-08-25  取快递  低  [waiting]  U=-2.0\n== 无日期 ==\n  31165e2d 昨天 交水电费  低  U=1.0\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "list",
+            "has:notes"
+          ],
+          "stdout": "== 接下来 ==\n  b2bde16e 2026-08-23  买礼物  >>  U=6.9\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "list",
+            "-has:due"
+          ],
+          "stdout": "== 无日期 ==\n  a003a045 清空演示  高  U=3.0\n  31165e2d 昨天 交水电费  低  U=1.0\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "list",
+            "wait:none"
+          ],
+          "stdout": "== 今天 ==\n  7d213e16 2026-08-22  健身  U=8.0\n== 接下来 ==\n  26711d31 2026-08-24  交季度报告  高  #工作  U=8.7\n  2930d8eb 2026-08-23  买牛奶和酸奶  低  #生活  U=7.9\n  b2bde16e 2026-08-23  买礼物  >>  U=6.9\n  c4fa823d 2026-08-24  还书  U=5.7\n  9719dfa5 2026-08-24  例会  #meeting  U=5.7\n== 更远 ==\n  7ad92313 2026-10-01  交房租  ↻每月  U=0.0\n== 等待中 ==\n  07f38675 2026-08-25  取快递  低  [waiting]  U=-2.0\n== 无日期 ==\n  a003a045 清空演示  高  U=3.0\n  31165e2d 昨天 交水电费  低  U=1.0\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "subtasks",
+      "title": "子任务：缩进显示与父任务完成提示",
+      "entries": [
+        {
+          "argv": [
+            "add",
+            "装修"
+          ],
+          "stdout": "已添加 14d56fe5  装修\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "add",
+            "买瓷砖 ^14d56fe5"
+          ],
+          "stdout": "已添加 92568961  买瓷砖\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "list",
+            "parent:14d56fe5"
+          ],
+          "stdout": "== 无日期 ==\n  92568961 买瓷砖  U=0.0\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "done",
+            "14d56fe5"
+          ],
+          "stdout": "✓ 完成 装修\n  ⚠ 还有 1 个子任务没完成：买瓷砖（加 --with-subtasks 一起完成）\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "status-entries",
+      "title": "新状态入口：cancel / meeting / todo",
+      "entries": [
+        {
+          "argv": [
+            "add",
+            "也许不做的事"
+          ],
+          "stdout": "已添加 b98a187f  也许不做的事\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "cancel",
+            "b98a187f"
+          ],
+          "stdout": "✗ 已取消 也许不做的事\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "meeting",
+            "b98a187f"
+          ],
+          "stdout": "已标记为会议 也许不做的事\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "todo",
+            "b98a187f"
+          ],
+          "stdout": "↩ 已退回待办 也许不做的事\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "wait-until",
+      "title": "wait --until 押后到指定日期",
+      "entries": [
+        {
+          "argv": [
+            "add",
+            "等回复"
+          ],
+          "stdout": "已添加 ebdcde48  等回复\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "wait",
+            "ebdcde48",
+            "--until",
+            "下周一"
+          ],
+          "stdout": "已设为等待 等回复（等到 2026-08-24）\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "show-human",
+      "title": "show 默认人读格式，--json 给原始 JSON",
+      "entries": [
+        {
+          "argv": [
+            "show",
+            "7d213e16"
+          ],
+          "stdout": "id      7d213e16\n标题    健身\n状态    todo\n截止    2026-08-22 20:30\n优先级  —\n项目    —\n标签    —\n等待到  —\n重复    —\n父任务  —\n子任务  —\n创建    2026-08-22 04:46\n完成    —\n提醒：\n  2026-08-22 20:00  toast  待发送\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "show",
+            "7d213e16",
+            "--json"
+          ],
+          "stdout": "{\n  \"id\": \"7d213e16\",\n  \"title\": \"健身\",\n  \"status\": \"todo\",\n  \"due\": \"2026-08-22T20:30:00\",\n  \"tags\": [],\n  \"notes\": \"\",\n  \"reminders\": [\n    {\n      \"id\": \"rem-9148367be700f1bb\",\n      \"at\": \"2026-08-22T20:00\",\n      \"hooks\": [\n        \"toast\"\n      ],\n      \"fired\": false,\n      \"attempts\": 0,\n      \"dead\": false\n    }\n  ],\n  \"entry\": \"2026-08-22T04:46:58.968Z\",\n  \"modified\": \"2026-08-22T04:47:11.609Z\"\n}\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "summaries",
+      "title": "projects / tags / stats 汇总",
+      "entries": [
+        {
+          "argv": [
+            "projects"
+          ],
+          "stdout": "项目        未完成  已完成  逾期\n（无项目）      12       3     0\nq3               1       0     0\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "tags"
+          ],
+          "stdout": "标签        未完成  已完成  逾期\n（无标签）      10       2     0\n工作             1       0     0\n生活             1       0     0\nmeeting          1       0     0\n学习             0       1     0\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "stats"
+          ],
+          "stdout": "任务总数 16（todo 11，done 3，waiting 2）\n逾期 0，今天到期 1，7 天内到期 7，等待未到 1\n重复任务 2，有备注 1，子任务 1\n待发提醒 9\n近 7 天完成 3，近 30 天完成 3\n最久没动的未完成任务已经放了 0 天\n最紧急的几条：\n  26711d31 U=  8.7  交季度报告\n  7d213e16 U=  8.0  健身\n  2930d8eb U=  7.9  买牛奶和酸奶\n  b2bde16e U=  6.9  买礼物\n  c4fa823d U=  5.7  还书\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "export",
+      "title": "导出：markdown / csv / json",
+      "entries": [
+        {
+          "argv": [
+            "export",
+            "-f",
+            "markdown"
+          ],
+          "stdout": "- [ ] 交季度报告  📅 2026-08-24 (高) ◈q3 #工作\n- [ ] 还书  📅 2026-08-24\n- [ ] 昨天 交水电费  (低)\n- [ ] 取快递  📅 2026-08-25 (低)\n- [ ] 健身  📅 2026-08-22\n- [ ] 例会  📅 2026-08-24 #meeting\n- [ ] 买牛奶和酸奶  📅 2026-08-23 (低) #生活\n- [x] 写学习总结  📅 2026-08-30 #学习\n- [ ] 买礼物  📅 2026-08-23\n      她说想要那个手账本，别买错型号\n- [x] 交房租  📅 2026-09-01 ↻每月\n- [ ] 交房租  📅 2026-10-01 ↻每月\n- [ ] 清空演示  (高)\n- [ ] 买瓷砖\n- [x] 装修\n- [ ] 也许不做的事\n- [ ] 等回复\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "export",
+            "has:notes",
+            "-f",
+            "csv"
+          ],
+          "stdout": "id,title,status,due,priority,project,tags,parent,wait,recur,notes,entry,end\nb2bde16e,买礼物,todo,2026-08-23T00:00:00,,,,,,,她说想要那个手账本，别买错型号,2026-08-22T04:47:20.447Z,\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "config-deep",
+      "title": "config：任意层级 key、get、拒绝坏值",
+      "entries": [
+        {
+          "argv": [
+            "config",
+            "set",
+            "priority.urgency.overdue",
+            "20"
+          ],
+          "stdout": "已设置 priority.urgency.overdue = 20\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "config",
+            "get",
+            "priority.urgency.overdue"
+          ],
+          "stdout": "20\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "config",
+            "set",
+            "priority.mode",
+            "nonsense"
+          ],
+          "stdout": "",
+          "stderr": "priority.mode 不接受这个值：Invalid enum value. Expected 'levels' | 'urgency', received 'nonsense'\n",
+          "exitCode": 1
+        },
+        {
+          "argv": [
+            "config",
+            "set",
+            "priorty.mode",
+            "urgency"
+          ],
+          "stdout": "",
+          "stderr": "配置里没有这个 key：priorty.mode\n",
+          "exitCode": 1
+        }
+      ]
+    },
+    {
+      "id": "ui-lang",
+      "title": "界面语言：中英切换",
+      "entries": [
+        {
+          "argv": [
+            "config",
+            "set",
+            "ui.lang",
+            "en"
+          ],
+          "stdout": "已设置 ui.lang = en\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "list"
+          ],
+          "stdout": "== Today ==\n  7d213e16 2026-08-22  健身  U=8.0\n== Upcoming ==\n  26711d31 2026-08-24  交季度报告  高  #工作  U=8.7\n  2930d8eb 2026-08-23  买牛奶和酸奶  低  #生活  U=7.9\n  b2bde16e 2026-08-23  买礼物  >>  U=6.9\n  c4fa823d 2026-08-24  还书  U=5.7\n  9719dfa5 2026-08-24  例会  #meeting  U=5.7\n== Later ==\n  7ad92313 2026-10-01  交房租  ↻monthly  U=0.0\n== Waiting ==\n  07f38675 2026-08-25  取快递  低  [waiting]  U=-2.0\n== No date ==\n  a003a045 清空演示  高  U=3.0\n  31165e2d 昨天 交水电费  低  U=1.0\n  92568961 买瓷砖  U=0.0\n  b98a187f 也许不做的事  U=0.0\n1 hidden (waiting)\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "config",
+            "set",
+            "ui.lang",
+            "zh"
+          ],
+          "stdout": "已设置 ui.lang = zh\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "list"
+          ],
+          "stdout": "== 今天 ==\n  7d213e16 2026-08-22  健身  U=8.0\n== 接下来 ==\n  26711d31 2026-08-24  交季度报告  高  #工作  U=8.7\n  2930d8eb 2026-08-23  买牛奶和酸奶  低  #生活  U=7.9\n  b2bde16e 2026-08-23  买礼物  >>  U=6.9\n  c4fa823d 2026-08-24  还书  U=5.7\n  9719dfa5 2026-08-24  例会  #meeting  U=5.7\n== 更远 ==\n  7ad92313 2026-10-01  交房租  ↻每月  U=0.0\n== 等待中 ==\n  07f38675 2026-08-25  取快递  低  [waiting]  U=-2.0\n== 无日期 ==\n  a003a045 清空演示  高  U=3.0\n  31165e2d 昨天 交水电费  低  U=1.0\n  92568961 买瓷砖  U=0.0\n  b98a187f 也许不做的事  U=0.0\n隐藏(等待未到) 1 项\n",
+          "stderr": "",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "id": "done-twice",
+      "title": "错误处理：重复完成同一任务被拒绝",
+      "entries": [
+        {
+          "argv": [
+            "add",
+            "只能完成一次"
+          ],
+          "stdout": "已添加 8f1cf9ca  只能完成一次\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "done",
+            "8f1cf9ca"
+          ],
+          "stdout": "✓ 完成 只能完成一次\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        {
+          "argv": [
+            "done",
+            "8f1cf9ca"
+          ],
+          "stdout": "",
+          "stderr": "跳过：只能完成一次（已经是已完成）\n",
           "exitCode": 1
         }
       ]

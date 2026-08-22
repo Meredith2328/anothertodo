@@ -34,7 +34,7 @@ Application operations shared by CLI and TUI; presentation layers do not mutate 
 
 ### add()
 
-> **add**(`input`, `now?`): `Promise`\<\{ `due?`: `string`; `end?`: `string`; `entry`: `string`; `id`: `string`; `modified`: `string`; `notes`: `string`; `parent?`: `string`; `priority?`: `string`; `project?`: `string`; `reminders`: `object`[]; `status`: `string`; `tags`: `string`[]; `title`: `string`; `wait?`: `string`; \}\>
+> **add**(`input`, `now?`): `Promise`\<\{ `due?`: `string`; `end?`: `string`; `entry`: `string`; `id`: `string`; `modified`: `string`; `notes`: `string`; `parent?`: `string`; `priority?`: `string`; `project?`: `string`; `recur?`: \{ `interval`: `number`; `kind`: `"daily"` \| `"weekly"` \| `"monthly"` \| `"yearly"` \| `"weekdays"`; `weekday?`: `number`; \}; `reminders`: `object`[]; `status`: `string`; `tags`: `string`[]; `title`: `string`; `wait?`: `string`; \}\>
 
 #### Parameters
 
@@ -48,7 +48,7 @@ Application operations shared by CLI and TUI; presentation layers do not mutate 
 
 #### Returns
 
-`Promise`\<\{ `due?`: `string`; `end?`: `string`; `entry`: `string`; `id`: `string`; `modified`: `string`; `notes`: `string`; `parent?`: `string`; `priority?`: `string`; `project?`: `string`; `reminders`: `object`[]; `status`: `string`; `tags`: `string`[]; `title`: `string`; `wait?`: `string`; \}\>
+`Promise`\<\{ `due?`: `string`; `end?`: `string`; `entry`: `string`; `id`: `string`; `modified`: `string`; `notes`: `string`; `parent?`: `string`; `priority?`: `string`; `project?`: `string`; `recur?`: \{ `interval`: `number`; `kind`: `"daily"` \| `"weekly"` \| `"monthly"` \| `"yearly"` \| `"weekdays"`; `weekday?`: `number`; \}; `reminders`: `object`[]; `status`: `string`; `tags`: `string`[]; `title`: `string`; `wait?`: `string`; \}\>
 
 ***
 
@@ -68,19 +68,88 @@ Application operations shared by CLI and TUI; presentation layers do not mutate 
 
 ***
 
-### config()
+### children()
 
-> **config**(): `Promise`\<\{ `agenda`: \{ `date_format`: `"auto"` \| `"md"` \| `"full"`; `week_days`: `number`; \}; `email`: \{ `from`: `string`; `host`: `string`; `password`: `string`; `port`: `number`; `ssl`: `boolean`; `to`: `string`; `user`: `string`; \}; `priority`: \{ `levels`: `string`[]; `mode`: `"levels"` \| `"urgency"`; `urgency`: \{ `age_cap`: `number`; `age_per_day`: `number`; `due_today`: `number`; `due_week_decay`: `number`; `overdue`: `number`; `per_level`: `number`; `waiting_penalty`: `number`; \}; \}; `watch`: \{ `interval_seconds`: `number`; \}; \}\>
+> **children**(`id`): `Promise`\<`object`[]\>
+
+直接找子任务；id 是全长的，父字段里存的也是全长 id
+
+#### Parameters
+
+##### id
+
+`string`
 
 #### Returns
 
-`Promise`\<\{ `agenda`: \{ `date_format`: `"auto"` \| `"md"` \| `"full"`; `week_days`: `number`; \}; `email`: \{ `from`: `string`; `host`: `string`; `password`: `string`; `port`: `number`; `ssl`: `boolean`; `to`: `string`; `user`: `string`; \}; `priority`: \{ `levels`: `string`[]; `mode`: `"levels"` \| `"urgency"`; `urgency`: \{ `age_cap`: `number`; `age_per_day`: `number`; `due_today`: `number`; `due_week_decay`: `number`; `overdue`: `number`; `per_level`: `number`; `waiting_penalty`: `number`; \}; \}; `watch`: \{ `interval_seconds`: `number`; \}; \}\>
+`Promise`\<`object`[]\>
+
+***
+
+### complete()
+
+> **complete**(`idOrPrefix`, `options?`): `Promise`\<`CompleteResult`\>
+
+完成一个任务，顺带处理两件只有在这里才知道该怎么做的事：
+重复任务要派生下一次，父任务完成时要交代还开着的子任务。
+
+#### Parameters
+
+##### idOrPrefix
+
+`string`
+
+##### options?
+
+###### cascade?
+
+`boolean`
+
+###### now?
+
+`string`
+
+#### Returns
+
+`Promise`\<`CompleteResult`\>
+
+***
+
+### config()
+
+> **config**(): `Promise`\<\{ `agenda`: \{ `date_format`: `"auto"` \| `"md"` \| `"full"`; `week_days`: `number`; \}; `email`: \{ `from`: `string`; `host`: `string`; `password`: `string`; `port`: `number`; `ssl`: `boolean`; `to`: `string`; `user`: `string`; \}; `priority`: \{ `levels`: `string`[]; `mode`: `"levels"` \| `"urgency"`; `urgency`: \{ `age_cap`: `number`; `age_per_day`: `number`; `due_today`: `number`; `due_week_decay`: `number`; `overdue`: `number`; `per_level`: `number`; `waiting_penalty`: `number`; \}; \}; `ui`: \{ `lang`: `"auto"` \| `"zh"` \| `"en"`; \}; `watch`: \{ `interval_seconds`: `number`; \}; \}\>
+
+#### Returns
+
+`Promise`\<\{ `agenda`: \{ `date_format`: `"auto"` \| `"md"` \| `"full"`; `week_days`: `number`; \}; `email`: \{ `from`: `string`; `host`: `string`; `password`: `string`; `port`: `number`; `ssl`: `boolean`; `to`: `string`; `user`: `string`; \}; `priority`: \{ `levels`: `string`[]; `mode`: `"levels"` \| `"urgency"`; `urgency`: \{ `age_cap`: `number`; `age_per_day`: `number`; `due_today`: `number`; `due_week_decay`: `number`; `overdue`: `number`; `per_level`: `number`; `waiting_penalty`: `number`; \}; \}; `ui`: \{ `lang`: `"auto"` \| `"zh"` \| `"en"`; \}; `watch`: \{ `interval_seconds`: `number`; \}; \}\>
+
+***
+
+### deferUntil()
+
+> **deferUntil**(`idOrPrefix`, `date`): `Promise`\<\{ `due?`: `string`; `end?`: `string`; `entry`: `string`; `id`: `string`; `modified`: `string`; `notes`: `string`; `parent?`: `string`; `priority?`: `string`; `project?`: `string`; `recur?`: \{ `interval`: `number`; `kind`: `"daily"` \| `"weekly"` \| `"monthly"` \| `"yearly"` \| `"weekdays"`; `weekday?`: `number`; \}; `reminders`: `object`[]; `status`: `string`; `tags`: `string`[]; `title`: `string`; `wait?`: `string`; \}\>
+
+押后到指定日期；TUI 的 w 和 CLI 的 wait 都走这里
+
+#### Parameters
+
+##### idOrPrefix
+
+`string`
+
+##### date
+
+`string`
+
+#### Returns
+
+`Promise`\<\{ `due?`: `string`; `end?`: `string`; `entry`: `string`; `id`: `string`; `modified`: `string`; `notes`: `string`; `parent?`: `string`; `priority?`: `string`; `project?`: `string`; `recur?`: \{ `interval`: `number`; `kind`: `"daily"` \| `"weekly"` \| `"monthly"` \| `"yearly"` \| `"weekdays"`; `weekday?`: `number`; \}; `reminders`: `object`[]; `status`: `string`; `tags`: `string`[]; `title`: `string`; `wait?`: `string`; \}\>
 
 ***
 
 ### deferUntilTomorrow()
 
-> **deferUntilTomorrow**(`idOrPrefix`, `today?`): `Promise`\<\{ `due?`: `string`; `end?`: `string`; `entry`: `string`; `id`: `string`; `modified`: `string`; `notes`: `string`; `parent?`: `string`; `priority?`: `string`; `project?`: `string`; `reminders`: `object`[]; `status`: `string`; `tags`: `string`[]; `title`: `string`; `wait?`: `string`; \}\>
+> **deferUntilTomorrow**(`idOrPrefix`, `today?`): `Promise`\<\{ `due?`: `string`; `end?`: `string`; `entry`: `string`; `id`: `string`; `modified`: `string`; `notes`: `string`; `parent?`: `string`; `priority?`: `string`; `project?`: `string`; `recur?`: \{ `interval`: `number`; `kind`: `"daily"` \| `"weekly"` \| `"monthly"` \| `"yearly"` \| `"weekdays"`; `weekday?`: `number`; \}; `reminders`: `object`[]; `status`: `string`; `tags`: `string`[]; `title`: `string`; `wait?`: `string`; \}\>
 
 #### Parameters
 
@@ -94,13 +163,13 @@ Application operations shared by CLI and TUI; presentation layers do not mutate 
 
 #### Returns
 
-`Promise`\<\{ `due?`: `string`; `end?`: `string`; `entry`: `string`; `id`: `string`; `modified`: `string`; `notes`: `string`; `parent?`: `string`; `priority?`: `string`; `project?`: `string`; `reminders`: `object`[]; `status`: `string`; `tags`: `string`[]; `title`: `string`; `wait?`: `string`; \}\>
+`Promise`\<\{ `due?`: `string`; `end?`: `string`; `entry`: `string`; `id`: `string`; `modified`: `string`; `notes`: `string`; `parent?`: `string`; `priority?`: `string`; `project?`: `string`; `recur?`: \{ `interval`: `number`; `kind`: `"daily"` \| `"weekly"` \| `"monthly"` \| `"yearly"` \| `"weekdays"`; `weekday?`: `number`; \}; `reminders`: `object`[]; `status`: `string`; `tags`: `string`[]; `title`: `string`; `wait?`: `string`; \}\>
 
 ***
 
 ### edit()
 
-> **edit**(`idOrPrefix`, `input`, `now?`): `Promise`\<\{ `due?`: `string`; `end?`: `string`; `entry`: `string`; `id`: `string`; `modified`: `string`; `notes`: `string`; `parent?`: `string`; `priority?`: `string`; `project?`: `string`; `reminders`: `object`[]; `status`: `string`; `tags`: `string`[]; `title`: `string`; `wait?`: `string`; \}\>
+> **edit**(`idOrPrefix`, `input`, `now?`): `Promise`\<\{ `due?`: `string`; `end?`: `string`; `entry`: `string`; `id`: `string`; `modified`: `string`; `notes`: `string`; `parent?`: `string`; `priority?`: `string`; `project?`: `string`; `recur?`: \{ `interval`: `number`; `kind`: `"daily"` \| `"weekly"` \| `"monthly"` \| `"yearly"` \| `"weekdays"`; `weekday?`: `number`; \}; `reminders`: `object`[]; `status`: `string`; `tags`: `string`[]; `title`: `string`; `wait?`: `string`; \}\>
 
 #### Parameters
 
@@ -118,7 +187,7 @@ Application operations shared by CLI and TUI; presentation layers do not mutate 
 
 #### Returns
 
-`Promise`\<\{ `due?`: `string`; `end?`: `string`; `entry`: `string`; `id`: `string`; `modified`: `string`; `notes`: `string`; `parent?`: `string`; `priority?`: `string`; `project?`: `string`; `reminders`: `object`[]; `status`: `string`; `tags`: `string`[]; `title`: `string`; `wait?`: `string`; \}\>
+`Promise`\<\{ `due?`: `string`; `end?`: `string`; `entry`: `string`; `id`: `string`; `modified`: `string`; `notes`: `string`; `parent?`: `string`; `priority?`: `string`; `project?`: `string`; `recur?`: \{ `interval`: `number`; `kind`: `"daily"` \| `"weekly"` \| `"monthly"` \| `"yearly"` \| `"weekdays"`; `weekday?`: `number`; \}; `reminders`: `object`[]; `status`: `string`; `tags`: `string`[]; `title`: `string`; `wait?`: `string`; \}\>
 
 ***
 
@@ -140,7 +209,7 @@ Application operations shared by CLI and TUI; presentation layers do not mutate 
 
 ### reopen()
 
-> **reopen**(`idOrPrefix`): `Promise`\<\{ `due?`: `string`; `end?`: `string`; `entry`: `string`; `id`: `string`; `modified`: `string`; `notes`: `string`; `parent?`: `string`; `priority?`: `string`; `project?`: `string`; `reminders`: `object`[]; `status`: `string`; `tags`: `string`[]; `title`: `string`; `wait?`: `string`; \}\>
+> **reopen**(`idOrPrefix`): `Promise`\<\{ `due?`: `string`; `end?`: `string`; `entry`: `string`; `id`: `string`; `modified`: `string`; `notes`: `string`; `parent?`: `string`; `priority?`: `string`; `project?`: `string`; `recur?`: \{ `interval`: `number`; `kind`: `"daily"` \| `"weekly"` \| `"monthly"` \| `"yearly"` \| `"weekdays"`; `weekday?`: `number`; \}; `reminders`: `object`[]; `status`: `string`; `tags`: `string`[]; `title`: `string`; `wait?`: `string`; \}\>
 
 #### Parameters
 
@@ -150,7 +219,7 @@ Application operations shared by CLI and TUI; presentation layers do not mutate 
 
 #### Returns
 
-`Promise`\<\{ `due?`: `string`; `end?`: `string`; `entry`: `string`; `id`: `string`; `modified`: `string`; `notes`: `string`; `parent?`: `string`; `priority?`: `string`; `project?`: `string`; `reminders`: `object`[]; `status`: `string`; `tags`: `string`[]; `title`: `string`; `wait?`: `string`; \}\>
+`Promise`\<\{ `due?`: `string`; `end?`: `string`; `entry`: `string`; `id`: `string`; `modified`: `string`; `notes`: `string`; `parent?`: `string`; `priority?`: `string`; `project?`: `string`; `recur?`: \{ `interval`: `number`; `kind`: `"daily"` \| `"weekly"` \| `"monthly"` \| `"yearly"` \| `"weekdays"`; `weekday?`: `number`; \}; `reminders`: `object`[]; `status`: `string`; `tags`: `string`[]; `title`: `string`; `wait?`: `string`; \}\>
 
 ***
 
@@ -172,7 +241,7 @@ Application operations shared by CLI and TUI; presentation layers do not mutate 
 
 ### setStatus()
 
-> **setStatus**(`idOrPrefix`, `status`): `Promise`\<\{ `due?`: `string`; `end?`: `string`; `entry`: `string`; `id`: `string`; `modified`: `string`; `notes`: `string`; `parent?`: `string`; `priority?`: `string`; `project?`: `string`; `reminders`: `object`[]; `status`: `string`; `tags`: `string`[]; `title`: `string`; `wait?`: `string`; \}\>
+> **setStatus**(`idOrPrefix`, `status`): `Promise`\<\{ `due?`: `string`; `end?`: `string`; `entry`: `string`; `id`: `string`; `modified`: `string`; `notes`: `string`; `parent?`: `string`; `priority?`: `string`; `project?`: `string`; `recur?`: \{ `interval`: `number`; `kind`: `"daily"` \| `"weekly"` \| `"monthly"` \| `"yearly"` \| `"weekdays"`; `weekday?`: `number`; \}; `reminders`: `object`[]; `status`: `string`; `tags`: `string`[]; `title`: `string`; `wait?`: `string`; \}\>
 
 #### Parameters
 
@@ -182,11 +251,11 @@ Application operations shared by CLI and TUI; presentation layers do not mutate 
 
 ##### status
 
-`"todo"` \| `"done"` \| `"waiting"`
+`TaskStatus`
 
 #### Returns
 
-`Promise`\<\{ `due?`: `string`; `end?`: `string`; `entry`: `string`; `id`: `string`; `modified`: `string`; `notes`: `string`; `parent?`: `string`; `priority?`: `string`; `project?`: `string`; `reminders`: `object`[]; `status`: `string`; `tags`: `string`[]; `title`: `string`; `wait?`: `string`; \}\>
+`Promise`\<\{ `due?`: `string`; `end?`: `string`; `entry`: `string`; `id`: `string`; `modified`: `string`; `notes`: `string`; `parent?`: `string`; `priority?`: `string`; `project?`: `string`; `recur?`: \{ `interval`: `number`; `kind`: `"daily"` \| `"weekly"` \| `"monthly"` \| `"yearly"` \| `"weekdays"`; `weekday?`: `number`; \}; `reminders`: `object`[]; `status`: `string`; `tags`: `string`[]; `title`: `string`; `wait?`: `string`; \}\>
 
 ***
 

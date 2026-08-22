@@ -1,2 +1,4 @@
 $ atd sync-status
-无远程，待提交变更 1 项
+分支：master
+远程：未配置（atd sync --setup <url> 可以配）
+未提交变更：1 项

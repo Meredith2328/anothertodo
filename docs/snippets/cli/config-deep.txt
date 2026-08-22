@@ -1,0 +1,8 @@
+$ atd config set priority.urgency.overdue 20
+已设置 priority.urgency.overdue = 20
+$ atd config get priority.urgency.overdue
+20
+$ atd config set priority.mode nonsense
+priority.mode 不接受这个值：Invalid enum value. Expected 'levels' | 'urgency', received 'nonsense'
+$ atd config set priorty.mode urgency
+配置里没有这个 key：priorty.mode

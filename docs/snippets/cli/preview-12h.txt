@@ -1,8 +1,8 @@
 $ atd preview "tomorrow 2:30pm meeting"
-→ 2026-08-22 14:30 | 标题：meeting  ⏰2026-08-22 14:15(toast)
+→ 2026-08-23 14:30 | 标题：meeting  ⏰2026-08-22 14:30(toast)
 $ atd preview "tonight 9am gym"
-→ 2026-08-21 09:00 | 标题：gym
+→ 2026-08-22 09:00 | 标题：gym
 $ atd preview "next friday 12pm lunch"
-→ 2026-08-28 12:00 | 标题：lunch  ⏰2026-08-27 12:00(toast)
+→ 2026-09-04 12:00 | 标题：lunch  ⏰2026-09-03 12:00(toast)
 $ atd preview "8.20 12am report"
 → 2026-08-20 00:00 | 标题：report
