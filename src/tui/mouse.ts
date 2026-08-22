@@ -152,7 +152,14 @@ export const createMouseBridge = (stdin: NodeJS.ReadStream & { fd: number }, std
       const { chunks, events: parsed, pending: next } = splitMouseData(chunk, pending);
       pending = next;
       for (const part of chunks) if (part) stream.push(part);
-      for (const event of parsed) events.emit("mouse", event);
+      // 同时发给本地订阅者和模块总线。TuiApp 走 subscribeMouse（总线），
+      // 所以这里必须无条件转发——以前只在调用方调了 bridge.subscribe() 时
+      // 才建立到总线的中继，而 cli.ts 从没调过，导致真实终端里鼠标全程失效
+      // （测试直接 emitMouse 打总线，所以一路绿灯没暴露）。
+      for (const event of parsed) {
+        events.emit("mouse", event);
+        bus.emit("mouse", event);
+      }
     }
   };
 
@@ -177,10 +184,8 @@ export const createMouseBridge = (stdin: NodeJS.ReadStream & { fd: number }, std
   return {
     stream,
     subscribe(listener) {
-      const relay = (event: MouseEvent): void => { bus.emit("mouse", event); };
       events.on("mouse", listener);
-      events.on("mouse", relay);
-      return () => { events.removeListener("mouse", listener); events.removeListener("mouse", relay); };
+      return () => { events.removeListener("mouse", listener); };
     },
     enable,
     disable,

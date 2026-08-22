@@ -131,8 +131,12 @@ export const FooterBar = (): React.ReactElement => (
     <Text>
       {FOOTER_KEYS.map((entry) => (
         <React.Fragment key={entry.name}>
-          <Text bold color="black" backgroundColor={C.dim}>{` ${entry.key} `}</Text>
-          <Text color={C.dim}>{` ${entry.label}   `}</Text>
+          {/* 键帽用主色底 + 深色字：这几个是真能点的按钮，之前整块用 dim 灰底
+              灰字，看着像禁用状态（用户反馈「灰扑扑的」）。标签用正常文字色，
+              和键帽一起构成一个看得出可点的整体。 */}
+          <Text bold color={C.bg} backgroundColor={C.accent}>{` ${entry.key} `}</Text>
+          <Text color={C.label}>{` ${entry.label}`}</Text>
+          <Text color={C.dimmer}>{"   "}</Text>
         </React.Fragment>
       ))}
     </Text>
