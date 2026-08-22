@@ -102,7 +102,8 @@ atd config set ui.lang en
 - 议程分组现在带稳定的 `key`，上色和逻辑判断都用它。以前 TUI 靠显示名查颜色、CLI 靠 `name.startsWith("隐藏")` 判断隐藏行，换个界面语言就全失效。
 - 终端显示宽度的计算抽到 `src/core/width.ts`，CLI 表格和 TUI 共用一套。以前 CLI 用全角空格凑对齐，中文一多列就错位。
 - 批量操作改成逐条报错继续，一条失败不再带走后面几条。
-- 测试从 100 个增加到 155 个。
+- 测试从 100 个增加到 157 个。
+- 测试的界面语言钉成中文。i18n 的 `detectLang()` 会读 `LANG` / `LC_ALL`，而 CI 三个 runner 的取值各不相同（macOS 是 `en_US.UTF-8`、Ubuntu 是 `C.UTF-8`、Windows 没有 `LANG`），断言中文分组名的测试因此只在非英文环境下才成立，第一次发 0.2.1 时 macOS 构建就是这么红的。
 
 ### 已知问题
 
