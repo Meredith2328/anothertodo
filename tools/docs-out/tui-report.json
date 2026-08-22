@@ -91,7 +91,7 @@
     },
     {
       "id": "search-filter",
-      "title": "搜索过滤 /报告",
+      "title": "搜索过滤 /周报",
       "rows": 24,
       "asserts": [
         {
@@ -134,11 +134,91 @@
     },
     {
       "id": "delete-soft",
-      "title": "x 软删除",
+      "title": "x 删除：先弹确认框",
       "rows": 24,
       "asserts": [
         {
-          "name": "删除后任务数减少",
+          "name": "弹出确认框",
+          "ok": true
+        },
+        {
+          "name": "未确认前不删除",
+          "ok": true
+        },
+        {
+          "name": "确认后任务数减少",
+          "ok": true
+        }
+      ],
+      "pass": true,
+      "failed": []
+    },
+    {
+      "id": "detail-overlay",
+      "title": "l 详情浮层：备注、提醒、子任务",
+      "rows": 30,
+      "asserts": [
+        {
+          "name": "显示备注正文",
+          "ok": true
+        },
+        {
+          "name": "显示提醒投递状态",
+          "ok": true
+        },
+        {
+          "name": "显示浮层操作提示",
+          "ok": true
+        }
+      ],
+      "pass": true,
+      "failed": []
+    },
+    {
+      "id": "multi-select",
+      "title": "空格多选 + 批量操作",
+      "rows": 24,
+      "asserts": [
+        {
+          "name": "顶栏显示已选数量",
+          "ok": true
+        },
+        {
+          "name": "行首出现勾选标记",
+          "ok": true
+        }
+      ],
+      "pass": true,
+      "failed": []
+    },
+    {
+      "id": "subtasks",
+      "title": "子任务缩进显示",
+      "rows": 24,
+      "asserts": [
+        {
+          "name": "子任务缩进标记",
+          "ok": true
+        },
+        {
+          "name": "父任务在其上方",
+          "ok": true
+        }
+      ],
+      "pass": true,
+      "failed": []
+    },
+    {
+      "id": "recur-marks",
+      "title": "重复规则与备注标记",
+      "rows": 24,
+      "asserts": [
+        {
+          "name": "显示重复规则",
+          "ok": true
+        },
+        {
+          "name": "显示有备注标记",
           "ok": true
         }
       ],
