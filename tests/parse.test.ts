@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { nextOccurrence, parse } from "../src/core/parse.js";
+import { nextOccurrence, parse, preview } from "../src/core/parse.js";
 
 type ParseCase = {
   input: string;
@@ -221,6 +221,24 @@ describe("notes, recurrence, and field clearing", () => {
 
   it("treats @none on an edit as clearing existing reminders", () => {
     expect([...parse("改标题 @none", NOW, LEVELS).clears]).toEqual(["reminders"]);
+  });
+
+  it("distinguishes opting out of reminders from clearing them", () => {
+    // 两种写法对 store 的作用一样，但语义不同，preview 的措辞不能混
+    for (const text of ["下周五 交报告 @none", "会议 @off", "submit report no reminders"]) {
+      const parsed = parse(text, NOW, LEVELS);
+      expect(parsed.clears.has("reminders")).toBe(true);
+      expect(parsed.remindersOptedOut).toBe(true);
+    }
+    for (const text of ["改标题 -提醒", "改标题 -reminders"]) {
+      const parsed = parse(text, NOW, LEVELS);
+      expect(parsed.clears.has("reminders")).toBe(true);
+      expect(parsed.remindersOptedOut).toBe(false);
+    }
+    // 「不加提醒」是给新任务看的，「清空提醒」是给已有任务看的
+    expect(preview("下周五 交报告 @none", NOW, LEVELS)).toContain("不加提醒");
+    expect(preview("改标题 -提醒", NOW, LEVELS)).toContain("清空提醒");
+    expect(preview("下周五 交报告 @none", NOW, LEVELS)).not.toContain("清空提醒");
   });
 });
 
