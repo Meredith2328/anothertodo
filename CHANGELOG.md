@@ -12,7 +12,9 @@
 
 顺带补了两个真库回归测试。原来的 email hook 测试注入了假 transport，真实 nodemailer 一行都没跑到，换版本出问题得等用户配了邮件才发现。现在会用 `streamTransport` 真编译一封邮件（不连任何服务器），并且钉住一个前提：任务标题里带 CRLF 时不会注入邮件头——nodemailer 会把 subject 做 RFC 2047 编码，CRLF 连同后面伪造的头一起被裹进 encoded-word。这个前提是审计时实测确认的，写成测试以免将来换库时静默失效。
 
-开发依赖那边 vitest 链上还剩 5 条告警（1 critical + 4 moderate），都是开发服务器相关，不进发行产物，本项目也不跑 vite dev server 或 vitest UI，留待单独升级。
+开发依赖那边也一并清了：vitest 2.1.9 → 4.1.11 带掉了 vite / vite-node / @vitest/mocker 三条传递告警，剩下 esbuild 那条卡在 tsup 固定的 `^0.27.0` 上（advisory 范围是 `0.27.3 - 0.28.0`，要 `0.28.1+` 才算修好），用 npm `overrides` 强制提到 0.28.2 解决。**`npm audit` 现在是 0 条。**
+
+这批开发依赖本来不进发行产物，用户装到的包里一个都没有，所以严格说不影响使用者；清掉它们是为了让 `npm audit` 干净，以后真出问题时不会被一堆已知噪音盖住。升级后 160 个测试无需改动即全过，tsup 构建、SEA 单文件打包（它直接调 esbuild API，还带两个消除 top-level await 的自定义插件，是最容易被 esbuild 换版本搞坏的地方）、smoke、TUI 稳定性 20/20 都验过，`npm ci` 在干净目录也能复现。
 
 ## 0.2.1
 
@@ -122,7 +124,7 @@ atd config set ui.lang en
 `npm audit` 报了 6 个依赖漏洞，这一版没动，因为修复都要跨大版本升级，不适合塞进一个补丁版本：
 
 - **nodemailer 6.x**（运行时依赖，2 个 high）：SMTP 命令注入和收件域名解析歧义。只有配置并启用了 `email` 提醒 hook 才会走到这段代码，默认的 `toast` 通知不受影响。修复需要升到 nodemailer 9。（**已在下一版修掉**，见上方「未发布」一节。）
-- **vitest / vite / esbuild**（仅开发依赖，1 个 critical + 3 个 moderate）：都是开发服务器相关的任意文件读取。这几个包不进发行产物，本项目也不跑 vite dev server 或 vitest UI。修复需要升到 vitest 4。
+- **vitest / vite / esbuild**（仅开发依赖，1 个 critical + 3 个 moderate）：都是开发服务器相关的任意文件读取。这几个包不进发行产物，本项目也不跑 vite dev server 或 vitest UI。修复需要升到 vitest 4。（**已在下一版修掉**。）
 
 两处升级计划放到下一个版本单独做，好单独验证。
 
