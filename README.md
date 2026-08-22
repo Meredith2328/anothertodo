@@ -6,7 +6,7 @@
 
 轻量 todo：一行模糊输入添加任务，命令行 TUI 管理，提醒 hook 通知，git 多端同步。数据是纯文本 JSONL，存在 `~/.atd/`。
 
-> 完整功能与案例见 **[VitePress 文档站](https://meredith2328.github.io/anothertodo/)**。本 README 是速查。
+> 完整功能与案例见 **[VitePress 文档站](https://meredith2328.github.io/anothertodo/)**。本 README 是速查，版本变化见 [CHANGELOG](CHANGELOG.md)。
 
 ## 安装
 
