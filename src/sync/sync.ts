@@ -66,6 +66,14 @@ const currentBranch = async (dir: string, runner: GitRunner): Promise<string> =>
   return result.stdout.trim() || "master";
 };
 
+/** 刚 init 还没有任何提交时 rev-parse HEAD 会失败，看状态不该因此报错 */
+const currentBranchTolerant = async (dir: string, runner: GitRunner): Promise<string> => {
+  const symbolic = await runner.run(["symbolic-ref", "--short", "HEAD"], { cwd: dir });
+  if (symbolic.exitCode === 0 && symbolic.stdout.trim()) return symbolic.stdout.trim();
+  const head = await runner.run(["rev-parse", "--abbrev-ref", "HEAD"], { cwd: dir });
+  return head.exitCode === 0 && head.stdout.trim() ? head.stdout.trim() : "master";
+};
+
 type RemoteTarget = { name: string; ref: string; hasUpstream: boolean };
 const remoteTarget = async (dir: string, branch: string, runner: GitRunner): Promise<RemoteTarget | undefined> => {
   const upstream = await runner.run(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], { cwd: dir });
@@ -167,9 +175,64 @@ export const syncDirectory = async (dir: string, canPush = true, runner: GitRunn
   }
 };
 
-export const syncStatus = async (dir: string, runner: GitRunner = gitRunner): Promise<string> => {
+/**
+ * 配置（或改写）origin。这一步之前只能自己敲 git remote add，
+ * README 也只写了「git remote add origin <url>」，对不熟 git 的人是道坎。
+ */
+export const setupRemote = async (dir: string, url: string, runner: GitRunner = gitRunner): Promise<string> => {
+  if (!url.trim()) throw new Error("远程地址不能为空");
+  await ensureRepo(dir, runner);
+  const remotes = (await runner.run(["remote"], { cwd: dir })).stdout.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+  if (remotes.includes("origin")) {
+    const previous = (await runner.run(["remote", "get-url", "origin"], { cwd: dir })).stdout.trim();
+    if (previous === url) return `origin 已经是 ${url}，没有改动`;
+    await gitOrThrow(runner, ["remote", "set-url", "origin", url], dir);
+    return `已把 origin 从 ${previous} 改成 ${url}`;
+  }
+  await gitOrThrow(runner, ["remote", "add", "origin", url], dir);
+  return `已添加远程 origin → ${url}\n接下来跑一次 atd sync 就会把本地任务推上去`;
+};
+
+export type SyncStatusDetail = {
+  branch: string;
+  remote?: string;
+  remoteUrl?: string;
+  pending: number;
+  ahead: number;
+  behind: number;
+  lastCommit?: string;
+};
+
+export const syncStatusDetail = async (dir: string, runner: GitRunner = gitRunner): Promise<SyncStatusDetail> => {
   await ensureRepo(dir, runner);
   const status = await gitOrThrow(runner, ["status", "--porcelain"], dir);
-  const remote = await runner.run(["remote"], { cwd: dir });
-  return `${remote.stdout.trim() ? "远程：" : "无远程，"}待提交变更 ${status.stdout.split(/\r?\n/).filter(Boolean).length} 项`;
+  const branch = await currentBranchTolerant(dir, runner);
+  const target = await remoteTarget(dir, branch, runner);
+  const detail: SyncStatusDetail = { branch, pending: status.stdout.split(/\r?\n/).filter(Boolean).length, ahead: 0, behind: 0 };
+  const lastCommit = await runner.run(["log", "-1", "--format=%cd %s", "--date=format:%Y-%m-%d %H:%M"], { cwd: dir });
+  if (lastCommit.exitCode === 0 && lastCommit.stdout.trim()) detail.lastCommit = lastCommit.stdout.trim();
+  if (!target) return detail;
+  detail.remote = target.name;
+  const url = await runner.run(["remote", "get-url", target.name], { cwd: dir });
+  if (url.exitCode === 0 && url.stdout.trim()) detail.remoteUrl = url.stdout.trim();
+  // 只数已抓到的引用，不联网：status 要能在离线时立刻返回
+  const counts = await runner.run(["rev-list", "--left-right", "--count", `${target.ref}...HEAD`], { cwd: dir });
+  if (counts.exitCode === 0) {
+    const [behind, ahead] = counts.stdout.trim().split(/\s+/u).map(Number);
+    detail.behind = behind ?? 0;
+    detail.ahead = ahead ?? 0;
+  }
+  return detail;
+};
+
+export const syncStatus = async (dir: string, runner: GitRunner = gitRunner): Promise<string> => {
+  const detail = await syncStatusDetail(dir, runner);
+  const lines = [
+    `分支：${detail.branch}`,
+    detail.remoteUrl ? `远程：${detail.remote} → ${detail.remoteUrl}` : "远程：未配置（atd sync --setup <url> 可以配）",
+    `未提交变更：${detail.pending} 项`,
+  ];
+  if (detail.remote) lines.push(`领先远端 ${detail.ahead} 个提交，落后 ${detail.behind} 个（数字基于上次 fetch，未联网刷新）`);
+  if (detail.lastCommit) lines.push(`最近一次提交：${detail.lastCommit}`);
+  return lines.join("\n");
 };

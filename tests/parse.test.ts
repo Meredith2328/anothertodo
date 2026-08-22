@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { parse } from "../src/core/parse.js";
+import { nextOccurrence, parse } from "../src/core/parse.js";
 
 type ParseCase = {
   input: string;
@@ -165,5 +165,87 @@ describe("input enhancements from docs/input-enhancements.md", () => {
 
   it("keeps trailing text after a multi-word wait date in the title", () => {
     expect(parse("await reply ~next monday then call", NOW, LEVELS)).toMatchObject({ title: "await reply then call", wait: "2026-08-31" });
+  });
+});
+
+// 备注、重复、清空字段：stage 3 之后补的输入语法。now 固定在 2026-08-20（周四）。
+describe("notes, recurrence, and field clearing", () => {
+  const NOW = "2026-08-20T10:00:00";
+  const LEVELS = ["低", "中", "高"];
+
+  it("takes everything after >> as notes without parsing fields inside it", () => {
+    const parsed = parse("买礼物 明天 >>她说想要 #手账 本，proj:别乱认 @9:00", NOW, LEVELS);
+    expect(parsed.title).toBe("买礼物");
+    expect(parsed.due).toBe("2026-08-21T00:00:00");
+    expect(parsed.notes).toBe("她说想要 #手账 本，proj:别乱认 @9:00");
+    expect(parsed.tags).toEqual([]);
+    expect(parsed.project).toBeUndefined();
+  });
+
+  it("treats a bare >> as clearing the notes", () => {
+    const parsed = parse("买礼物 >>", NOW, LEVELS);
+    expect(parsed.notes).toBeUndefined();
+    expect([...parsed.clears]).toEqual(["notes"]);
+  });
+
+  it("parses Chinese and English recurrence forms", () => {
+    expect(parse("倒垃圾 *每天", NOW, LEVELS)).toMatchObject({ title: "倒垃圾", recur: { kind: "daily", interval: 1 } });
+    expect(parse("交房租 *每月", NOW, LEVELS)).toMatchObject({ title: "交房租", recur: { kind: "monthly", interval: 1 } });
+    expect(parse("体检 *每年", NOW, LEVELS)).toMatchObject({ title: "体检", recur: { kind: "yearly", interval: 1 } });
+    expect(parse("大扫除 *每2周", NOW, LEVELS)).toMatchObject({ title: "大扫除", recur: { kind: "weekly", interval: 2 } });
+    expect(parse("周会 *每周三", NOW, LEVELS)).toMatchObject({ title: "周会", recur: { kind: "weekly", interval: 1, weekday: 2 } });
+    expect(parse("打卡 *工作日", NOW, LEVELS)).toMatchObject({ title: "打卡", recur: { kind: "weekdays" } });
+    expect(parse("standup *weekly:mon", NOW, LEVELS)).toMatchObject({ title: "standup", recur: { kind: "weekly", weekday: 0 } });
+    expect(parse("water plants *3d", NOW, LEVELS)).toMatchObject({ title: "water plants", recur: { kind: "daily", interval: 3 } });
+  });
+
+  it("leaves an unrecognized * token in the title instead of swallowing it", () => {
+    const parsed = parse("买 *特价 木板", NOW, LEVELS);
+    expect(parsed.recur).toBeUndefined();
+    expect(parsed.title).toBe("买 *特价 木板");
+  });
+
+  it("collects explicit clear instructions", () => {
+    const parsed = parse("改标题 -due -proj -标签 -重复", NOW, LEVELS);
+    expect(parsed.title).toBe("改标题");
+    expect([...parsed.clears].sort()).toEqual(["due", "project", "recur", "tags"]);
+  });
+
+  it("removes one tag with -#tag and keeps level negation out of it", () => {
+    const parsed = parse("改标题 -#临时 #正式", NOW, LEVELS);
+    expect(parsed.removeTags).toEqual(["临时"]);
+    expect(parsed.tags).toEqual(["正式"]);
+    // 档位名不是清空指令，原样留着当档位用
+    expect(parse("改标题 低", NOW, LEVELS).priority).toBe("低");
+  });
+
+  it("treats @none on an edit as clearing existing reminders", () => {
+    expect([...parse("改标题 @none", NOW, LEVELS).clears]).toEqual(["reminders"]);
+  });
+});
+
+describe("recurrence date math", () => {
+  it("advances by kind and interval", () => {
+    expect(nextOccurrence("2026-08-20", { kind: "daily", interval: 1 })).toBe("2026-08-21");
+    expect(nextOccurrence("2026-08-20", { kind: "daily", interval: 3 })).toBe("2026-08-23");
+    expect(nextOccurrence("2026-08-20", { kind: "weekly", interval: 1 })).toBe("2026-08-27");
+    expect(nextOccurrence("2026-08-20", { kind: "weekly", interval: 2 })).toBe("2026-09-03");
+    // 周四推一周到下周四，再对齐到周一
+    expect(nextOccurrence("2026-08-20", { kind: "weekly", interval: 1, weekday: 0 })).toBe("2026-08-31");
+    expect(nextOccurrence("2026-08-20", { kind: "monthly", interval: 1 })).toBe("2026-09-20");
+    expect(nextOccurrence("2026-12-20", { kind: "monthly", interval: 1 })).toBe("2027-01-20");
+    expect(nextOccurrence("2026-08-20", { kind: "yearly", interval: 1 })).toBe("2027-08-20");
+  });
+
+  it("clamps a month-end day into short months instead of rolling over", () => {
+    expect(nextOccurrence("2026-01-31", { kind: "monthly", interval: 1 })).toBe("2026-02-28");
+    expect(nextOccurrence("2026-08-31", { kind: "monthly", interval: 1 })).toBe("2026-09-30");
+    expect(nextOccurrence("2028-02-29", { kind: "yearly", interval: 1 })).toBe("2029-02-28");
+  });
+
+  it("skips weekends for weekday recurrence", () => {
+    expect(nextOccurrence("2026-08-20", { kind: "weekdays", interval: 1 })).toBe("2026-08-21");
+    // 周五的下一次是周一
+    expect(nextOccurrence("2026-08-21", { kind: "weekdays", interval: 1 })).toBe("2026-08-24");
   });
 });
