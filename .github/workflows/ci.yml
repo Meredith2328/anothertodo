@@ -1,0 +1,54 @@
+name: CI
+
+# 日常把关：push 到 main 和所有 PR 都跑。
+# 发布用的三平台 SEA 构建在 build-node.yml，只在打 node-v* tag 时跑——
+# 0.2.1 那次 macOS 测试全红就是因为日常改动没有任何自动化门槛，
+# 一路推到 tag 才炸出来。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 同一分支上新的 push 取消旧的运行，省额度
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # 三平台都跑：测试里有路径、文件锁、终端宽度相关的行为，
+    # 而且 runner 的 LANG 各不相同（macOS en_US、Ubuntu C.UTF-8、Windows 无），
+    # 只在一个平台上验会漏掉这类差异。
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: node tools/smoke-node.mjs
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # 0.2.2 把 npm audit 清到 0 条，这里守住它，别再攒回去
+      - run: npm audit --audit-level=low

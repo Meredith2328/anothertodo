@@ -6,24 +6,26 @@ import { join } from "node:path";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 
 import { ApplicationService } from "../app/service.js";
-import { formatDate, groups, nestTasks, type GroupKey } from "../core/agenda.js";
+import { groups, nestTasks, type GroupKey } from "../core/agenda.js";
 import { setConfigValue } from "../core/config.js";
 import type { Config, Task } from "../contracts.js";
-import { t } from "../core/i18n.js";
-import { describeRecur, preview, scanDate } from "../core/parse.js";
-import { isOverdue, localDate, localNow } from "../core/task.js";
+import { scanDate } from "../core/parse.js";
+import { localNow } from "../core/task.js";
 import { taskToInput } from "../core/task-ops.js";
-import { displayWidth, padDisplay, truncateDisplay, truncateWithEllipsis } from "../core/width.js";
 import { Store } from "../storage/store.js";
 import { initialTuiState, tuiReducer, type TuiState } from "./state.js";
-import type { KeyAction, KeyEvent } from "./keymap.js";
+import type { KeyEvent } from "./keymap.js";
 import { mapKey } from "./keymap.js";
 import { subscribeMouse, type MouseEvent } from "./mouse.js";
 import {
-  BANNER_COLORS, BANNER_FULL, BANNER_SMALL, C, COMPACT_HELP_LINES, COMPACT_HELP_ROWS,
-  DATE_FORMAT_LABEL, FULL_HELP_LINES, GROUP_COLOR, HELP_SECTIONS, INPUT_PLACEHOLDER,
-  MODE_LABEL, STATUS_COLOR, WELCOME_ROWS,
-} from "./theme.js";
+  CHROME_LINES, DATE_W, EXTRAS_W, GroupSeparator, PRIORITY_W, STATUS_W, TaskRow,
+} from "./rows.js";
+import { Banner, BannerInfo, FooterBar, InputBar, PreviewLine, footerKeyRanges } from "./chrome.js";
+import { ConfirmModal, DetailModal, HelpModal, ModalShell, WelcomeModal } from "./modals.js";
+import { BANNER_FULL, BANNER_SMALL, C, DATE_FORMAT_LABEL } from "./theme.js";
+
+// 鼠标点击 Footer 需要列区间；测试也直接引它，保持从 app 导出
+export { footerKeyRanges };
 
 export type TuiTestSignals = {
   onReady?: () => void;
@@ -55,377 +57,6 @@ const completeInput = (input: string, tasks: Task[]): string => {
   }
   return input;
 };
-
-// 列宽（显示列数）：日期 / 紧急度 / 状态 / 标签提醒；TODO 占剩余宽度
-const DATE_W = 12;
-const PRIORITY_W = 8;
-const STATUS_W = 10;
-const EXTRAS_W = 30;
-// 表格以外的固定行数：横幅 + 信息行 + 表格边框/表头 + 预览行 + 输入框 + Footer
-const CHROME_LINES = 7 + 3 + 1 + 3 + 1;
-
-const dayDelta = (date: string, today: string): number =>
-  Math.round((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
-
-// ---------------------------------------------------------------- 单元格
-type Cell = { text: string; color: string; bold: boolean };
-
-const dateCell = (task: Task, today: string, dateFormat: "auto" | "md" | "full"): Cell => {
-  if (!task.due) return { text: "—", color: C.dimmer, bold: false };
-  const label = formatDate(task, today, dateFormat);
-  if (isOverdue(task, today)) return { text: label, color: C.overdue, bold: true };
-  const delta = dayDelta(localDate(task.due), today);
-  if (delta === 0) return { text: label, color: C.accent, bold: true };
-  if (delta <= 2) return { text: label, color: C.future, bold: false };
-  return { text: label, color: C.dim, bold: false };
-};
-
-const priorityCell = (task: Task, levels: string[]): Cell => {
-  const index = task.priority ? levels.indexOf(task.priority) : -1;
-  if (index < 0 || !task.priority) return { text: "", color: C.dimmer, bold: false };
-  const ratio = (index + 1) / levels.length;
-  if (ratio >= 0.99) return { text: task.priority, color: C.hot, bold: true };
-  if (ratio > 0.5) return { text: task.priority, color: C.warn, bold: false };
-  return { text: task.priority, color: C.good, bold: false };
-};
-
-const statusCell = (task: Task): Cell => {
-  if (task.status === "todo") return { text: "", color: C.dim, bold: false };
-  return { text: task.status, color: STATUS_COLOR[task.status] ?? C.dim, bold: false };
-};
-
-const extrasSegments = (task: Task): Array<{ text: string; color: string }> => {
-  const segments: Array<{ text: string; color: string }> = [];
-  if (task.project) segments.push({ text: `◈${task.project} `, color: C.proj });
-  for (const tag of task.tags) segments.push({ text: `#${tag} `, color: C.tag });
-  if (task.recur) segments.push({ text: `↻${describeRecur(task.recur)} `, color: C.proj });
-  if (task.notes.trim()) segments.push({ text: "✎ ", color: C.dim });
-  const reminder = task.reminders.find((item) => !item.fired);
-  if (reminder) segments.push({ text: `⏰${reminder.at.slice(5, 16).replace("T", " ")}`, color: C.yellow });
-  return segments;
-};
-
-const truncateSegments = (segments: Array<{ text: string; color: string }>, width: number): Array<{ text: string; color: string }> => {
-  const out: Array<{ text: string; color: string }> = [];
-  let used = 0;
-  for (const segment of segments) {
-    const room = width - used;
-    if (room <= 0) break;
-    const text = truncateDisplay(segment.text, room);
-    if (!text) break;
-    out.push({ text, color: segment.color });
-    used += displayWidth(text);
-  }
-  return out;
-};
-
-const GroupSeparator = ({ groupKey, name, count }: { groupKey: GroupKey; name: string; count: number }): React.ReactElement => {
-  const color = GROUP_COLOR[groupKey] ?? C.dim;
-  return (
-    <Text>
-      <Text color={color}>╾─ </Text>
-      <Text bold color={color}>{name}</Text>
-      <Text color={color}>{` ${count} `}</Text>
-      <Text color={C.dimmer}>{"─".repeat(18)}</Text>
-    </Text>
-  );
-};
-
-const TaskRow = ({ task, selected, marked = false, today, dateFormat, levels, titleWidth, depth = 0 }: {
-  task: Task;
-  selected: boolean;
-  marked?: boolean;
-  today: string;
-  dateFormat: "auto" | "md" | "full";
-  levels: string[];
-  titleWidth: number;
-  depth?: number;
-}): React.ReactElement => {
-  // 子任务缩进后可用的标题宽度也跟着变窄，否则会挤掉右边的列
-  const indent = depth > 0 ? `${"  ".repeat(depth - 1)}↳ ` : "";
-  const check = marked ? "◉ " : "";
-  const room = Math.max(4, titleWidth - displayWidth(indent) - displayWidth(check));
-  const title = `${indent}${check}${truncateWithEllipsis(task.title, room)}`;
-  const date = dateCell(task, today, dateFormat);
-  const priority = priorityCell(task, levels);
-  const status = statusCell(task);
-  const extras = truncateSegments(extrasSegments(task), EXTRAS_W);
-  const highlight = selected ? { backgroundColor: C.select } : {};
-  return (
-    <Text {...highlight}>
-      <Text color={date.color} bold={date.bold}>{padDisplay(date.text, DATE_W)}</Text>
-      <Text wrap="truncate">{padDisplay(title, titleWidth)}</Text>
-      <Text color={priority.color} bold={priority.bold}>{padDisplay(priority.text, PRIORITY_W)}</Text>
-      <Text color={status.color} bold={status.bold}>{padDisplay(status.text, STATUS_W)}</Text>
-      {extras.map((segment, index) => <Text key={`${segment.text}-${index}`} color={segment.color}>{segment.text}</Text>)}
-    </Text>
-  );
-};
-
-// ---------------------------------------------------------------- 横幅 / 状态栏
-const Banner = ({ columns }: { columns: number | undefined }): React.ReactElement => {
-  const lines = columns === undefined || columns >= 72 ? BANNER_FULL : BANNER_SMALL;
-  return (
-    <Box flexDirection="column" paddingLeft={1} paddingRight={1}>
-      {lines.map((line, index) => (
-        <Text key={index} color={BANNER_COLORS[index % BANNER_COLORS.length] ?? C.hot}>{line}</Text>
-      ))}
-    </Box>
-  );
-};
-
-const BannerInfo = ({ query, sortMode, tasks, clock, marked = 0 }: {
-  query: string;
-  sortMode: "levels" | "urgency";
-  tasks: Task[];
-  clock: Date;
-  marked?: number;
-}): React.ReactElement => {
-  const today = nowLocal().slice(0, 10);
-  const overdue = tasks.filter((task) => isOverdue(task, today)).length;
-  const dueToday = tasks.filter((task) => (task.status === "todo" || task.status === "meeting") && task.due !== undefined && localDate(task.due) === today).length;
-  const active = tasks.filter((task) => task.status === "todo" || task.status === "waiting" || task.status === "meeting").length;
-  const hhmm = `${String(clock.getHours()).padStart(2, "0")}:${String(clock.getMinutes()).padStart(2, "0")}`;
-  return (
-    <Box justifyContent="flex-end" paddingLeft={1} paddingRight={1}>
-      <Text>
-        {marked ? <Text bold color={C.hot}>{`◉${marked} `}</Text> : null}
-        {query ? <Text color={C.dim}>过滤 </Text> : null}
-        {query ? <Text color={C.yellow}>{query}</Text> : null}
-        {query ? <Text color={C.dim}>{"   "}</Text> : null}
-        <Text color={C.accent}>{`${MODE_LABEL[sortMode]}排序`}</Text>
-        <Text color={C.dim}>{"   "}</Text>
-        <Text bold color={C.overdue}>{`!${overdue}`}</Text>
-        <Text color={C.dim}>{"  "}</Text>
-        <Text color={C.accent}>●</Text>
-        <Text bold color={C.accent}>{String(dueToday)}</Text>
-        <Text color={C.dim}>{"  "}</Text>
-        <Text color={C.dim}>∑</Text>
-        <Text bold color={C.accent}>{String(active)}</Text>
-        <Text color={C.dim}>{`   ${hhmm}`}</Text>
-      </Text>
-    </Box>
-  );
-};
-
-// ---------------------------------------------------------------- 预览行 / 输入框 / Footer
-const PreviewLine = ({ state, levels }: { state: TuiState; levels: string[] }): React.ReactElement => {
-  if (!state.input) {
-    if (state.flashMessage) return <Text color={C.flash}>{`› ${state.flashMessage}`}</Text>;
-    const hint = state.mode.kind === "list"
-      ? "清单区：j/k 移动 · d 完成 · l 详情 · 空格多选 · 打字即添加 · : 命令"
-      : "输入区：Enter 提交 · Esc 回清单";
-    return <Text><Text color={C.accent}>› </Text><Text color={C.dimmer}>{hint}</Text></Text>;
-  }
-  if (state.input.startsWith(":") || state.input.startsWith("/")) {
-    return <Text><Text color={C.accent}>› </Text><Text color={C.dim}>命令：list &lt;查询&gt; / undo / sync / mode levels|urgency / archive / cancel / meeting / todo / wait &lt;日期&gt; / snooze &lt;分钟&gt; / quit</Text></Text>;
-  }
-  return (
-    <Text>
-      <Text color={C.accent}>› </Text>
-      {state.mode.kind === "edit" ? <Text color={C.yellow}>编辑中(回车保存,Esc取消) </Text> : null}
-      <Text>{preview(state.input, nowLocal(), levels)}</Text>
-    </Text>
-  );
-};
-
-const InputBar = ({ state }: { state: TuiState }): React.ReactElement => {
-  const active = state.mode.kind !== "list";
-  const chars = [...state.input];
-  const cursor = Math.max(0, Math.min(chars.length, state.inputCursor));
-  // 光标块：覆盖光标处字符；光标在末尾时覆盖一个空格
-  const under = active ? (chars[cursor] ?? " ") : " ";
-  const before = active ? chars.slice(0, cursor).join("") : state.input;
-  const after = active ? chars.slice(cursor + 1).join("") : "";
-  return (
-    <Box
-      borderStyle="single"
-      borderTop={false}
-      borderLeft={false}
-      borderRight={false}
-      borderColor={active ? C.accent : C.border}
-      paddingLeft={1}
-      paddingRight={1}
-    >
-      <Text>
-        {!active && !state.input ? <Text color={C.dimmer}>{INPUT_PLACEHOLDER}</Text> : null}
-        <Text>{before}</Text>
-        {active ? <Text inverse bold>{under}</Text> : null}
-        <Text>{after}</Text>
-      </Text>
-    </Box>
-  );
-};
-
-const FOOTER_KEYS = [
-  { name: "help" as const, key: "?", label: "帮助" },
-  { name: "input" as const, key: "i", label: "输入" },
-  { name: "done" as const, key: "d", label: "完成" },
-  { name: "quit" as const, key: "q", label: "退出" },
-];
-// 每个 Footer 键的屏幕列区间（1 起，含键帽与标签）。布局：Box paddingLeft=1
-// 占第 1 列；每项 = 键帽 ` x `(3 列) + 空格(1) + 标签(width 列) + 3 空格。
-export const footerKeyRanges = (): Array<{ name: "help" | "input" | "done" | "quit"; start: number; end: number }> => {
-  const ranges: Array<{ name: "help" | "input" | "done" | "quit"; start: number; end: number }> = [];
-  let column = 2; // paddingLeft 1 → 内容从第 2 列开始
-  for (const entry of FOOTER_KEYS) {
-    const entryWidth = 3 + 1 + displayWidth(entry.label) + 3;
-    ranges.push({ name: entry.name, start: column, end: column + entryWidth - 1 });
-    column += entryWidth;
-  }
-  return ranges;
-};
-const FooterBar = (): React.ReactElement => (
-  <Box paddingLeft={1} paddingRight={1}>
-    <Text>
-      {FOOTER_KEYS.map((entry) => (
-        <React.Fragment key={entry.name}>
-          <Text bold color="black" backgroundColor={C.dim}>{` ${entry.key} `}</Text>
-          <Text color={C.dim}>{` ${entry.label}   `}</Text>
-        </React.Fragment>
-      ))}
-    </Text>
-  </Box>
-);
-
-// ---------------------------------------------------------------- 弹窗
-// Ink 从上往下渲染，没有「垂直居中」布局；按终端剩余高度在弹窗上方垫空行。
-// 整帧必须严格等于终端行数（外层 height:rows + 底部 Footer）——一旦溢出，
-// 矮终端里整帧上卷，上一帧的残留（比如旧 Footer）会留在屏幕顶部。
-const ModalShell = ({ rows, children }: {
-  rows?: number | undefined;
-  children: React.ReactNode;
-}): React.ReactElement => (
-  <Box flexDirection="column" {...(rows !== undefined ? { height: rows } : {})}>
-    <Box flexDirection="column" flexGrow={1}>{children}</Box>
-    <FooterBar />
-  </Box>
-);
-
-const ModalPage = ({ rows, contentLines, children }: {
-  rows?: number | undefined;
-  contentLines: number;
-  children: React.ReactNode;
-}): React.ReactElement => {
-  // 减 1 给 ModalShell 底部的 Footer 行
-  const pad = rows === undefined ? 0 : Math.max(0, Math.floor((rows - 1 - contentLines) / 2));
-  return (
-    <Box flexDirection="column">
-      {Array.from({ length: pad }, (_, index) => <Text key={index}> </Text>)}
-      {children}
-    </Box>
-  );
-};
-
-const HelpRows = ({ entries, keysWidth }: {
-  entries: ReadonlyArray<readonly [string, string]>;
-  keysWidth: number;
-}): React.ReactElement => (
-  <>
-    {entries.map(([keys, description], index) => (
-      <Box key={`${index}-${keys}`} flexDirection="row">
-        <Box width={keysWidth}><Text color={C.accent}>{keys}</Text></Box>
-        <Box flexGrow={1} flexShrink={1}><Text>{description}</Text></Box>
-      </Box>
-    ))}
-  </>
-);
-
-const HelpModal = ({ rows }: { rows?: number | undefined }): React.ReactElement => {
-  // 终端放得下完整版（留 2 行余量）就用完整版；矮终端自动切紧凑版，
-  // 保证弹窗永远完整可见。高度未知（测试/管道）时保持完整版。
-  const full = rows === undefined || rows >= FULL_HELP_LINES + 2;
-  return (
-    <ModalPage rows={rows} contentLines={full ? FULL_HELP_LINES : COMPACT_HELP_LINES}>
-      <Box flexDirection="column" alignItems="center">
-        <Box flexDirection="column" borderStyle="round" borderColor={C.accent} paddingLeft={2} paddingRight={2}>
-          <Text><Text bold color={C.accent}>atd 帮助</Text><Text color={C.dim}>   （按任意键关闭）</Text></Text>
-          {full ? HELP_SECTIONS.map(([section, entries]) => (
-            <React.Fragment key={section}>
-              <Text bold color={C.warn}>{section}</Text>
-              <HelpRows entries={entries} keysWidth={34} />
-            </React.Fragment>
-          )) : <HelpRows entries={COMPACT_HELP_ROWS} keysWidth={10} />}
-        </Box>
-      </Box>
-    </ModalPage>
-  );
-};
-
-const WELCOME_LINES = 3 + WELCOME_ROWS.length;
-
-const WelcomeModal = ({ rows }: { rows?: number | undefined }): React.ReactElement => (
-  <ModalPage rows={rows} contentLines={WELCOME_LINES}>
-    <Box flexDirection="column" alignItems="center">
-      <Box flexDirection="column" borderStyle="round" borderColor={C.accent} paddingLeft={2} paddingRight={2}>
-        <Text><Text bold color={C.accent}>👋 atd 上手三分钟</Text><Text color={C.dim}>   （按任意键开始）</Text></Text>
-        <HelpRows entries={WELCOME_ROWS} keysWidth={34} />
-      </Box>
-    </Box>
-  </ModalPage>
-);
-
-// ---------------------------------------------------------------- 详情 / 确认浮层
-const DetailRow = ({ label, value }: { label: string; value: string }): React.ReactElement => (
-  <Box flexDirection="row">
-    <Box width={10}><Text color={C.dim}>{label}</Text></Box>
-    <Box flexGrow={1} flexShrink={1}><Text wrap="wrap">{value}</Text></Box>
-  </Box>
-);
-
-/** notes 一直只存不显示；详情浮层就是给它一个真正能看到的地方 */
-const DetailModal = ({ task, children: subtasks, parent, rows, columns }: {
-  task: Task;
-  children: Task[];
-  parent: Task | undefined;
-  rows?: number | undefined;
-  columns?: number | undefined;
-}): React.ReactElement => {
-  const noteLines = task.notes.trim() ? task.notes.split(/\r?\n/) : [];
-  const fields: Array<[string, string]> = [
-    [t("field.status"), task.status],
-    [t("field.due"), task.due ? task.due.replace("T", " ").slice(0, 16) : t("value.none")],
-    [t("field.priority"), task.priority ?? t("value.none")],
-    [t("field.project"), task.project ?? t("value.none")],
-    [t("field.tags"), task.tags.length ? task.tags.map((tag) => `#${tag}`).join(" ") : t("value.none")],
-    [t("field.wait"), task.wait ?? t("value.none")],
-    [t("field.recur"), task.recur ? describeRecur(task.recur) : t("value.none")],
-  ];
-  if (parent) fields.push([t("field.parent"), `${parent.id} ${parent.title}`]);
-  if (subtasks.length) fields.push([t("field.subtasks"), subtasks.map((child) => `${child.status === "done" ? "✓" : "·"} ${child.title}`).join("  ")]);
-  fields.push([t("field.entry"), task.entry.replace("T", " ").slice(0, 16)]);
-  if (task.end) fields.push([t("field.end"), task.end.replace("T", " ").slice(0, 16)]);
-  const reminderLines = task.reminders.map((reminder) => `${reminder.at.replace("T", " ")}  ${reminder.hooks.join(",")}  ${reminder.dead ? t("reminder.dead") : reminder.fired ? t("reminder.sent") : t("reminder.pending")}`);
-  const contentLines = 4 + fields.length + (reminderLines.length ? reminderLines.length + 1 : 0) + (noteLines.length ? noteLines.length + 1 : 0);
-  const width = Math.min(Math.max(40, (columns ?? 80) - 8), 100);
-  return (
-    <ModalPage rows={rows} contentLines={contentLines}>
-      <Box flexDirection="column" alignItems="center">
-        <Box flexDirection="column" borderStyle="round" borderColor={C.accent} paddingLeft={2} paddingRight={2} width={width}>
-          <Text><Text bold color={C.accent}>{truncateWithEllipsis(task.title, width - 16)}</Text><Text color={C.dimmer}>{`  ${task.id}`}</Text></Text>
-          {fields.map(([label, value]) => <DetailRow key={label} label={label} value={value} />)}
-          {reminderLines.length ? <Text bold color={C.warn}>{t("field.reminders")}</Text> : null}
-          {reminderLines.map((line) => <Text key={line} color={C.yellow}>{`  ${line}`}</Text>)}
-          {noteLines.length ? <Text bold color={C.warn}>{t("field.notes")}</Text> : null}
-          {noteLines.map((line, index) => <Text key={`${index}-${line}`} wrap="wrap">{`  ${line}`}</Text>)}
-          <Text color={C.dim}>j/k 看上下一条 · e 编辑 · 其他键关闭</Text>
-        </Box>
-      </Box>
-    </ModalPage>
-  );
-};
-
-const ConfirmModal = ({ prompt, rows }: { prompt: string; rows?: number | undefined }): React.ReactElement => (
-  <ModalPage rows={rows} contentLines={4}>
-    <Box flexDirection="column" alignItems="center">
-      <Box flexDirection="column" borderStyle="round" borderColor={C.overdue} paddingLeft={2} paddingRight={2}>
-        <Text bold color={C.overdue}>请确认</Text>
-        <Text wrap="wrap">{prompt}</Text>
-        <Text color={C.dim}>y 或 Enter 确认 · 其他任意键取消</Text>
-      </Box>
-    </Box>
-  </ModalPage>
-);
 
 // ---------------------------------------------------------------- 主组件
 type TableLine = { kind: "sep"; groupKey: GroupKey; name: string; count: number } | { kind: "task"; task: Task; depth: number; index: number };
@@ -499,7 +130,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   useEffect(() => { void refresh().catch((error: unknown) => dispatch({ type: "flash", message: error instanceof Error ? error.message : String(error) })); }, [refresh]);
   useEffect(() => { const timer = setInterval(() => { void refresh().catch(() => {}); }, 30_000); return () => clearInterval(timer); }, [refresh]);
   useEffect(() => { const timer = setInterval(() => setClock(new Date()), 10_000); return () => clearInterval(timer); }, []);
-  // 首次拿到配置后同步排序模式与日期列格式（对应 Python 版启动时读 config）
+  // 首次拿到配置后同步排序模式与日期列格式
   useEffect(() => {
     if (!config || configInitRef.current) return;
     configInitRef.current = true;
@@ -785,8 +416,8 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   const windowLines = lines.slice(windowStart);
 
   // ------------------------------------------------ 鼠标交互
-  // 注意：以下钩子必须位于弹窗 early return 之前，否则帮助/欢迎弹窗打开时
-  // 钩子数量变化会让 React 抛 "Rendered fewer hooks" 直接退出（表现为闪退）。
+  // 注意：以下钩子必须位于弹窗 early return 之前，否则弹窗打开时钩子数量变化
+  // 会让 React 抛 "Rendered fewer hooks" 直接退出（表现为闪退）。
   // 布局行号（1 起，alt-screen 绝对坐标）：内容首行 = 横幅可见行数 + 信息行
   // 1 + 表格上边框 1 + 表头 1。BANNER_FULL 末行是空串（Ink 不渲染空行），
   // 可见 5 行；BANNER_SMALL 两行都非空，可见 2 行。
@@ -836,9 +467,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
       if (currentState.mode.kind === "list") dispatch({ type: "mode", mode: { kind: "add" } });
       return;
     }
-    // 点击任务行：选中该行；再点同一行 = 完成/重开任务（Textual 行点击语义）。
-    // firstTaskRow 是内容首行的屏幕行号（1 起）：横幅可见行数 + 信息行 + 表格
-    // 边框 + 表头。注意 BANNER_FULL 末行是空串，Ink 不渲染空行，实际少占一行。
+    // 点击任务行：选中该行；再点同一行 = 完成/重开任务
     const lineIndex = event.y - firstTaskRow + start;
     const line = currentLines[lineIndex];
     if (line && line.kind === "task") {
