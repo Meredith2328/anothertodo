@@ -396,6 +396,8 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   }, [dispatch, exit, refresh, runMutation, service, store, tasks, visible]);
 
   const today = nowLocal().slice(0, 10);
+  // Footer 悬浮：只有悬停目标真的是 Footer 按钮时才传名字，否则 undefined
+  const footerHover = state.hover.kind === "footer" ? state.hover.name : undefined;
   const levels = config ? [...config.priority.levels] : ["低", "中", "高"];
   // TODO 列占剩余宽度：总宽 - 四个固定列 - 表格边框与内边距（4）
   const titleWidth = Math.max(10, (columns ?? 80) - DATE_W - PRIORITY_W - STATUS_W - EXTRAS_W - 4);
@@ -442,12 +444,37 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
       dispatch({ type: "select", index: currentState.selectedIndex + (event.kind === "wheel-up" ? -3 : 3) });
       return;
     }
+    // 把坐标翻成「悬停在什么上面」：先看是不是 Footer 行，再看是不是任务行
+    const hoverAt = (x: number, y: number): { kind: "none" } | { kind: "footer"; name: string } | { kind: "task"; index: number } => {
+      if (rows !== undefined && y === rows) {
+        const hit = footerKeyRanges().find((range) => x >= range.start && x <= range.end);
+        return hit ? { kind: "footer", name: hit.name } : { kind: "none" };
+      }
+      const line = currentLines[y - firstTaskRow + start];
+      return line && line.kind === "task" ? { kind: "task", index: line.index } : { kind: "none" };
+    };
+    // 移动：只更新悬浮高亮，不做任何业务动作
+    if (event.kind === "move") {
+      dispatch({ type: "hover", target: hoverAt(event.x, event.y) });
+      return;
+    }
+    // 松手：清掉「按下去」的视觉，位置本身仍算悬浮
+    if (event.kind === "release") {
+      dispatch({ type: "pressFooter" });
+      dispatch({ type: "hover", target: hoverAt(event.x, event.y) });
+      return;
+    }
     if (event.kind !== "press") return;
+    dispatch({ type: "hover", target: hoverAt(event.x, event.y) });
     // Footer 行（最后一行）：点击键帽/标签触发对应快捷键。按钮全局生效——
     // 无论当前焦点在清单区还是输入区，点 ? 就开帮助、点 q 就退出。
     if (rows !== undefined && event.y === rows) {
       const hit = footerKeyRanges().find((range) => event.x >= range.start && event.x <= range.end);
       if (hit) {
+        // 先记下"按下去"的视觉；动作本身立刻执行，松手时再清掉按下态。
+        // 有些终端只报 press 不报 release，所以也挂个兜底定时器复位。
+        dispatch({ type: "pressFooter", name: hit.name });
+        setTimeout(() => dispatch({ type: "pressFooter" }), 180);
         const keyByFooter: Record<typeof hit.name, { input: string; key: KeyEvent["key"] }> = {
           help: { input: "?", key: { ctrl: false } },
           input: { input: "i", key: { ctrl: false } },
@@ -481,12 +508,12 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     }
   }), [columns, dispatch, runMutation, service, rows]);
 
-  if (state.mode.kind === "help") return <ModalShell rows={rows}><HelpModal rows={rows} /></ModalShell>;
-  if (state.mode.kind === "welcome") return <ModalShell rows={rows}><WelcomeModal rows={rows} /></ModalShell>;
-  if (state.mode.kind === "confirm") return <ModalShell rows={rows}><ConfirmModal prompt={state.mode.prompt} rows={rows} /></ModalShell>;
+  if (state.mode.kind === "help") return <ModalShell rows={rows} footerHover={footerHover} footerPressed={state.pressedFooter}><HelpModal rows={rows} /></ModalShell>;
+  if (state.mode.kind === "welcome") return <ModalShell rows={rows} footerHover={footerHover} footerPressed={state.pressedFooter}><WelcomeModal rows={rows} /></ModalShell>;
+  if (state.mode.kind === "confirm") return <ModalShell rows={rows} footerHover={footerHover} footerPressed={state.pressedFooter}><ConfirmModal prompt={state.mode.prompt} rows={rows} /></ModalShell>;
   if (state.mode.kind === "detail" && detailTask) {
     return (
-      <ModalShell rows={rows}>
+      <ModalShell rows={rows} footerHover={footerHover} footerPressed={state.pressedFooter}>
         <DetailModal task={detailTask} parent={detailParent} rows={rows} columns={columns}>{detailChildren}</DetailModal>
       </ModalShell>
     );
@@ -507,12 +534,12 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
         {lines.length === 0 ? <Text color={C.dimmer}>（没有任务）</Text> : windowLines.map((line) => (
           line.kind === "sep"
             ? <GroupSeparator key={`sep-${line.groupKey}-${line.count}`} groupKey={line.groupKey} name={line.name} count={line.count} />
-            : <TaskRow key={line.task.id} task={line.task} selected={line.index === state.selectedIndex} marked={state.marked.includes(line.task.id)} today={today} dateFormat={state.dateFormat} levels={levels} titleWidth={titleWidth} depth={line.depth} />
+            : <TaskRow key={line.task.id} task={line.task} selected={line.index === state.selectedIndex} marked={state.marked.includes(line.task.id)} hovered={state.hover.kind === "task" && state.hover.index === line.index} today={today} dateFormat={state.dateFormat} levels={levels} titleWidth={titleWidth} depth={line.depth} />
         ))}
       </Box>
       <Box paddingLeft={2} paddingRight={2}><PreviewLine state={state} levels={levels} /></Box>
       <InputBar state={state} />
-      <FooterBar />
+      <FooterBar hover={footerHover} pressed={state.pressedFooter} />
     </Box>
   );
 };

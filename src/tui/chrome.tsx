@@ -126,19 +126,33 @@ export const footerKeyRanges = (): Array<{ name: "help" | "input" | "done" | "qu
   return ranges;
 };
 
-export const FooterBar = (): React.ReactElement => (
+/**
+ * 底部按钮，三态：
+ * - 平时：青底深字键帽 + 正文标签，看得出是可按的
+ * - 悬浮：键帽提亮成高亮色、标签转白，整体像"手指压上去之前"
+ * - 按下：键帽反色（深底亮字）+ 标签也上底色，像真的被按下去
+ * 三态只改颜色不改宽度，footerKeyRanges 的命中区间才不会跟着变。
+ */
+export const FooterBar = ({ hover, pressed }: {
+  hover?: string | undefined;
+  pressed?: string | undefined;
+} = {}): React.ReactElement => (
   <Box paddingLeft={1} paddingRight={1}>
     <Text>
-      {FOOTER_KEYS.map((entry) => (
-        <React.Fragment key={entry.name}>
-          {/* 键帽用主色底 + 深色字：这几个是真能点的按钮，之前整块用 dim 灰底
-              灰字，看着像禁用状态（用户反馈「灰扑扑的」）。标签用正常文字色，
-              和键帽一起构成一个看得出可点的整体。 */}
-          <Text bold color={C.bg} backgroundColor={C.accent}>{` ${entry.key} `}</Text>
-          <Text color={C.label}>{` ${entry.label}`}</Text>
-          <Text color={C.dimmer}>{"   "}</Text>
-        </React.Fragment>
-      ))}
+      {FOOTER_KEYS.map((entry) => {
+        const isPressed = pressed === entry.name;
+        const isHover = !isPressed && hover === entry.name;
+        const capBg = isPressed ? C.bg : isHover ? C.hotKey : C.accent;
+        const capFg = isPressed ? C.hotKey : C.bg;
+        const labelFg = isPressed ? C.hotKey : isHover ? C.labelBright : C.label;
+        return (
+          <React.Fragment key={entry.name}>
+            <Text bold color={capFg} backgroundColor={capBg}>{` ${entry.key} `}</Text>
+            <Text bold={isHover || isPressed} color={labelFg}>{` ${entry.label}`}</Text>
+            <Text color={C.dimmer}>{"   "}</Text>
+          </React.Fragment>
+        );
+      })}
     </Text>
   </Box>
 );

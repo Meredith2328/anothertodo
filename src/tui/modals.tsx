@@ -15,13 +15,15 @@ import {
   C, COMPACT_HELP_LINES, COMPACT_HELP_ROWS, FULL_HELP_LINES, HELP_SECTIONS, WELCOME_ROWS,
 } from "./theme.js";
 
-export const ModalShell = ({ rows, children }: {
+export const ModalShell = ({ rows, footerHover, footerPressed, children }: {
   rows?: number | undefined;
+  footerHover?: string | undefined;
+  footerPressed?: string | undefined;
   children: React.ReactNode;
 }): React.ReactElement => (
   <Box flexDirection="column" {...(rows !== undefined ? { height: rows } : {})}>
     <Box flexDirection="column" flexGrow={1}>{children}</Box>
-    <FooterBar />
+    <FooterBar hover={footerHover} pressed={footerPressed} />
   </Box>
 );
 
@@ -55,20 +57,29 @@ const HelpRows = ({ entries, keysWidth }: {
 );
 
 export const HelpModal = ({ rows }: { rows?: number | undefined }): React.ReactElement => {
-  // 终端放得下完整版（留 2 行余量）就用完整版；矮终端自动切紧凑版，
+  // 终端放得下完整版（含新增的留白行）就用完整版；矮终端自动切紧凑版，
   // 保证弹窗永远完整可见。高度未知（测试/管道）时保持完整版。
   const full = rows === undefined || rows >= FULL_HELP_LINES + 2;
   return (
     <ModalPage rows={rows} contentLines={full ? FULL_HELP_LINES : COMPACT_HELP_LINES}>
       <Box flexDirection="column" alignItems="center">
-        <Box flexDirection="column" borderStyle="round" borderColor={C.accent} paddingLeft={2} paddingRight={2}>
+        {/* paddingY=1 + 左右 3 格：原来内容紧贴边框、小节之间也没有空行，
+            密得读不下去（用户反馈「太挤了」）。 */}
+        <Box flexDirection="column" borderStyle="round" borderColor={C.accent} paddingLeft={3} paddingRight={3} paddingTop={1} paddingBottom={1}>
           <Text><Text bold color={C.accent}>atd 帮助</Text><Text color={C.dim}>   （按任意键关闭）</Text></Text>
           {full ? HELP_SECTIONS.map(([section, entries]) => (
             <React.Fragment key={section}>
+              {/* 每个小节前空一行，标题和条目之间不再糊在一起 */}
+              <Text> </Text>
               <Text bold color={C.warn}>{section}</Text>
               <HelpRows entries={entries} keysWidth={34} />
             </React.Fragment>
-          )) : <HelpRows entries={COMPACT_HELP_ROWS} keysWidth={10} />}
+          )) : (
+            <>
+              <Text> </Text>
+              <HelpRows entries={COMPACT_HELP_ROWS} keysWidth={10} />
+            </>
+          )}
         </Box>
       </Box>
     </ModalPage>

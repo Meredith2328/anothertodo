@@ -35,7 +35,7 @@ for (const s of samples) {
     reminders: s.reminders ?? [], entry: "2026-08-20T10:00:00Z", modified: "2026-08-20T10:00:00Z",
   }));
 }
-const app = render(React.createElement(TuiApp, { store, terminalRows: 30 }));
+const app = render(React.createElement(TuiApp, { store, terminalRows: 44 }));
 await sleep(400);
 
 const frame = async (label, keys) => {
@@ -48,4 +48,5 @@ await frame("清单（含子任务缩进、重复标记、备注标记）", ["j"
 await frame("多选两条", [" ", " "]);
 await frame("删除确认", ["x"]);
 await frame("详情浮层", ["\u001b", "g", "j", "j", "l"]);
+await frame("帮助面板（留白）", ["\u001b", "?"]);
 app.unmount();

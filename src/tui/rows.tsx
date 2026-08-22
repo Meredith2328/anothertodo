@@ -85,10 +85,11 @@ export const GroupSeparator = ({ groupKey, name, count }: { groupKey: GroupKey; 
   );
 };
 
-export const TaskRow = ({ task, selected, marked = false, today, dateFormat, levels, titleWidth, depth = 0 }: {
+export const TaskRow = ({ task, selected, marked = false, hovered = false, today, dateFormat, levels, titleWidth, depth = 0 }: {
   task: Task;
   selected: boolean;
   marked?: boolean;
+  hovered?: boolean;
   today: string;
   dateFormat: "auto" | "md" | "full";
   levels: string[];
@@ -104,7 +105,10 @@ export const TaskRow = ({ task, selected, marked = false, today, dateFormat, lev
   const priority = priorityCell(task, levels);
   const status = statusCell(task);
   const extras = truncateSegments(extrasSegments(task), EXTRAS_W);
-  const highlight = selected ? { backgroundColor: C.select } : {};
+  // 选中优先于悬浮：选中是"当前操作对象"，悬浮只是"鼠标正好在上面"
+  const highlight = selected
+    ? { backgroundColor: C.select }
+    : hovered ? { backgroundColor: C.hoverRow } : {};
   return (
     <Text {...highlight}>
       <Text color={date.color} bold={date.bold}>{padDisplay(date.text, DATE_W)}</Text>

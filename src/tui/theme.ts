@@ -20,6 +20,12 @@ export const C = {
   select: "#26264a",
   /** 正文级文字：比 dim 亮，用在 Footer 标签这类"要看清但不抢戏"的地方 */
   label: "#c8ccd4",
+  /** 悬浮时的标签色，比 label 再亮一档 */
+  labelBright: "#f2f4f8",
+  /** 悬浮时的键帽底色：比 accent 更亮，制造"抬起来"的感觉 */
+  hotKey: "#8ef2fa",
+  /** 悬浮在任务行上的底色：比 select 浅，和"选中"区分开 */
+  hoverRow: "#1b1b33",
 } as const;
 
 export const MODE_LABEL: Record<"levels" | "urgency", string> = { levels: "档位", urgency: "urgency" };
@@ -111,9 +117,10 @@ export const HELP_SECTIONS: ReadonlyArray<readonly [string, ReadonlyArray<readon
   ]],
 ];
 
-// 完整帮助的总行数（边框 2 + 标题 1 + 每节 1 行节名 + 条目），用于判断能否整页放下
+// 完整帮助的总行数，用于判断能否整页放下、以及垂直居中的留白量。
+// 组成：边框 2 + 上下内边距 2 + 标题 1 + 每节（空行 1 + 节名 1 + 条目 n）
 export const FULL_HELP_LINES =
-  3 + HELP_SECTIONS.reduce((lines, [, entries]) => lines + 1 + entries.length, 0);
+  5 + HELP_SECTIONS.reduce((lines, [, entries]) => lines + 2 + entries.length, 0);
 
 // 紧凑帮助（终端高度不足以放下完整版时使用）：几行讲完全部高频操作，
 // 加边框和标题后任何常规终端都放得下。
@@ -127,8 +134,8 @@ export const COMPACT_HELP_ROWS: ReadonlyArray<readonly [string, string]> = [
   ["退出", "q / Q / Ctrl+Q / 双击 Esc；打 d/x/q 开头标题先按 i"],
 ];
 
-// 紧凑帮助总行数（边框 2 + 标题 1 + 条目）
-export const COMPACT_HELP_LINES = 3 + COMPACT_HELP_ROWS.length;
+// 紧凑帮助总行数（边框 2 + 上下内边距 2 + 标题 1 + 标题后空行 1 + 条目）
+export const COMPACT_HELP_LINES = 6 + COMPACT_HELP_ROWS.length;
 
 export const WELCOME_ROWS: ReadonlyArray<readonly [string, string]> = [
   ["直接打字", "添加任务：`后天 买牛奶 很急 @18:30`，回车即存"],
