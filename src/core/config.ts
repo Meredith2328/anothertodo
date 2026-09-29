@@ -26,6 +26,8 @@ waiting_penalty = 3.0
 [agenda]
 week_days = 7
 date_format = "auto"
+# 日期、优先级都相同时怎么排：entry 先加的在前 / entry_desc 后加的在前 / title 按标题（中文按拼音）
+tie_break = "entry"
 
 [watch]
 interval_seconds = 30
@@ -58,7 +60,7 @@ to = ""
 
 const defaultConfig = (): Config => ConfigSchema.parse({
   priority: { mode: "levels", levels: ["低", "中", "高"], urgency: { overdue: 12, due_today: 8, due_week_decay: 8, per_level: 3, age_per_day: 0.05, age_cap: 2, waiting_penalty: 3 } },
-  agenda: { week_days: 7, date_format: "auto" },
+  agenda: { week_days: 7, date_format: "auto", tie_break: "entry" },
   watch: { interval_seconds: 30 },
   ui: { lang: "auto", skin: "classic", mouse: true, animations: true },
   deps: { blocked: "dim" },

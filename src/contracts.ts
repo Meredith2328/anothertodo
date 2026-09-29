@@ -98,6 +98,8 @@ export const ConfigSchema = z.object({
   agenda: z.object({
     week_days: z.number().int().positive(),
     date_format: z.enum(["auto", "md", "full"]),
+    // 日期、优先级都相同时怎么排：entry 先加的在前 / entry_desc 后加的在前 / title 按标题（中文按拼音）
+    tie_break: z.enum(["entry", "entry_desc", "title"]).default("entry"),
   }),
   watch: z.object({
     interval_seconds: z.number().int().positive(),
