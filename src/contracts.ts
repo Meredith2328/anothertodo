@@ -59,6 +59,9 @@ export const TaskSchema = z.object({
   tags: z.array(z.string().min(1)).default([]),
   project: z.string().min(1).optional(),
   parent: z.string().min(1).optional(),
+  // 前置任务 id：这些任务都完成（done/cancelled）之前，本任务算「被阻塞」。
+  // 可选而不是默认空数组，免得每条老任务写回时都多出一个 "deps":[]
+  deps: z.array(IdSchema).optional(),
   wait: z.string().min(1).optional(),
   notes: z.string().default(""),
   recur: RecurSchema.optional(),
@@ -103,6 +106,10 @@ export const ConfigSchema = z.object({
     // auto 跟随环境变量（认不出来按中文）；只影响界面文案，不影响输入与查询语法
     lang: z.enum(["auto", "zh", "en"]).default("auto"),
   }).default({ lang: "auto" }),
+  deps: z.object({
+    // 被前置任务挡住的后续任务：dim 在主屏淡字显示，hide 不上主屏（依赖图页仍可见）
+    blocked: z.enum(["dim", "hide"]).default("dim"),
+  }).default({ blocked: "dim" }),
   email: z.object({
     host: z.string(),
     port: z.number().int().positive(),

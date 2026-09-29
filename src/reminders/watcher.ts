@@ -8,7 +8,8 @@ import { addLocalMinutes, parseCompatibleDateTime } from "../core/time.js";
 import { Store } from "../storage/store.js";
 import { fireHook } from "./hooks.js";
 
-const activeStatuses = new Set(["todo", "waiting", "meeting"]);
+// 暂停的任务不打扰人；恢复后没发出去的提醒会补上
+const activeStatuses = new Set(["todo", "doing", "waiting", "meeting"]);
 const MAX_HOOK_ATTEMPTS = 3;
 const localNow = (): string => {
   const now = new Date();

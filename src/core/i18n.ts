@@ -26,14 +26,17 @@ type Catalog = Record<string, readonly [zh: string, en: string]>;
 
 const MESSAGES: Catalog = {
   // 议程分组
+  "group.doing": ["在做", "Doing"],
   "group.overdue": ["逾期", "Overdue"],
   "group.today": ["今天", "Today"],
   "group.upcoming": ["接下来", "Upcoming"],
   "group.later": ["更远", "Later"],
   "group.waiting": ["等待中", "Waiting"],
+  "group.paused": ["暂停", "Paused"],
   "group.nodate": ["无日期", "No date"],
   "group.finished": ["已完成/已取消", "Done / cancelled"],
   "group.hidden": ["隐藏(等待未到) {count} 项", "{count} hidden (waiting)"],
+  "group.blocked": ["隐藏(前置未完成) {count} 项，按 D 看依赖图", "{count} hidden (blocked), press D for the graph"],
 
   // 日期列
   "date.today": ["今天", "today"],
@@ -67,6 +70,8 @@ const MESSAGES: Catalog = {
   "field.wait": ["等待到", "Wait until"],
   "field.recur": ["重复", "Repeat"],
   "field.parent": ["父任务", "Parent"],
+  "field.deps": ["前置", "After"],
+  "field.dependents": ["后续", "Unlocks"],
   "field.subtasks": ["子任务", "Subtasks"],
   "field.entry": ["创建", "Created"],
   "field.end": ["完成", "Finished"],

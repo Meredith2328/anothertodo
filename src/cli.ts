@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 
 import { ApplicationService } from "./app/service.js";
 import { groups, nestTasks, renderLine } from "./core/agenda.js";
+import { blockedIds, dependencyGraph, renderGraphLine } from "./core/deps.js";
 import { configPath, dataDir, getConfigValue, loadConfig, setConfigValue } from "./core/config.js";
 import { t } from "./core/i18n.js";
 import { describeRecur, parse, preview, scanDate } from "./core/parse.js";
@@ -39,9 +40,10 @@ export const buildProgram = (): Command => {
   标签      #标签      项目  proj:项目名
   提醒      @30m @2h @明天 @9:00，@名字 指定 hook；@none 关掉默认提醒
   等待      ~下周一    子任务  ^父任务id
+  前置      after:id1,id2（这些做完它才露出来）   分组  in:在做 in:等待 in:暂停
   重复      *每天 *每2周 *每周三 *每月 *工作日 *weekly:mon
   备注      >>之后到行尾整段算备注
-  清空      -due -proj -标签 -备注 -重复 -提醒，-#标签 只摘一个标签
+  清空      -due -proj -标签 -备注 -重复 -提醒 -after，-#标签 只摘一个标签
 
 查询语法（list）：
   due:today due:tomorrow due:week due:before:2026-09-01 due:none
@@ -54,6 +56,9 @@ export const buildProgram = (): Command => {
   atd add "倒垃圾 *每天 晚上8点"
   atd list due:week -低
   atd edit a1b2 "-due -#临时"
+  atd add "申请身份证 in:在做"
+  atd add "领取身份证 in:等待 after:<申请身份证的id>"   # 申请 done 掉后它才出现
+  atd graph                                             # 看依赖图
 `);
   program.showHelpAfterError();
 
@@ -74,13 +79,15 @@ export const buildProgram = (): Command => {
     const cfg = await loadConfig();
     const now = nowLocal();
     const selectedMode = options.mode ?? cfg.priority.mode;
-    const agenda = groups(await store().tasks(), cfg, selectedMode, now, query.join(" "));
+    const all = await store().tasks();
+    const blocked = blockedIds(all);
+    const agenda = groups(all, cfg, selectedMode, now, query.join(" "));
     const visible = agenda.filter((group) => group.tasks.length > 0);
     if (!visible.length) { console.log("（没有匹配的任务）"); return; }
     for (const group of agenda) {
       if (!group.tasks.length) { if (group.key === "hidden") console.log(group.name); continue; }
       console.log(`== ${group.name} ==`);
-      for (const { task, depth } of nestTasks(group.tasks)) console.log(`  ${task.id.padEnd(8)} ${renderLine(task, cfg, now.slice(0, 10), selectedMode, now, depth)}`);
+      for (const { task, depth } of nestTasks(group.tasks)) console.log(`  ${task.id.padEnd(8)} ${renderLine(task, cfg, now.slice(0, 10), selectedMode, now, depth, blocked.has(task.id))}`);
     }
   });
 
@@ -101,11 +108,12 @@ export const buildProgram = (): Command => {
       console.log(`✓ 完成 ${result.task.title}`);
       for (const child of result.cascaded) console.log(`  ↳ 顺带完成子任务 ${child.title}`);
       if (result.next) console.log(`  ↻ 下一次：${result.next.id} ${result.next.due ? result.next.due.slice(0, 10) : "无日期"}`);
+      for (const next of result.unblocked) console.log(`  → 解锁后续：${next.id} ${next.title}${next.status === "todo" ? "" : `（${next.status}）`}`);
       if (result.openChildren.length) console.log(`  ⚠ 还有 ${result.openChildren.length} 个子任务没完成：${result.openChildren.map((child) => child.title).join("、")}（加 --with-subtasks 一起完成）`);
     });
   });
 
-  const statusCommand = (name: string, status: "cancelled" | "meeting" | "todo", description: string, label: string): void => {
+  const statusCommand = (name: string, status: "cancelled" | "meeting" | "todo" | "doing" | "paused", description: string, label: string): void => {
     program.command(name).description(description).argument("<ids...>").action(async (ids: string[]) => {
       const application = service();
       await forEachId(ids, async (id) => { const current = await application.setStatus(id, status); console.log(`${label} ${current.title}`); });
@@ -114,6 +122,8 @@ export const buildProgram = (): Command => {
   statusCommand("cancel", "cancelled", "取消任务（保留记录，不同于删除）", "✗ 已取消");
   statusCommand("meeting", "meeting", "标记为会议，过了时间同样计入逾期", "已标记为会议");
   statusCommand("todo", "todo", "退回待办状态，并清掉等待日期", "↩ 已退回待办");
+  statusCommand("doing", "doing", "放进「在做」分组", "▶ 在做");
+  statusCommand("pause", "paused", "放进「暂停」分组；暂停期间不发提醒", "⏸ 已暂停");
 
   program.command("wait").description("设为等待；--until 指定等到哪天，缺省是明天").argument("<ids...>").option("-u, --until <date>", "等到哪天，支持 2026-09-01 / 下周一 / next monday").action(async (ids: string[], options: { until?: string }) => {
     const application = service();
@@ -153,6 +163,7 @@ export const buildProgram = (): Command => {
     const application = service();
     const children = await application.children(current.id);
     const parent = current.parent === undefined ? undefined : await store().find(current.parent);
+    const all = await store().tasks();
     const rows: Array<[string, string]> = [
       [t("field.id"), current.id], [t("field.title"), current.title], [t("field.status"), current.status],
       [t("field.due"), current.due ? current.due.replace("T", " ").slice(0, 16) : t("value.none")],
@@ -161,6 +172,8 @@ export const buildProgram = (): Command => {
       [t("field.wait"), current.wait ?? t("value.none")],
       [t("field.recur"), current.recur ? describeRecur(current.recur) : t("value.none")],
       [t("field.parent"), current.parent === undefined ? t("value.none") : `${current.parent}${parent ? ` ${parent.title}` : t("value.missing")}`],
+      [t("field.deps"), current.deps?.length ? current.deps.map((depId) => { const dep = all.find((item) => item.id === depId); return `${depId}${dep ? ` ${dep.title}${dep.status === "done" || dep.status === "cancelled" ? " ✓" : ""}` : t("value.missing")}`; }).join("、") : t("value.none")],
+      [t("field.dependents"), (() => { const next = all.filter((item) => item.deps?.includes(current.id)); return next.length ? next.map((item) => `${item.id} ${item.title}`).join("、") : t("value.none"); })()],
       [t("field.subtasks"), children.length ? children.map((child) => `${child.id} ${child.title}`).join("、") : t("value.none")],
       [t("field.entry"), current.entry.replace("T", " ").slice(0, 16)],
       [t("field.end"), current.end ? current.end.replace("T", " ").slice(0, 16) : t("value.none")],
@@ -177,6 +190,12 @@ export const buildProgram = (): Command => {
     if (current.notes.trim()) { console.log(`${t("field.notes")}${t("punct.colon")}`); for (const line of current.notes.split(/\r?\n/)) console.log(`  ${line}`); }
   });
   program.command("undo").description("撤销上一次改动").action(async () => console.log(await service().undo()));
+  program.command("redo").description("重做刚撤销的改动；撤销之后又做了新改动就不能再重做").action(async () => console.log(await service().redo()));
+  program.command("graph").description("画出任务之间的前置依赖（DAG）").action(async () => {
+    const lines = dependencyGraph(await store().tasks());
+    if (!lines.length) { console.log("（还没有任务设置前置；用 after:<id> 添加）"); return; }
+    for (const line of lines) console.log(`${line.task.id.padEnd(8)} ${renderGraphLine(line)}`);
+  });
   program.command("archive").description("把久已完成的任务搬进归档；也可 archive list / archive restore <id>").argument("[action]", "天数（缺省 14）、list、restore").argument("[id]").action(async (action?: string, id?: string) => {
     if (action === "list" || action === "ls") { for (const item of await store().archived()) console.log(`${String(item.id).padEnd(8)} ${String(item.title ?? item.status ?? "已删除")}`); return; }
     if ((action === "restore" || action === "unarchive") && id) { console.log(`已恢复 ${String((await service().restore(id)).title ?? "")}`); return; }

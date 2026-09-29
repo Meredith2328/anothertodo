@@ -85,10 +85,12 @@ export const GroupSeparator = ({ groupKey, name, count }: { groupKey: GroupKey; 
   );
 };
 
-export const TaskRow = ({ task, selected, marked = false, today, dateFormat, levels, titleWidth, depth = 0 }: {
+export const TaskRow = ({ task, selected, marked = false, blocked = false, today, dateFormat, levels, titleWidth, depth = 0 }: {
   task: Task;
   selected: boolean;
   marked?: boolean;
+  /** 前置还没做完：整行淡字，标题前加 ⛓ */
+  blocked?: boolean;
   today: string;
   dateFormat: "auto" | "md" | "full";
   levels: string[];
@@ -97,7 +99,7 @@ export const TaskRow = ({ task, selected, marked = false, today, dateFormat, lev
 }): React.ReactElement => {
   // 子任务缩进后可用的标题宽度也跟着变窄，否则会挤掉右边的列
   const indent = depth > 0 ? `${"  ".repeat(depth - 1)}↳ ` : "";
-  const check = marked ? "◉ " : "";
+  const check = `${marked ? "◉ " : ""}${blocked ? "⛓ " : ""}`;
   const room = Math.max(4, titleWidth - displayWidth(indent) - displayWidth(check));
   const title = `${indent}${check}${truncateWithEllipsis(task.title, room)}`;
   const date = dateCell(task, today, dateFormat);
@@ -105,6 +107,13 @@ export const TaskRow = ({ task, selected, marked = false, today, dateFormat, lev
   const status = statusCell(task);
   const extras = truncateSegments(extrasSegments(task), EXTRAS_W);
   const highlight = selected ? { backgroundColor: C.select } : {};
+  if (blocked) {
+    return (
+      <Text {...highlight} color={C.dimmer}>
+        {`${padDisplay(date.text, DATE_W)}${padDisplay(title, titleWidth)}${padDisplay(priority.text, PRIORITY_W)}${padDisplay(status.text, STATUS_W)}${extras.map((segment) => segment.text).join("")}`}
+      </Text>
+    );
+  }
   return (
     <Text {...highlight}>
       <Text color={date.color} bold={date.bold}>{padDisplay(date.text, DATE_W)}</Text>

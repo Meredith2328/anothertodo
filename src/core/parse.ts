@@ -3,7 +3,9 @@ import { t, weekdayName } from "./i18n.js";
 
 export type ParsedReminder = Omit<Reminder, "dead"> & { dead?: boolean; relative: boolean };
 /** edit 时可以显式清空的字段名 */
-export type ParsedClear = "due" | "priority" | "project" | "parent" | "wait" | "tags" | "notes" | "recur" | "reminders";
+export type ParsedClear = "due" | "priority" | "project" | "parent" | "deps" | "wait" | "tags" | "notes" | "recur" | "reminders";
+/** `in:在做` 这类写法能直接落到的状态分组 */
+export type ParsedStatus = "todo" | "doing" | "waiting" | "paused";
 export type Parsed = {
   title: string;
   due?: string;
@@ -14,6 +16,9 @@ export type Parsed = {
   removeTags: string[];
   project?: string;
   parent?: string;
+  /** `after:id1,id2` 写的前置任务（还是用户输入的前缀，service 负责解析成全长 id） */
+  deps?: string[];
+  status?: ParsedStatus;
   wait?: string;
   notes?: string;
   recur?: Recur;
@@ -229,6 +234,7 @@ const CLEAR_ALIASES: Record<string, ParsedClear> = {
   priority: "priority", prio: "priority", 优先级: "priority", 档位: "priority",
   project: "project", proj: "project", 项目: "project",
   parent: "parent", 父: "parent", 父任务: "parent",
+  after: "deps", deps: "deps", 依赖: "deps", 前置: "deps",
   wait: "wait", 等待: "wait",
   tag: "tags", tags: "tags", 标签: "tags",
   note: "notes", notes: "notes", 备注: "notes",
@@ -236,10 +242,18 @@ const CLEAR_ALIASES: Record<string, ParsedClear> = {
   reminder: "reminders", reminders: "reminders", 提醒: "reminders",
 };
 
+const STATUS_ALIASES: Record<string, ParsedStatus> = {
+  todo: "todo", 待办: "todo",
+  doing: "doing", 在做: "doing", 进行中: "doing",
+  waiting: "waiting", wait: "waiting", 等待: "waiting",
+  paused: "paused", pause: "paused", 暂停: "paused",
+};
+export const STATUS_INPUT: Record<ParsedStatus, string> = { todo: "待办", doing: "在做", waiting: "等待", paused: "暂停" };
+
 const RECUR_CN_WEEKDAY: Record<string, number> = { 一: 0, 二: 1, 三: 2, 四: 3, 五: 4, 六: 5, 日: 6, 天: 6 };
 
 const CLEAR_LABELS: Record<ParsedClear, string> = {
-  due: "日期", priority: "优先级", project: "项目", parent: "父任务",
+  due: "日期", priority: "优先级", project: "项目", parent: "父任务", deps: "前置",
   wait: "等待", tags: "标签", notes: "备注", recur: "重复", reminders: "提醒",
 };
 
@@ -368,6 +382,18 @@ export const parse = (text: string, now = localNow(), levels = ["低", "中", "�
   if (project && project[1]) { parsed.project = project[1]; source = `${source.slice(0, project.index!)} ${source.slice(project.index! + project[0].length)}`; }
   const parent = source.match(/(?<![\w])\^([0-9a-zA-Z]{3,})/u);
   if (parent && parent[1]) { parsed.parent = parent[1]; source = `${source.slice(0, parent.index!)} ${source.slice(parent.index! + parent[0].length)}`; }
+  // `after:ab12,cd34`：前置任务，可以写多次、也可以逗号隔开
+  source = source.replace(/(?:^|\s)(?:after|依赖|前置)[:：]([0-9a-zA-Z]{3,}(?:[,，][0-9a-zA-Z]{3,})*)(?=\s|$)/gu, (_whole, ids: string) => {
+    parsed.deps = [...new Set([...(parsed.deps ?? []), ...ids.split(/[,，]/u)])];
+    return " ";
+  }).trim();
+  // `in:在做` / `in:等待` / `in:暂停`：直接放进对应分组；不认识的词留在标题里
+  source = source.replace(/(?:^|\s)in[:：](\S+)(?=\s|$)/giu, (whole, name: string) => {
+    const status = STATUS_ALIASES[name.toLowerCase()];
+    if (!status) return whole;
+    parsed.status = status;
+    return " ";
+  }).trim();
   const wait = source.match(/~([^\s~]*)/u);
   if (wait) {
     // 最长前缀匹配：在 ~ 之后尝试扫描日期，允许 ~next monday 这类多词英文日期。
@@ -465,6 +491,8 @@ export const preview = (text: string, now = localNow(), levels = ["低", "中", 
   if (p.recur) parts.push(`↻${describeRecur(p.recur)}`);
   for (const reminder of p.reminders) parts.push(`⏰${reminder.at.replace("T", " ")}(${reminder.hooks.join(",")})`);
   if (p.parent) parts.push(`父:${p.parent}`);
+  if (p.deps) parts.push(`前置:${p.deps.join(",")}`);
+  if (p.status) parts.push(`→${STATUS_INPUT[p.status]}`);
   if (p.notes) parts.push(`备注:${p.notes.length > 20 ? `${p.notes.slice(0, 20)}…` : p.notes}`);
   for (const tag of p.removeTags) parts.push(`去#${tag}`);
   for (const field of p.clears) {

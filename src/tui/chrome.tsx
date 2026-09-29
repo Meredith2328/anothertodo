@@ -5,7 +5,7 @@ import { Box, Text } from "ink";
 
 import type { Task } from "../contracts.js";
 import { preview } from "../core/parse.js";
-import { isOverdue, localDate, localNow } from "../core/task.js";
+import { ACTIVE_STATES, isOverdue, localDate, localNow } from "../core/task.js";
 import { displayWidth } from "../core/width.js";
 import type { TuiState } from "./state.js";
 import {
@@ -35,7 +35,7 @@ export const BannerInfo = ({ query, sortMode, tasks, clock, marked = 0 }: {
   const today = nowLocal().slice(0, 10);
   const overdue = tasks.filter((task) => isOverdue(task, today)).length;
   const dueToday = tasks.filter((task) => (task.status === "todo" || task.status === "meeting") && task.due !== undefined && localDate(task.due) === today).length;
-  const active = tasks.filter((task) => task.status === "todo" || task.status === "waiting" || task.status === "meeting").length;
+  const active = tasks.filter((task) => ACTIVE_STATES.has(task.status)).length;
   const hhmm = `${String(clock.getHours()).padStart(2, "0")}:${String(clock.getMinutes()).padStart(2, "0")}`;
   return (
     <Box justifyContent="flex-end" paddingLeft={1} paddingRight={1}>
@@ -68,7 +68,7 @@ export const PreviewLine = ({ state, levels }: { state: TuiState; levels: string
     return <Text><Text color={C.accent}>› </Text><Text color={C.dimmer}>{hint}</Text></Text>;
   }
   if (state.input.startsWith(":") || state.input.startsWith("/")) {
-    return <Text><Text color={C.accent}>› </Text><Text color={C.dim}>命令：list &lt;查询&gt; / undo / sync / mode levels|urgency / archive / cancel / meeting / todo / wait &lt;日期&gt; / snooze &lt;分钟&gt; / quit</Text></Text>;
+    return <Text><Text color={C.accent}>› </Text><Text color={C.dim}>命令：list &lt;查询&gt; / undo / redo / graph / sync / mode levels|urgency / archive / cancel / meeting / todo / doing / pause / wait &lt;日期&gt; / snooze &lt;分钟&gt; / quit</Text></Text>;
   }
   return (
     <Text>
