@@ -20,6 +20,8 @@ npm link
 
 **独立可执行文件（推荐，无需安装任何东西）**：从 GitHub Releases（`node-v*` tag）下载对应平台的单文件程序——Windows 直接双击 `atd-windows.exe` 进入 TUI；macOS/Linux `chmod +x` 后运行。数据仍存 `~/.atd`，纯文本 JSONL、格式稳定，两种安装方式共用同一份数据；数据目录首次运行自动创建。
 
+Apple Silicon Mac 也可以下载 `AnotherTodo-macos-arm64.zip`，解压后把 `AnotherTodo.app` 移到“应用程序”。从 Finder 双击会在 Terminal 里打开 TUI。
+
 ## 快速上手
 
 **命令行**：
