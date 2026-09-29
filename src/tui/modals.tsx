@@ -11,18 +11,19 @@ import { GRAPH_MARK, renderGraphLine, type GraphLine } from "../core/deps.js";
 import { t } from "../core/i18n.js";
 import { describeRecur } from "../core/parse.js";
 import { truncateWithEllipsis } from "../core/width.js";
-import { FooterBar } from "./chrome.js";
+import { FooterBar, type FooterButton } from "./chrome.js";
 import {
   C, COMPACT_HELP_LINES, COMPACT_HELP_ROWS, FULL_HELP_LINES, HELP_SECTIONS, WELCOME_ROWS,
 } from "./theme.js";
 
-export const ModalShell = ({ rows, children }: {
+export const ModalShell = ({ rows, pressed, children }: {
   rows?: number | undefined;
+  pressed?: FooterButton | undefined;
   children: React.ReactNode;
 }): React.ReactElement => (
   <Box flexDirection="column" {...(rows !== undefined ? { height: rows } : {})}>
     <Box flexDirection="column" flexGrow={1}>{children}</Box>
-    <FooterBar />
+    <FooterBar pressed={pressed} />
   </Box>
 );
 

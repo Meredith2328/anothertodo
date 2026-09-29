@@ -18,6 +18,7 @@ export const C = {
   flash: "#ffd866",
   bg: "#10101a",
   select: "#26264a",
+  button: "#4a4a6a", // 底部按钮标签底色
 } as const;
 
 export const MODE_LABEL: Record<"levels" | "urgency", string> = { levels: "档位", urgency: "urgency" };
