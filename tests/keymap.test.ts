@@ -92,6 +92,10 @@ describe("keys added after the frozen contract", () => {
     expect(mapKey(list, press("", { pageDown: true }))).toEqual({ type: "page", delta: 1 });
   });
 
+  it("routes a pasted `:command` chunk to the command line instead of adding a task", () => {
+    expect(mapKey(list, press(":skin nord"))).toEqual({ type: "command", value: ":skin nord" });
+  });
+
   it("marks with space and select-all with Ctrl+A", () => {
     expect(mapKey(list, press(" "))).toEqual({ type: "shortcut", name: "mark" });
     expect(mapKey(list, press("a", { ctrl: true }))).toEqual({ type: "shortcut", name: "markAll" });

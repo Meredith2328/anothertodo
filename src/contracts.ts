@@ -105,7 +105,13 @@ export const ConfigSchema = z.object({
   ui: z.object({
     // auto 跟随环境变量（认不出来按中文）；只影响界面文案，不影响输入与查询语法
     lang: z.enum(["auto", "zh", "en"]).default("auto"),
-  }).default({ lang: "auto" }),
+    // 皮肤名：内置的 classic / raised / dracula …，或 ~/.atd/skins/ 下的自定义皮肤
+    skin: z.string().min(1).default("classic"),
+    // 鼠标点击：关掉后终端原生的选中复制就能用了
+    mouse: z.boolean().default(true),
+    // 完成任务时的划线动画
+    animations: z.boolean().default(true),
+  }).default({ lang: "auto", skin: "classic", mouse: true, animations: true }),
   deps: z.object({
     // 被前置任务挡住的后续任务：dim 在主屏淡字显示，hide 不上主屏（依赖图页仍可见）
     blocked: z.enum(["dim", "hide"]).default("dim"),

@@ -42,7 +42,7 @@ export const unblockedBy = (tasks: Task[], id: string): Task[] => {
 export type GraphMark = "done" | "ready" | "blocked";
 export type GraphLine = {
   task: Task;
-  /** 树形前缀，如 `│   └─▶ ` */
+  /** 树形前缀，如 `│   └─▸ ` */
   prefix: string;
   mark: GraphMark;
   /** 这个节点在上面已经展开过，这里只放一个引用，免得多前置的节点把整棵子树重复画一遍 */
@@ -73,7 +73,7 @@ export const dependencyGraph = (tasks: Task[]): GraphLine[] => {
     expanded.add(task.id);
     const children = [...(dependents.get(task.id) ?? [])].sort(byEntry);
     const childLead = lead + (branch === "" ? "" : branch.startsWith("└") ? "    " : "│   ");
-    children.forEach((child, index) => visit(child, task, childLead, index === children.length - 1 ? "└─▶ " : "├─▶ "));
+    children.forEach((child, index) => visit(child, task, childLead, index === children.length - 1 ? "└─▸ " : "├─▸ "));
   };
   for (const root of inGraph.filter((task) => depsOf(task).length === 0).sort(byEntry)) visit(root, undefined, "", "");
   // 手改文件或同步后可能出现环，环上没有起点；剩下的挑一个当起点，保证每条都画出来
@@ -85,7 +85,7 @@ export const GRAPH_MARK: Record<GraphMark, string> = { done: "✓", ready: "●"
 
 export const renderGraphLine = (line: GraphLine): string => {
   const status = line.task.status === "todo" ? "" : `  [${line.task.status}]`;
-  if (line.ref) return `${line.prefix}↪ ${line.task.title}（见上）`;
+  if (line.ref) return `${line.prefix}⤷ ${line.task.title}（见上）`;
   const others = line.otherDeps.length ? `  （另需：${line.otherDeps.map((dep) => dep.title).join("、")}）` : "";
   return `${line.prefix}${GRAPH_MARK[line.mark]} ${line.task.title}${status}${others}`;
 };

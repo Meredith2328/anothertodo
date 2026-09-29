@@ -193,7 +193,7 @@ describe("stage 7 Ink TUI integration", () => {
     const lines = (app.lastFrame() ?? "").split("\n");
     expect(lines.length).toBe(24); // 整帧严格等于终端行数，不溢出
     const last = lines[lines.length - 1] ?? "";
-    for (const label of ["帮助", "输入", "完成", "退出"]) expect(last).toContain(label);
+    for (const label of ["帮助", "输入", "完成", "设置", "退出"]) expect(last).toContain(label);
   });
 });
 

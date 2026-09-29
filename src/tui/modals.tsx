@@ -1,4 +1,4 @@
-// 五个浮层：帮助、上手引导、任务详情、删除确认、依赖图。
+// 六个浮层：帮助、上手引导、任务详情、删除确认、依赖图、设置。
 //
 // Ink 从上往下渲染，没有「垂直居中」布局，所以 ModalPage 按终端剩余高度在
 // 弹窗上方垫空行。整帧必须严格等于终端行数（ModalShell 的 height:rows +
@@ -8,12 +8,14 @@ import { Box, Text } from "ink";
 
 import type { Task } from "../contracts.js";
 import { GRAPH_MARK, renderGraphLine, type GraphLine } from "../core/deps.js";
+import type { Config } from "../contracts.js";
 import { t } from "../core/i18n.js";
+import type { SettingItem } from "./settings.js";
 import { describeRecur } from "../core/parse.js";
-import { truncateWithEllipsis } from "../core/width.js";
-import { FooterBar, type FooterButton } from "./chrome.js";
+import { padDisplay, truncateWithEllipsis } from "../core/width.js";
+import { FooterBar, footerHeight, type FooterButton } from "./chrome.js";
 import {
-  C, COMPACT_HELP_LINES, COMPACT_HELP_ROWS, FULL_HELP_LINES, HELP_SECTIONS, WELCOME_ROWS,
+  C, COMPACT_HELP_LINES, SKIN, COMPACT_HELP_ROWS, FULL_HELP_LINES, HELP_SECTIONS, WELCOME_ROWS,
 } from "./theme.js";
 
 export const ModalShell = ({ rows, pressed, children }: {
@@ -27,13 +29,17 @@ export const ModalShell = ({ rows, pressed, children }: {
   </Box>
 );
 
+/** 浮层上方垫的空行数；鼠标点击换算行号时要用同一个公式 */
+export const modalPad = (rows: number | undefined, contentLines: number): number =>
+  rows === undefined ? 0 : Math.max(0, Math.floor((rows - footerHeight() - contentLines) / 2));
+
 const ModalPage = ({ rows, contentLines, children }: {
   rows?: number | undefined;
   contentLines: number;
   children: React.ReactNode;
 }): React.ReactElement => {
-  // 减 1 给 ModalShell 底部的 Footer 行
-  const pad = rows === undefined ? 0 : Math.max(0, Math.floor((rows - 1 - contentLines) / 2));
+  // 减掉 ModalShell 底部的 Footer 行
+  const pad = modalPad(rows, contentLines);
   return (
     <Box flexDirection="column">
       {Array.from({ length: pad }, (_, index) => <Text key={index}> </Text>)}
@@ -63,7 +69,7 @@ export const HelpModal = ({ rows }: { rows?: number | undefined }): React.ReactE
   return (
     <ModalPage rows={rows} contentLines={full ? FULL_HELP_LINES : COMPACT_HELP_LINES}>
       <Box flexDirection="column" alignItems="center">
-        <Box flexDirection="column" borderStyle="round" borderColor={C.accent} paddingLeft={2} paddingRight={2}>
+        <Box flexDirection="column" borderStyle={SKIN.border} borderColor={C.accent} paddingLeft={2} paddingRight={2}>
           <Text><Text bold color={C.accent}>atd 帮助</Text><Text color={C.dim}>   （按任意键关闭）</Text></Text>
           {full ? HELP_SECTIONS.map(([section, entries]) => (
             <React.Fragment key={section}>
@@ -82,7 +88,7 @@ const WELCOME_LINES = 3 + WELCOME_ROWS.length;
 export const WelcomeModal = ({ rows }: { rows?: number | undefined }): React.ReactElement => (
   <ModalPage rows={rows} contentLines={WELCOME_LINES}>
     <Box flexDirection="column" alignItems="center">
-      <Box flexDirection="column" borderStyle="round" borderColor={C.accent} paddingLeft={2} paddingRight={2}>
+      <Box flexDirection="column" borderStyle={SKIN.border} borderColor={C.accent} paddingLeft={2} paddingRight={2}>
         <Text><Text bold color={C.accent}>👋 atd 上手三分钟</Text><Text color={C.dim}>   （按任意键开始）</Text></Text>
         <HelpRows entries={WELCOME_ROWS} keysWidth={34} />
       </Box>
@@ -130,7 +136,7 @@ export const DetailModal = ({ task, children: subtasks, parent, deps = [], depen
   return (
     <ModalPage rows={rows} contentLines={contentLines}>
       <Box flexDirection="column" alignItems="center">
-        <Box flexDirection="column" borderStyle="round" borderColor={C.accent} paddingLeft={2} paddingRight={2} width={width}>
+        <Box flexDirection="column" borderStyle={SKIN.border} borderColor={C.accent} paddingLeft={2} paddingRight={2} width={width}>
           <Text><Text bold color={C.accent}>{truncateWithEllipsis(task.title, width - 16)}</Text><Text color={C.dimmer}>{`  ${task.id}`}</Text></Text>
           {fields.map(([label, value]) => <DetailRow key={label} label={label} value={value} />)}
           {reminderLines.length ? <Text bold color={C.warn}>{t("field.reminders")}</Text> : null}
@@ -147,7 +153,7 @@ export const DetailModal = ({ task, children: subtasks, parent, deps = [], depen
 export const ConfirmModal = ({ prompt, rows }: { prompt: string; rows?: number | undefined }): React.ReactElement => (
   <ModalPage rows={rows} contentLines={4}>
     <Box flexDirection="column" alignItems="center">
-      <Box flexDirection="column" borderStyle="round" borderColor={C.overdue} paddingLeft={2} paddingRight={2}>
+      <Box flexDirection="column" borderStyle={SKIN.border} borderColor={C.overdue} paddingLeft={2} paddingRight={2}>
         <Text bold color={C.overdue}>请确认</Text>
         <Text wrap="wrap">{prompt}</Text>
         <Text color={C.dim}>y 或 Enter 确认 · 其他任意键取消</Text>
@@ -168,12 +174,12 @@ export const GraphModal = ({ lines, offset, rows, columns }: {
   rows?: number | undefined;
   columns?: number | undefined;
 }): React.ReactElement => {
-  // 边框 2 + 标题 1 + 图例 1 + 提示 1，再减 Footer 1
-  const room = rows === undefined ? lines.length : Math.max(1, rows - 6);
+  // 边框 2 + 标题 1 + 图例 1 + 提示 1，再减 Footer
+  const room = rows === undefined ? lines.length : Math.max(1, rows - 5 - footerHeight());
   const start = Math.max(0, Math.min(offset, lines.length - room));
   const width = Math.max(40, (columns ?? 80) - 2);
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={C.accent} paddingLeft={1} paddingRight={1} width={width} {...(rows !== undefined ? { height: rows - 1 } : {})}>
+    <Box flexDirection="column" borderStyle={SKIN.border} borderColor={C.accent} paddingLeft={1} paddingRight={1} width={width} {...(rows !== undefined ? { height: rows - footerHeight() } : {})}>
       <Text><Text bold color={C.accent}>依赖图</Text><Text color={C.dim}>{`  ${lines.filter((line) => !line.ref).length} 个任务参与依赖`}</Text></Text>
       <Text color={C.dim}>{`${GRAPH_MARK.ready} 可以做  ${GRAPH_MARK.blocked} 等前置  ${GRAPH_MARK.done} 已完成   添加后续：清单里选中任务按 a，或输入 after:<id>`}</Text>
       <Box flexDirection="column" flexGrow={1}>
@@ -185,5 +191,46 @@ export const GraphModal = ({ lines, offset, rows, columns }: {
       </Box>
       <Text color={C.dim}>{lines.length > room ? `j/k 滚动（${start + 1}-${Math.min(lines.length, start + room)}/${lines.length}）· ` : ""}其他键返回清单</Text>
     </Box>
+  );
+};
+
+/** 设置页：左边是项目名，右边把所有可选值排开，当前值高亮，一眼看出还能选什么 */
+export const SettingsModal = ({ items, config, selected, rows, columns }: {
+  items: SettingItem[];
+  config: Config;
+  selected: number;
+  rows?: number | undefined;
+  columns?: number | undefined;
+}): React.ReactElement => {
+  const width = Math.min(Math.max(40, (columns ?? 80) - 4), 96);
+  const labelWidth = 18;
+  const current = items[selected];
+  return (
+    <ModalPage rows={rows} contentLines={items.length + 7}>
+      <Box flexDirection="column" alignItems="center">
+        <Box flexDirection="column" borderStyle={SKIN.border} borderColor={C.accent} paddingLeft={2} paddingRight={2} width={width}>
+          <Text><Text bold color={C.accent}>设置</Text><Text color={C.dim}>   改动立即保存到 config.toml</Text></Text>
+          <Text> </Text>
+          {items.map((item, index) => {
+            const active = index === selected;
+            const value = item.current(config);
+            return (
+              <Text key={item.key} wrap="truncate" {...(active ? { backgroundColor: C.select } : {})}>
+                <Text color={C.accent}>{active ? "▍" : " "}</Text>
+                <Text bold={active} color={active ? C.accent : C.dim}>{padDisplay(item.label, labelWidth)}</Text>
+                {item.options.map((option) => (
+                  <Text key={option.value} {...(option.value === value ? { bold: true, color: C.accent } : { color: C.dimmer })}>
+                    {option.value === value ? `‹${option.label}› ` : ` ${option.label}  `}
+                  </Text>
+                ))}
+              </Text>
+            );
+          })}
+          <Text> </Text>
+          <Text wrap="truncate" color={C.dim}>{current ? current.hint : ""}</Text>
+          <Text color={C.dimmer}>j/k 选择 · ←/→ 或回车改值 · 鼠标点一下选中、再点换值 · Esc 返回</Text>
+        </Box>
+      </Box>
+    </ModalPage>
   );
 };

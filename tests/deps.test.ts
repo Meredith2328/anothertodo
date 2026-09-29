@@ -97,10 +97,10 @@ describe("task dependencies", () => {
     const lines = dependencyGraph(await service.tasks()).map(renderGraphLine);
     expect(lines).toEqual([
       "● 申请身份证",
-      "└─▶ ○ 领取身份证  （另需：拍证件照）",
-      "    └─▶ ○ 激活社保卡",
+      "└─▸ ○ 领取身份证  （另需：拍证件照）",
+      "    └─▸ ○ 激活社保卡",
       "● 拍证件照",
-      "└─▶ ↪ 领取身份证（见上）",
+      "└─▸ ⤷ 领取身份证（见上）",
     ]);
   });
 });
