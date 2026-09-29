@@ -152,7 +152,9 @@ export const createMouseBridge = (stdin: NodeJS.ReadStream & { fd: number }, std
       const { chunks, events: parsed, pending: next } = splitMouseData(chunk, pending);
       pending = next;
       for (const part of chunks) if (part) stream.push(part);
-      for (const event of parsed) events.emit("mouse", event);
+      // 直接发到模块总线：TuiApp 只订阅 subscribeMouse，不经过 bridge.subscribe，
+      // 以前只在 subscribe() 里接力到总线，没人调它，点击解析出来就丢了
+      for (const event of parsed) { events.emit("mouse", event); bus.emit("mouse", event); }
     }
   };
 
@@ -177,10 +179,8 @@ export const createMouseBridge = (stdin: NodeJS.ReadStream & { fd: number }, std
   return {
     stream,
     subscribe(listener) {
-      const relay = (event: MouseEvent): void => { bus.emit("mouse", event); };
       events.on("mouse", listener);
-      events.on("mouse", relay);
-      return () => { events.removeListener("mouse", listener); events.removeListener("mouse", relay); };
+      return () => { events.removeListener("mouse", listener); };
     },
     enable,
     disable,
