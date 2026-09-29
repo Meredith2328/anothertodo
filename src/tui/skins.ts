@@ -26,7 +26,7 @@ export const BUILTIN_SKINS: Skin[] = [
     button: { style: "flat", keyFg: "#10101a", keyBg: "#56d4dd", labelFg: "#f0f0f5", labelBg: "#4a4a6a", highlight: "#7a7aa8", shadow: "#0a0a12", pressedBg: "#26264a" },
   },
   {
-    name: "raised", description: "默认配色 + 立体按钮：凸起带投影，点下去会凹进去", border: "round", palette: classicPalette, banner: classicBanner,
+    name: "raised", description: "默认配色 + 立体按钮：上亮下暗像 Textual 按钮，点下去会凹进去", border: "round", palette: classicPalette, banner: classicBanner,
     button: { style: "raised", keyFg: "#10101a", keyBg: "#56d4dd", labelFg: "#f0f0f5", labelBg: "#3e3e5e", highlight: "#8c8cc4", shadow: "#16161f", pressedBg: "#2a2a40" },
   },
   {
