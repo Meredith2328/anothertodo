@@ -7,6 +7,10 @@ export type UiMode =
   | { kind: "help" }
   | { kind: "welcome" }
   | { kind: "detail"; taskId: string }
+  /** 依赖图页：整屏画出任务之间的前置关系 */
+  | { kind: "graph" }
+  /** 设置页：上下选一项，左右 / 回车改值，改完立即写回 config.toml */
+  | { kind: "settings" }
   /** 不可撤销的操作先问一句；prompt 是问句，pending 是待执行动作的名字 */
   | { kind: "confirm"; prompt: string; pending: "delete" };
 

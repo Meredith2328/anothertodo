@@ -193,7 +193,7 @@ describe("stage 7 Ink TUI integration", () => {
     const lines = (app.lastFrame() ?? "").split("\n");
     expect(lines.length).toBe(24); // 整帧严格等于终端行数，不溢出
     const last = lines[lines.length - 1] ?? "";
-    for (const label of ["帮助", "输入", "完成", "退出"]) expect(last).toContain(label);
+    for (const label of ["帮助", "输入", "完成", "设置", "退出"]) expect(last).toContain(label);
   });
 });
 
@@ -214,6 +214,25 @@ describe("footer mouse interaction", () => {
     emitMouse({ kind: "press", button: 0, x: 6, y: 24 }); // ? 帮助 键帽区间
     await helpAction;
     expect(app.lastFrame()).toContain("atd 帮助");
+  });
+
+  it("footer buttons still work while a modal is open (help → click 输入 goes to input)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atd-ink-"));
+    const store = new Store(dir);
+    const signals = createSignals();
+    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={24} />);
+    await signals.ready();
+    await signals.data();
+    const helpAction = signals.action();
+    app.stdin.write("?");
+    await helpAction;
+    expect(app.lastFrame()).toContain("atd 帮助");
+    const inputAction = signals.action();
+    emitMouse({ kind: "press", button: 0, x: 15, y: 24 }); // i 输入 按钮
+    await inputAction;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(app.lastFrame()).not.toContain("atd 帮助");
+    expect(app.lastFrame()).toContain("输入区：Enter 提交");
   });
 
   it("clicking d on the footer completes the selected task", async () => {

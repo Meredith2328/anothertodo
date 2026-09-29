@@ -129,6 +129,8 @@ export type MouseBridge = {
   subscribe(listener: (event: MouseEvent) => void): () => void;
   enable(): void;
   disable(): void;
+  /** 只开关终端的鼠标上报；按键转发不受影响，所以可以随时切 */
+  setTracking(on: boolean): void;
 };
 
 // 模块级总线：TuiApp 直接订阅，createMouseBridge 把事件转发进来（测试环境
@@ -140,11 +142,22 @@ export const subscribeMouse = (listener: (event: MouseEvent) => void): (() => vo
   return () => { bus.removeListener("mouse", listener); };
 };
 
+// 当前生效的桥：设置页切「鼠标点击」时直接找它开关上报
+let activeBridge: MouseBridge | undefined;
+export const setMouseTracking = (on: boolean): void => { activeBridge?.setTracking(on); };
+
 export const createMouseBridge = (stdin: NodeJS.ReadStream & { fd: number }, stdout: NodeJS.WriteStream): MouseBridge => {
   const stream = new ProxyStdin(stdin);
   const events = new EventEmitter();
   let pending = "";
   let enabled = false;
+  let tracking = false;
+  const setTracking = (on: boolean): void => {
+    if (on === tracking) return;
+    tracking = on;
+    // 1000 = 点击/释放 + 滚轮；1006 = SGR 扩展编码（Windows Terminal / xterm 通用）
+    stdout.write(on ? "\x1b[?1000h\x1b[?1006h" : "\x1b[?1000l\x1b[?1006l");
+  };
 
   const onReadable = (): void => {
     let chunk: string | null;
@@ -152,7 +165,9 @@ export const createMouseBridge = (stdin: NodeJS.ReadStream & { fd: number }, std
       const { chunks, events: parsed, pending: next } = splitMouseData(chunk, pending);
       pending = next;
       for (const part of chunks) if (part) stream.push(part);
-      for (const event of parsed) events.emit("mouse", event);
+      // 直接发到模块总线：TuiApp 只订阅 subscribeMouse，不经过 bridge.subscribe，
+      // 以前只在 subscribe() 里接力到总线，没人调它，点击解析出来就丢了
+      for (const event of parsed) { events.emit("mouse", event); bus.emit("mouse", event); }
     }
   };
 
@@ -163,26 +178,25 @@ export const createMouseBridge = (stdin: NodeJS.ReadStream & { fd: number }, std
     stdin.pause();
     stdin.addListener("readable", onReadable);
     stdin.resume();
-    // 1000 = 点击/释放 + 滚轮；1006 = SGR 扩展编码（Windows Terminal / xterm 通用）
-    stdout.write("\x1b[?1000h\x1b[?1006h");
+    setTracking(true);
   };
 
   const disable = (): void => {
     if (!enabled) return;
     enabled = false;
-    stdout.write("\x1b[?1000l\x1b[?1006l");
+    setTracking(false);
     stdin.removeListener("readable", onReadable);
   };
 
-  return {
+  activeBridge = {
     stream,
     subscribe(listener) {
-      const relay = (event: MouseEvent): void => { bus.emit("mouse", event); };
       events.on("mouse", listener);
-      events.on("mouse", relay);
-      return () => { events.removeListener("mouse", listener); events.removeListener("mouse", relay); };
+      return () => { events.removeListener("mouse", listener); };
     },
     enable,
     disable,
+    setTracking,
   };
+  return activeBridge;
 };
