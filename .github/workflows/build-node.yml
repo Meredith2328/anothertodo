@@ -7,7 +7,7 @@ on:
       - "node-v*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -18,7 +18,7 @@ jobs:
           - os: windows-latest
             artifact: windows
             exe: atd-windows.exe
-          - os: macos-latest
+          - os: macos-15
             artifact: macos
             exe: atd-macos
           - os: ubuntu-latest
@@ -32,6 +32,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm audit --audit-level=low
+      - name: Check release version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/node-v* ]]; then
+            test "$GITHUB_REF_NAME" = "node-v$(node -p 'require("./package.json").version')"
+          fi
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
@@ -70,12 +77,18 @@ jobs:
           echo "smoke exit code: $code"
           test "$code" -eq 0 && echo "$output" | grep -q "Usage: atd"
 
+      - name: Package Finder app
+        if: runner.os == 'macOS'
+        shell: bash
+        run: bash tools/package-macos-app.sh "${{ matrix.exe }}"
+
       # ---- 便携 tar 包（面向已装 Node 的环境，npm tarball 之外的裸发行） ----
       - name: Package portable artifact
         shell: bash
         run: |
           mkdir -p release
           cp -R dist-node bin docs README.md package.json package-lock.json release/
+          npm ci --omit=dev --prefix release
           tar -czf "atd-node-${{ matrix.artifact }}.tar.gz" release
       - uses: actions/upload-artifact@v4
         with:
@@ -83,17 +96,24 @@ jobs:
           path: |
             ${{ matrix.exe }}
             atd-node-${{ matrix.artifact }}.tar.gz
+            AnotherTodo-macos-arm64.zip
 
   release:
     if: startsWith(github.ref, 'refs/tags/node-v')
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
           pattern: node-*
           merge-multiple: true
           path: release
+      - name: Write checksums
+        run: |
+          cd release
+          sha256sum atd-windows.exe atd-macos atd-linux atd-node-*.tar.gz AnotherTodo-macos-arm64.zip > SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
           files: |
@@ -101,16 +121,20 @@ jobs:
             release/atd-macos
             release/atd-linux
             release/*.tar.gz
+            release/AnotherTodo-macos-arm64.zip
+            release/SHA256SUMS.txt
           fail_on_unmatched_files: true
           body: |
             下载对应平台的独立可执行文件即可使用，无需安装 Node：
 
             - **Windows**: `atd-windows.exe`（双击或在终端运行，直接进入 TUI）
-            - **macOS**: `atd-macos`（`chmod +x atd-macos && ./atd-macos`）
+            - **macOS Apple Silicon**: `AnotherTodo-macos-arm64.zip`（解压后把 `AnotherTodo.app` 放进“应用程序”，双击打开 TUI）；也可直接运行 `atd-macos`。
             - **Linux**: `atd-linux`（`chmod +x atd-linux && ./atd-linux`）
 
-            另附面向已安装 Node 22+ 环境的便携包 `atd-node-*.tar.gz`。
+            另附面向已安装 Node 22+ 环境的便携包 `atd-node-*.tar.gz`，解压后在 `release` 目录运行 `node bin/atd.mjs`。
+
+            下载后可用 `SHA256SUMS.txt` 核对文件完整性。
 
             数据与配置存放在 `~/.atd`，是纯文本 JSONL，格式向后兼容，升级不需要迁移。
 
-            本次改动详见 [CHANGELOG](https://github.com/Meredith2328/anothertodo/blob/main/CHANGELOG.md)。
+            本次改动详见 [CHANGELOG](https://github.com/Meredith2328/anothertodo/blob/${{ github.ref_name }}/CHANGELOG.md)。
