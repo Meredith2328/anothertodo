@@ -39,6 +39,29 @@ describe("stage 3 query, priority, and agenda", () => {
     expect(() => compileQuery("-nope:1", "2026-08-18")).toThrow("不支持取反的过滤器");
   });
 
+  it("breaks ties by entry time by default, or by pinyin title when configured", () => {
+    const now = "2026-09-29T10:00";
+    // 同组、无日期、无优先级：以前按 Unicode 编码比标题，新加的「优化…」会插到「上午…」「新增…」中间
+    const tasks = [
+      task({ id: "000000d1", title: "新增skill", status: "todo", entry: "2026-09-29T01:00:00Z" }),
+      task({ id: "000000d2", title: "上午 网页", status: "todo", entry: "2026-09-29T02:00:00Z" }),
+      task({ id: "000000d3", title: "优化依赖", status: "todo", entry: "2026-09-29T03:00:00Z" }),
+      task({ id: "000000d4", title: "阿里", status: "todo", entry: "2026-09-29T04:00:00Z" }),
+    ];
+    const order = (tieBreak: "entry" | "entry_desc" | "title"): string[] => {
+      const cfg = ConfigSchema.parse({ ...config, agenda: { ...config.agenda, tie_break: tieBreak } });
+      return groups(tasks, cfg, "levels", now).find((group) => group.key === "nodate")!.tasks.map((item) => item.title);
+    };
+    expect(config.agenda.tie_break).toBe("entry");
+    expect(order("entry")).toEqual(["新增skill", "上午 网页", "优化依赖", "阿里"]);
+    expect(order("entry_desc")).toEqual(["阿里", "优化依赖", "上午 网页", "新增skill"]);
+    // 拼音：a(阿) < s(上) < x(新) < y(优)
+    expect(order("title")).toEqual(["阿里", "上午 网页", "新增skill", "优化依赖"]);
+    // 日期、优先级仍然先于这条规则
+    const urgent = task({ id: "000000d5", title: "最后加的但很急", status: "todo", priority: "高", entry: "2026-09-29T09:00:00Z" });
+    expect(groups([...tasks, urgent], config, "levels", now).find((group) => group.key === "nodate")!.tasks[0]?.id).toBe("000000d5");
+  });
+
   it("matches urgency and level sorting semantics", async () => {
     const overdue = task({ id: "00000064", title: "逾期", status: "todo", due: "2026-08-15T09:00:00" });
     const future = task({ id: "00000065", title: "未来", status: "todo", due: "2026-08-25T09:00:00", priority: "高" });

@@ -41,7 +41,7 @@ export type KeyAction =
   | { type: "shortcut"; name: string };
 
 /** 清单区被快捷键占掉的字母；打这些字母开头的标题要先按 i 进输入区 */
-const LIST_SHORTCUT_LETTERS = "dxewur12tivsoc";
+const LIST_SHORTCUT_LETTERS = "dxewur12tivsocnpaDU,";
 
 // Ink 的 parseKeypress 把 \b 命名为 backspace、\x7f 命名为 delete，
 // 但两个键在主流终端上的语义都是「退格」（Windows Terminal 退格发 \x7f，
@@ -55,6 +55,23 @@ export const mapKey = (mode: UiMode, event: KeyEvent): KeyAction | undefined => 
   // 确认框只认「是 / 否」，误触别的键不该悄悄放过或误删
   if (mode.kind === "confirm") {
     if (input === "y" || input === "Y" || is("return", key.return) || input === "\r" || input === "\n") return { type: "confirmYes" };
+    if (key.ctrl && (input === "q" || input === "c")) return { type: "quit" };
+    return { type: "escape" };
+  }
+  // 设置页：上下选项，左右 / 回车 / 空格改值，Esc 或 q 返回
+  if (mode.kind === "settings") {
+    if (key.upArrow === true || input === "k") return { type: "move", delta: -1 };
+    if (key.downArrow === true || input === "j") return { type: "move", delta: 1 };
+    if (key.leftArrow === true || input === "h") return { type: "shortcut", name: "settingPrev" };
+    if (key.rightArrow === true || input === "l" || input === " " || input === "\r" || input === "\n" || key.return === true) return { type: "shortcut", name: "settingNext" };
+    if (key.ctrl && (input === "q" || input === "c")) return { type: "quit" };
+    if (input === "\u001b" || key.escape === true || input === "q" || input === ",") return { type: "escape" };
+    return undefined;
+  }
+  // 依赖图页：上下翻页，其余键退回清单
+  if (mode.kind === "graph") {
+    if (key.upArrow === true || input === "k") return { type: "move", delta: -1 };
+    if (key.downArrow === true || input === "j") return { type: "move", delta: 1 };
     if (key.ctrl && (input === "q" || input === "c")) return { type: "quit" };
     return { type: "escape" };
   }
@@ -91,6 +108,7 @@ export const mapKey = (mode: UiMode, event: KeyEvent): KeyAction | undefined => 
   if (key.ctrl) {
     if (input === "q" || input === "c") return { type: "quit" };
     if (input === "z") return { type: "shortcut", name: "undo" };
+    if (input === "y") return { type: "shortcut", name: "redo" };
     if (input === "s") return { type: "shortcut", name: "sync" };
     if (input === "f") return { type: "shortcut", name: "search" };
     if (input === "a") return { type: "shortcut", name: "markAll" };
@@ -111,7 +129,8 @@ export const mapKey = (mode: UiMode, event: KeyEvent): KeyAction | undefined => 
   if (input === "G") return { type: "last" };
   if (is("return", key.return) || key.name === "enter") return { type: "shortcut", name: "enter" };
   if (input === "/") return { type: "shortcut", name: "search" };
-  if (input === ":") return { type: "command", value: ":" };
+  // 粘贴或输入法一次送来整段 `:skin nord` 时也要进命令区，别被当成新任务的标题
+  if (input.startsWith(":")) return { type: "command", value: input };
   if (input === "?") return { type: "shortcut", name: "help" };
   if (key.f1 === true) return { type: "shortcut", name: "help" };
   if (input && LIST_SHORTCUT_LETTERS.includes(input)) return { type: "shortcut", name: input };

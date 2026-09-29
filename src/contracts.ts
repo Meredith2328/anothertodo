@@ -59,6 +59,9 @@ export const TaskSchema = z.object({
   tags: z.array(z.string().min(1)).default([]),
   project: z.string().min(1).optional(),
   parent: z.string().min(1).optional(),
+  // 前置任务 id：这些任务都完成（done/cancelled）之前，本任务算「被阻塞」。
+  // 可选而不是默认空数组，免得每条老任务写回时都多出一个 "deps":[]
+  deps: z.array(IdSchema).optional(),
   wait: z.string().min(1).optional(),
   notes: z.string().default(""),
   recur: RecurSchema.optional(),
@@ -95,6 +98,8 @@ export const ConfigSchema = z.object({
   agenda: z.object({
     week_days: z.number().int().positive(),
     date_format: z.enum(["auto", "md", "full"]),
+    // 日期、优先级都相同时怎么排：entry 先加的在前 / entry_desc 后加的在前 / title 按标题（中文按拼音）
+    tie_break: z.enum(["entry", "entry_desc", "title"]).default("entry"),
   }),
   watch: z.object({
     interval_seconds: z.number().int().positive(),
@@ -102,7 +107,17 @@ export const ConfigSchema = z.object({
   ui: z.object({
     // auto 跟随环境变量（认不出来按中文）；只影响界面文案，不影响输入与查询语法
     lang: z.enum(["auto", "zh", "en"]).default("auto"),
-  }).default({ lang: "auto" }),
+    // 皮肤名：内置的 classic / raised / dracula …，或 ~/.atd/skins/ 下的自定义皮肤
+    skin: z.string().min(1).default("classic"),
+    // 鼠标点击：关掉后终端原生的选中复制就能用了
+    mouse: z.boolean().default(true),
+    // 完成任务时的划线动画
+    animations: z.boolean().default(true),
+  }).default({ lang: "auto", skin: "classic", mouse: true, animations: true }),
+  deps: z.object({
+    // 被前置任务挡住的后续任务：dim 在主屏淡字显示，hide 不上主屏（依赖图页仍可见）
+    blocked: z.enum(["dim", "hide"]).default("dim"),
+  }).default({ blocked: "dim" }),
   email: z.object({
     host: z.string(),
     port: z.number().int().positive(),

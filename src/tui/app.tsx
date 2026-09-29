@@ -7,6 +7,7 @@ import { Box, Text, useApp, useInput, useStdout } from "ink";
 
 import { ApplicationService } from "../app/service.js";
 import { groups, nestTasks, type GroupKey } from "../core/agenda.js";
+import { blockedIds, dependencyGraph } from "../core/deps.js";
 import { setConfigValue } from "../core/config.js";
 import type { Config, Task } from "../contracts.js";
 import { scanDate } from "../core/parse.js";
@@ -16,13 +17,15 @@ import { Store } from "../storage/store.js";
 import { initialTuiState, tuiReducer, type TuiState } from "./state.js";
 import type { KeyEvent } from "./keymap.js";
 import { mapKey } from "./keymap.js";
-import { subscribeMouse, type MouseEvent } from "./mouse.js";
+import { setMouseTracking, subscribeMouse, type MouseEvent } from "./mouse.js";
 import {
-  CHROME_LINES, DATE_W, EXTRAS_W, GroupSeparator, PRIORITY_W, STATUS_W, TaskRow,
+  GroupSeparator, TableHeader, TaskRow, tableColumns,
 } from "./rows.js";
-import { Banner, BannerInfo, FooterBar, InputBar, PreviewLine, footerKeyRanges } from "./chrome.js";
-import { ConfirmModal, DetailModal, HelpModal, ModalShell, WelcomeModal } from "./modals.js";
-import { BANNER_FULL, BANNER_SMALL, C, DATE_FORMAT_LABEL } from "./theme.js";
+import { Banner, BannerInfo, FooterBar, InputBar, PreviewLine, bannerLines, footerHeight, footerKeyRanges, setTightLayout, type FooterButton } from "./chrome.js";
+import { ConfirmModal, DetailModal, GraphModal, HelpModal, ModalShell, SettingsModal, WelcomeModal, modalPad } from "./modals.js";
+import { cycleSetting, settingItems, type SettingItem } from "./settings.js";
+import { C, DATE_FORMAT_LABEL, SKIN } from "./theme.js";
+import { listSkins, resolveSkin, loadSkin } from "./skins.js";
 
 // 鼠标点击 Footer 需要列区间；测试也直接引它，保持从 app 导出
 export { footerKeyRanges };
@@ -67,6 +70,7 @@ const completeAndDescribe = async (service: ApplicationService, id: string): Pro
   const extras: string[] = [];
   if (result.next) extras.push(`下一次 ${result.next.due ? result.next.due.slice(0, 10) : "无日期"}`);
   if (result.openChildren.length) extras.push(`还有 ${result.openChildren.length} 个子任务没完成`);
+  if (result.unblocked.length) extras.push(`解锁 ${result.unblocked.map((next) => next.title).join("、")}`);
   return `✓ 完成：${result.task.title}${extras.length ? `（${extras.join("，")}）` : ""}`;
 };
 
@@ -82,14 +86,45 @@ const runBatch = async (ids: string[], label: string, run: (id: string) => Promi
   return `${label} ${done} 条${failures.length ? `，${failures.length} 条没成功：${failures[0]!}` : ""}`;
 };
 
+/** n / p 这类分组键：不在这个分组就放进去，已经在了就退回待办 */
+const toggleStatus = async (service: ApplicationService, task: Task | undefined, id: string, status: "doing" | "paused", label: string): Promise<string> => {
+  const current = task?.id === id ? task : (await service.tasks()).find((item) => item.id === id);
+  const next = current?.status === status ? "todo" : status;
+  const saved = await service.setStatus(id, next);
+  return next === "todo" ? `↺ 退回待办：${saved.title}` : `${label}：${saved.title}`;
+};
+
 /** 打了勾就对勾选的那些干活，没打勾就对光标所在这条干活 */
 const targetIds = (state: TuiState, selected: Task): string[] => state.marked.length ? [...state.marked] : [selected.id];
+
+// 完成动画：删除线分几帧从左划到右，划完再真正完成（任务随后离开列表）
+const STRIKE_FRAMES = 8;
+const STRIKE_FRAME_MS = 55;
+// 表格上方的固定行：信息行 1 + 表格上边框 1 + 表头 1；下方：表格下边框 1 + 预览行 1 + 输入框 2 + Footer
+const tableChrome = (columns: number | undefined, rows: number | undefined): number => bannerLines(columns, rows).length + 3 + 4 + footerHeight();
 
 export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: TuiProps): React.ReactElement => {
   const { exit } = useApp();
   const { stdout } = useStdout();
-  const columns = typeof stdout?.columns === "number" && stdout.columns > 0 ? stdout.columns : undefined;
-  const rows = typeof stdout?.rows === "number" && stdout.rows > 0 ? stdout.rows : terminalRows;
+  // 窗口尺寸放进 state：Ink 自己收到 resize 只会拿旧的 props 重排一次，
+  // 组件不重新渲染的话列宽还是旧的，缩小后折行、放大后也回不来
+  const readSize = useCallback(() => ({
+    columns: typeof stdout?.columns === "number" && stdout.columns > 0 ? stdout.columns : undefined,
+    rows: typeof stdout?.rows === "number" && stdout.rows > 0 ? stdout.rows : terminalRows,
+  }), [stdout, terminalRows]);
+  const [size, setSize] = useState(readSize);
+  useEffect(() => {
+    if (!stdout) return;
+    const onResize = (): void => {
+      // 先整屏清掉再按新尺寸重画：否则旧尺寸下的残行会留在屏幕上
+      if (stdout.isTTY) stdout.write("\x1b[2J\x1b[H");
+      setSize(readSize());
+    };
+    stdout.on("resize", onResize);
+    return () => { stdout.off("resize", onResize); };
+  }, [readSize, stdout]);
+  const { columns, rows } = size;
+  setTightLayout(rows !== undefined && rows < 16);
   const service = useMemo(() => new ApplicationService(store), [store]);
   const [config, setConfig] = useState<Config>();
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -97,6 +132,19 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   const [state, dispatch] = useReducer(tuiReducer, undefined, () => initialTuiState());
   const [clock, setClock] = useState(() => new Date());
   const [actionSequence, setActionSequence] = useState(0);
+  const [graphOffset, setGraphOffset] = useState(0);
+  const [pressedButton, setPressedButton] = useState<FooterButton>();
+  const [settingIndex, setSettingIndex] = useState(0);
+  const [skinChoices, setSkinChoices] = useState<Array<{ name: string; description: string }>>([]);
+  const settings = useMemo(() => settingItems(skinChoices), [skinChoices]);
+  const [strike, setStrike] = useState<{ ids: string[]; frame: number }>();
+  useEffect(() => {
+    if (pressedButton === undefined) return;
+    const timer = setTimeout(() => setPressedButton(undefined), 180);
+    return () => clearTimeout(timer);
+  }, [pressedButton]);
+  const blocked = useMemo(() => blockedIds(tasks), [tasks]);
+  const graphLines = useMemo(() => dependencyGraph(tasks), [tasks]);
   // 每组内部按父子相邻重排后再摊平：显示顺序和选中索引必须用同一份顺序，
   // 否则按 j/k 选中的行和高亮的行会错开
   const visibleGroups = useMemo(() => config
@@ -112,6 +160,8 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   const detailTask = detailId === undefined ? undefined : (selected ?? tasks.find((task) => task.id === detailId));
   const detailChildren = useMemo(() => detailTask ? tasks.filter((task) => task.parent === detailTask.id) : [], [detailTask, tasks]);
   const detailParent = detailTask?.parent === undefined ? undefined : tasks.find((task) => task.id === detailTask.parent);
+  const detailDeps = useMemo(() => detailTask ? tasks.filter((task) => detailTask.deps?.includes(task.id)) : [], [detailTask, tasks]);
+  const detailDependents = useMemo(() => detailTask ? tasks.filter((task) => task.deps?.includes(detailTask.id)) : [], [detailTask, tasks]);
   const stateRef = useRef(state);
   const configRef = useRef(config);
   const selectedRef = useRef(selected);
@@ -120,13 +170,20 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   configRef.current = config;
   selectedRef.current = selected;
 
+  // 皮肤颜色存在模块级的可变对象里，换皮肤时靠这个 state 触发重绘
+  const [, setSkinName] = useState<string>();
   const refresh = useCallback(async () => {
     const nextConfig = await service.config();
+    // 皮肤跟着配置走：手改 config.toml 或皮肤文件后按 r 刷新就能看到
+    const skinError = await loadSkin(nextConfig.ui.skin, store.paths.dir);
+    if (skinError) dispatch({ type: "flash", message: `${skinError}；先用 classic` });
+    setSkinName(SKIN.name);
+    setSkinChoices(await listSkins(store.paths.dir));
     const nextTasks = await service.tasks();
     setConfig(nextConfig);
     setTasks(nextTasks);
     setDataRevision((revision) => revision + 1);
-  }, [service]);
+  }, [service, store]);
   useEffect(() => { void refresh().catch((error: unknown) => dispatch({ type: "flash", message: error instanceof Error ? error.message : String(error) })); }, [refresh]);
   useEffect(() => { const timer = setInterval(() => { void refresh().catch(() => {}); }, 30_000); return () => clearInterval(timer); }, [refresh]);
   useEffect(() => { const timer = setInterval(() => setClock(new Date()), 10_000); return () => clearInterval(timer); }, []);
@@ -137,6 +194,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     dispatch({ type: "sort", mode: config.priority.mode });
     dispatch({ type: "dateFormat", format: config.agenda.date_format });
   }, [config]);
+  useEffect(() => { if (config) setMouseTracking(config.ui.mouse); }, [config]);
   // 首次运行弹上手引导（按任意键关闭，之后不再弹）；测试默认跳过
   useEffect(() => {
     if (!welcome) return;
@@ -180,16 +238,26 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
         const ids = currentState.marked.length ? [...currentState.marked] : currentSelected ? [currentSelected.id] : [];
         const [verb, ...rest] = command.split(/\s+/u);
         if (command === "undo") dispatch({ type: "flash", message: await service.undo() });
+        else if (command === "redo") dispatch({ type: "flash", message: await service.redo() });
+        else if (command === "skin") dispatch({ type: "flash", message: `当前皮肤 ${SKIN.name}；可选：${(await listSkins(store.paths.dir)).map((skin) => skin.name).join(" / ")}` });
+        else if (verb === "skin") {
+          const name = rest.join(" ");
+          await resolveSkin(name, store.paths.dir);
+          await setConfigValue("ui.skin", name, store.paths.dir);
+          dispatch({ type: "flash", message: `已换成皮肤 ${name}` });
+        }
+        else if (command === "settings" || command === "set") { dispatch({ type: "mode", mode: { kind: "settings" } }); await refresh(); dispatch({ type: "mutationSuccess", id: mutationId }); return; }
+        else if (command === "graph") { setGraphOffset(0); dispatch({ type: "mode", mode: { kind: "graph" } }); await refresh(); dispatch({ type: "mutationSuccess", id: mutationId }); return; }
         else if (command === "sync") dispatch({ type: "flash", message: await service.sync() });
         else if (command === "mode urgency") { dispatch({ type: "sort", mode: "urgency" }); dispatch({ type: "flash", message: "排序模式：urgency" }); }
         else if (command === "mode levels") { dispatch({ type: "sort", mode: "levels" }); dispatch({ type: "flash", message: "排序模式：档位" }); }
         else if (command === "list") { dispatch({ type: "query", value: "" }); dispatch({ type: "flash", message: "已清除过滤" }); }
         else if (command.startsWith("list ")) { dispatch({ type: "query", value: command.slice(5) }); dispatch({ type: "flash", message: `过滤：${command.slice(5)}` }); }
         else if (command.startsWith("archive")) { const days = command.split(/\s+/u)[1]; dispatch({ type: "flash", message: `归档了 ${await service.archive(days ? Number(days) : 14)} 行` }); }
-        else if (verb === "cancel" || verb === "meeting" || verb === "todo") {
+        else if (verb === "cancel" || verb === "meeting" || verb === "todo" || verb === "doing" || verb === "pause") {
           if (!ids.length) dispatch({ type: "flash", message: "先选中一条任务" });
           else {
-            const status = verb === "cancel" ? "cancelled" : verb;
+            const status = verb === "cancel" ? "cancelled" : verb === "pause" ? "paused" : verb;
             dispatch({ type: "flash", message: await runBatch(ids, `已设为 ${status}`, async (id) => { await service.setStatus(id, status); }) });
             dispatch({ type: "setMarks", ids: [] });
           }
@@ -236,6 +304,34 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
       }
     })();
   }, [refresh]);
+
+  // 完成动画：先让删除线划过标题，最后一帧停住，再真正完成；任务列表刷新后动画自然结束
+  const completeIds = useCallback((ids: string[]): void => {
+    const run = (): void => runMutation(() => runBatch(ids, "✓ 已完成", (id) => completeAndDescribe(service, id)));
+    if (configRef.current?.ui.animations === false) { run(); return; }
+    let frame = 0;
+    setStrike({ ids, frame });
+    const timer = setInterval(() => {
+      frame += 1;
+      setStrike({ ids, frame });
+      if (frame >= STRIKE_FRAMES) { clearInterval(timer); run(); }
+    }, STRIKE_FRAME_MS);
+  }, [runMutation, service]);
+  useEffect(() => { setStrike(undefined); }, [tasks]);
+  useEffect(() => { if (state.mutation.kind === "error") setStrike(undefined); }, [state.mutation]);
+
+  // 设置页改一项：写回 config.toml，再刷新让皮肤 / 鼠标 / 排序等立即生效
+  const applySetting = useCallback((item: SettingItem, delta: number): void => {
+    const current = configRef.current;
+    if (!current) return;
+    const value = cycleSetting(item, current, delta);
+    runMutation(async () => {
+      await setConfigValue(item.key, value, store.paths.dir);
+      if (item.key === "priority.mode") dispatch({ type: "sort", mode: value as "levels" | "urgency" });
+      if (item.key === "agenda.date_format") dispatch({ type: "dateFormat", format: value as "auto" | "md" | "full" });
+      return `${item.label}：${item.options.find((option) => option.value === value)?.label ?? value}`;
+    });
+  }, [runMutation, store]);
 
   useInput((input, key) => {
     const currentState = stateRef.current;
@@ -300,10 +396,12 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
       runMutation(() => runBatch(ids, "已删除", async (id) => { await service.remove(id); }));
       return;
     }
+    if (action.type === "move" && currentState.mode.kind === "settings") { setSettingIndex((index) => (index + action.delta + settings.length) % settings.length); return; }
+    if (action.type === "move" && currentState.mode.kind === "graph") { setGraphOffset((offset) => Math.max(0, Math.min(graphLines.length - 1, offset + action.delta))); return; }
     if (action.type === "move") { dispatch({ type: "select", index: currentState.selectedIndex + action.delta }); return; }
     if (action.type === "page") {
       // 一页按可见任务行数算，翻不动就贴到首尾
-      const page = Math.max(1, (rows ?? 24) - CHROME_LINES - 1);
+      const page = Math.max(1, (rows ?? 24) - tableChrome(columns, rows) - 1);
       const next = Math.max(0, Math.min(visible.length - 1, currentState.selectedIndex + action.delta * page));
       dispatch({ type: "select", index: next });
       return;
@@ -326,12 +424,35 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
         return;
       }
       if (action.name === "undo") { runMutation(() => service.undo()); return; }
+      if (action.name === "redo" || action.name === "U") { runMutation(() => service.redo()); return; }
+      if (action.name === "D") { setGraphOffset(0); dispatch({ type: "mode", mode: { kind: "graph" } }); return; }
+      if (action.name === ",") { dispatch({ type: "mode", mode: { kind: "settings" } }); return; }
+      if (action.name === "settingPrev" || action.name === "settingNext") {
+        const item = settings[settingIndex];
+        if (item) applySetting(item, action.name === "settingNext" ? 1 : -1);
+        return;
+      }
+      if (action.name === "a" && currentSelected) {
+        // 后续任务先写好放着，前置做完才露出来；目标分组可以用 in:等待 这类写法指定
+        dispatch({ type: "mode", mode: { kind: "add" } });
+        dispatch({ type: "input", value: `after:${currentSelected.id} ` });
+        dispatch({ type: "flash", message: `给「${currentSelected.title}」加后续任务` });
+        return;
+      }
+      if ((action.name === "n" || action.name === "p") && currentSelected) {
+        const ids = targetIds(currentState, currentSelected);
+        const status = action.name === "n" ? "doing" : "paused";
+        const label = action.name === "n" ? "▸ 在做" : "‖ 暂停";
+        runMutation(() => runBatch(ids, label, (id) => toggleStatus(service, currentSelected, id, status, label)));
+        dispatch({ type: "setMarks", ids: [] });
+        return;
+      }
       if (action.name === "sync") { runMutation(() => service.sync()); return; }
       if (action.name === "i") { dispatch({ type: "mode", mode: { kind: "add" } }); return; }
       if (action.name === "e" && currentSelected) { dispatch({ type: "mode", mode: { kind: "edit", taskId: currentSelected.id } }); dispatch({ type: "input", value: taskToInput(currentSelected) }); return; }
       if (action.name === "d" && currentSelected) {
         const ids = targetIds(currentState, currentSelected);
-        runMutation(() => runBatch(ids, "✓ 已完成", (id) => completeAndDescribe(service, id)));
+        completeIds(ids);
         dispatch({ type: "setMarks", ids: [] });
         return;
       }
@@ -373,7 +494,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
       if (action.name === "o") {
         if (!currentSelected) return;
         const ids = targetIds(currentState, currentSelected);
-        runMutation(() => runBatch(ids, "↩ 已重新打开", async (id) => `↩ 重新打开：${(await service.reopen(id)).title}`));
+        runMutation(() => runBatch(ids, "↺ 已重新打开", async (id) => `↺ 重新打开：${(await service.reopen(id)).title}`));
         dispatch({ type: "setMarks", ids: [] });
         return;
       }
@@ -387,53 +508,81 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
       if (action.name === "enter" && currentSelected) {
         const task = currentSelected;
         if (task.status === "done") {
-          runMutation(async () => `↩ 重新打开：${(await service.reopen(task.id)).title}`);
+          runMutation(async () => `↺ 重新打开：${(await service.reopen(task.id)).title}`);
           return;
         }
-        runMutation(() => completeAndDescribe(service, task.id));
+        completeIds([task.id]);
       }
     }
-  }, [dispatch, exit, refresh, runMutation, service, store, tasks, visible]);
+  }, [applySetting, columns, completeIds, dispatch, exit, graphLines.length, refresh, rows, runMutation, service, settingIndex, settings, store, tasks, visible]);
 
   const today = nowLocal().slice(0, 10);
   const levels = config ? [...config.priority.levels] : ["低", "中", "高"];
-  // TODO 列占剩余宽度：总宽 - 四个固定列 - 表格边框与内边距（4）
-  const titleWidth = Math.max(10, (columns ?? 80) - DATE_W - PRIORITY_W - STATUS_W - EXTRAS_W - 4);
+  const cols = tableColumns(columns);
   const lines: TableLine[] = [];
   let taskIndex = 0;
   for (const group of visibleGroups) {
     lines.push({ kind: "sep", groupKey: group.key, name: group.name, count: group.tasks.length });
     for (const { task, depth } of group.nested) lines.push({ kind: "task", task, depth, index: taskIndex++ });
   }
-  // 终端高度已知时做滚动窗口，保证选中行始终可见
+  // 终端高度已知时只画放得下的那几行，并让选中行留在窗口里。
+  // 必须真的切掉多出来的行：交给 Ink 自己溢出的话整帧会比屏幕高，顶部被卷走
+  const avail = rows === undefined ? lines.length : Math.max(1, rows - tableChrome(columns, rows));
   let windowStart = 0;
-  if (rows !== undefined && lines.length > Math.max(4, rows - CHROME_LINES)) {
-    const avail = Math.max(4, rows - CHROME_LINES);
+  if (lines.length > avail) {
     const selectedLine = lines.findIndex((line) => line.kind === "task" && line.index === state.selectedIndex);
     const anchor = selectedLine < 0 ? 0 : selectedLine;
     windowStart = Math.max(0, Math.min(anchor - Math.floor(avail / 2), lines.length - avail));
   }
-  const windowLines = lines.slice(windowStart);
+  const windowLines = lines.slice(windowStart, windowStart + avail);
 
   // ------------------------------------------------ 鼠标交互
   // 注意：以下钩子必须位于弹窗 early return 之前，否则弹窗打开时钩子数量变化
   // 会让 React 抛 "Rendered fewer hooks" 直接退出（表现为闪退）。
-  // 布局行号（1 起，alt-screen 绝对坐标）：内容首行 = 横幅可见行数 + 信息行
-  // 1 + 表格上边框 1 + 表头 1。BANNER_FULL 末行是空串（Ink 不渲染空行），
-  // 可见 5 行；BANNER_SMALL 两行都非空，可见 2 行。
-  const bannerVisibleLines = columns !== undefined && columns < 72
-    ? BANNER_SMALL.length
-    : BANNER_FULL.length - 1;
-  const firstTaskRow = bannerVisibleLines + 4;
+  // 布局行号（1 起，alt-screen 绝对坐标）：内容首行 = 横幅可见行数 + 信息行 1
+  // + 表格上边框 1 + 表头 1。横幅行数随窗口大小变，和渲染共用 bannerLines。
+  const firstTaskRow = bannerLines(columns, rows).length + 4;
   const viewRef = useRef({ lines: [] as TableLine[], windowStart: 0 });
   viewRef.current = { lines, windowStart };
   const keyboardRef = useRef(handleKeyboard);
   keyboardRef.current = handleKeyboard;
+  const completeIdsRef = useRef(completeIds);
+  completeIdsRef.current = completeIds;
+  const applySettingRef = useRef(applySetting);
+  applySettingRef.current = applySetting;
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const settingIndexRef = useRef(settingIndex);
+  settingIndexRef.current = settingIndex;
   useEffect(() => subscribeMouse((event: MouseEvent) => {
     const currentState = stateRef.current;
     const { lines: currentLines, windowStart: start } = viewRef.current;
+    // 立体按钮占 3 行，点上沿 / 按钮面 / 下沿都算点中
+    const onFooter = rows !== undefined && event.y > rows - footerHeight();
+    const footerHit = onFooter && event.kind === "press"
+      ? footerKeyRanges().find((range) => event.x >= range.start && event.x <= range.end)
+      : undefined;
+    if (footerHit) setPressedButton(footerHit.name);
+    // 弹窗打开时点底部按钮照常生效（点「退出」就退出），其余位置任意点击关闭弹窗
+    if (footerHit && currentState.mode.kind !== "list" && currentState.mode.kind !== "add" && currentState.mode.kind !== "edit" && currentState.mode.kind !== "search" && currentState.mode.kind !== "command") {
+      setActionSequence((sequence) => sequence + 1);
+      dispatch({ type: "mode", mode: { kind: "list" } });
+      if (footerHit.name === "help" && currentState.mode.kind === "help") return;
+      if (footerHit.name === "quit") { exit(); return; }
+      if (footerHit.name === "help") { dispatch({ type: "mode", mode: { kind: "help" } }); return; }
+      if (footerHit.name === "input") { dispatch({ type: "mode", mode: { kind: "add" } }); return; }
+      if (footerHit.name === "settings" && currentState.mode.kind !== "settings") { dispatch({ type: "mode", mode: { kind: "settings" } }); return; }
+      return;
+    }
     // 弹窗打开时任意点击关闭（和任意键关闭一致）
-    if (currentState.mode.kind === "help" || currentState.mode.kind === "welcome" || currentState.mode.kind === "detail" || currentState.mode.kind === "confirm") {
+    // 设置页：点一下选中那一项，再点同一项就换到下一个值
+    if (currentState.mode.kind === "settings" && event.kind === "press" && !footerHit) {
+      const index = event.y - (modalPad(rows, settingsRef.current.length + 7) + 4);
+      const item = settingsRef.current[index];
+      if (item) { setActionSequence((sequence) => sequence + 1); if (index === settingIndexRef.current) applySettingRef.current(item, 1); else setSettingIndex(index); }
+      return;
+    }
+    if (currentState.mode.kind === "help" || currentState.mode.kind === "welcome" || currentState.mode.kind === "detail" || currentState.mode.kind === "confirm" || currentState.mode.kind === "graph" || currentState.mode.kind === "settings") {
       if (event.kind === "press") { setActionSequence((sequence) => sequence + 1); dispatch({ type: "mode", mode: { kind: "list" } }); }
       return;
     }
@@ -445,13 +594,14 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     if (event.kind !== "press") return;
     // Footer 行（最后一行）：点击键帽/标签触发对应快捷键。按钮全局生效——
     // 无论当前焦点在清单区还是输入区，点 ? 就开帮助、点 q 就退出。
-    if (rows !== undefined && event.y === rows) {
-      const hit = footerKeyRanges().find((range) => event.x >= range.start && event.x <= range.end);
+    if (onFooter) {
+      const hit = footerHit;
       if (hit) {
         const keyByFooter: Record<typeof hit.name, { input: string; key: KeyEvent["key"] }> = {
           help: { input: "?", key: { ctrl: false } },
           input: { input: "i", key: { ctrl: false } },
           done: { input: "d", key: { ctrl: false } },
+          settings: { input: ",", key: { ctrl: false } },
           quit: { input: "q", key: { ctrl: false } },
         };
         const listState: TuiState = currentState.mode.kind === "list"
@@ -462,8 +612,8 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
       return;
     }
     // 点击输入框区域：聚焦输入
-    const bottomInputRow = (rows ?? 24) - 2;
-    if (event.y >= bottomInputRow && (rows === undefined || event.y < rows)) {
+    const bottomInputRow = (rows ?? 24) - 1 - footerHeight();
+    if (event.y >= bottomInputRow && (rows === undefined || event.y <= rows - footerHeight())) {
       if (currentState.mode.kind === "list") dispatch({ type: "mode", mode: { kind: "add" } });
       return;
     }
@@ -473,46 +623,42 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     if (line && line.kind === "task") {
       if (line.index === currentState.selectedIndex) {
         const task = line.task;
-        if (task.status === "done") runMutation(async () => `↩ 重新打开：${(await service.reopen(task.id)).title}`);
-        else runMutation(() => completeAndDescribe(service, task.id));
+        if (task.status === "done") runMutation(async () => `↺ 重新打开：${(await service.reopen(task.id)).title}`);
+        else completeIdsRef.current([task.id]);
       } else {
         dispatch({ type: "select", index: line.index });
       }
     }
-  }), [columns, dispatch, runMutation, service, rows]);
+  }), [columns, dispatch, exit, runMutation, service, rows]);
 
-  if (state.mode.kind === "help") return <ModalShell rows={rows}><HelpModal rows={rows} /></ModalShell>;
-  if (state.mode.kind === "welcome") return <ModalShell rows={rows}><WelcomeModal rows={rows} /></ModalShell>;
-  if (state.mode.kind === "confirm") return <ModalShell rows={rows}><ConfirmModal prompt={state.mode.prompt} rows={rows} /></ModalShell>;
+  if (state.mode.kind === "help") return <ModalShell rows={rows} pressed={pressedButton}><HelpModal rows={rows} /></ModalShell>;
+  if (state.mode.kind === "welcome") return <ModalShell rows={rows} pressed={pressedButton}><WelcomeModal rows={rows} /></ModalShell>;
+  if (state.mode.kind === "settings" && config) return <ModalShell rows={rows} pressed={pressedButton}><SettingsModal items={settings} config={config} selected={settingIndex} rows={rows} columns={columns} /></ModalShell>;
+  if (state.mode.kind === "graph") return <ModalShell rows={rows} pressed={pressedButton}><GraphModal lines={graphLines} offset={graphOffset} rows={rows} columns={columns} /></ModalShell>;
+  if (state.mode.kind === "confirm") return <ModalShell rows={rows} pressed={pressedButton}><ConfirmModal prompt={state.mode.prompt} rows={rows} /></ModalShell>;
   if (state.mode.kind === "detail" && detailTask) {
     return (
-      <ModalShell rows={rows}>
-        <DetailModal task={detailTask} parent={detailParent} rows={rows} columns={columns}>{detailChildren}</DetailModal>
+      <ModalShell rows={rows} pressed={pressedButton}>
+        <DetailModal task={detailTask} parent={detailParent} deps={detailDeps} dependents={detailDependents} rows={rows} columns={columns}>{detailChildren}</DetailModal>
       </ModalShell>
     );
   }
 
   return (
     <Box flexDirection="column" {...(rows !== undefined ? { height: rows } : {})}>
-      <Banner columns={columns} />
+      <Banner columns={columns} rows={rows} />
       <BannerInfo query={state.query} sortMode={state.sortMode} tasks={tasks} clock={clock} marked={state.marked.length} />
-      <Box flexDirection="column" flexGrow={1} borderStyle="round" borderColor={C.border} paddingLeft={1} paddingRight={1}>
-        <Box flexDirection="row">
-          <Box width={DATE_W}><Text bold color={C.dim}>日期</Text></Box>
-          <Box flexGrow={1}><Text bold color={C.dim}>TODO</Text></Box>
-          <Box width={PRIORITY_W}><Text bold color={C.dim}>紧急度</Text></Box>
-          <Box width={STATUS_W}><Text bold color={C.dim}>状态</Text></Box>
-          <Box width={EXTRAS_W}><Text bold color={C.dim}>标签 / 提醒</Text></Box>
-        </Box>
+      <Box flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden" borderStyle={SKIN.border} borderColor={C.border} paddingLeft={1} paddingRight={1}>
+        <TableHeader cols={cols} />
         {lines.length === 0 ? <Text color={C.dimmer}>（没有任务）</Text> : windowLines.map((line) => (
           line.kind === "sep"
             ? <GroupSeparator key={`sep-${line.groupKey}-${line.count}`} groupKey={line.groupKey} name={line.name} count={line.count} />
-            : <TaskRow key={line.task.id} task={line.task} selected={line.index === state.selectedIndex} marked={state.marked.includes(line.task.id)} today={today} dateFormat={state.dateFormat} levels={levels} titleWidth={titleWidth} depth={line.depth} />
+            : <TaskRow key={line.task.id} task={line.task} selected={line.index === state.selectedIndex} marked={state.marked.includes(line.task.id)} blocked={blocked.has(line.task.id)} completing={strike?.ids.includes(line.task.id) ? strike.frame / STRIKE_FRAMES : undefined} today={today} dateFormat={state.dateFormat} levels={levels} cols={cols} depth={line.depth} />
         ))}
       </Box>
       <Box paddingLeft={2} paddingRight={2}><PreviewLine state={state} levels={levels} /></Box>
       <InputBar state={state} />
-      <FooterBar />
+      <FooterBar pressed={pressedButton} />
     </Box>
   );
 };

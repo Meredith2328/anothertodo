@@ -1,8 +1,26 @@
 // 界面常量：配色、横幅与帮助文案。
+//
+// 配色来自当前皮肤（见 skins.ts）。这里导出的 C / GROUP_COLOR / STATUS_COLOR /
+// BANNER_COLORS / SKIN 都是「当前皮肤」的可变视图，applySkin 原地改写它们，
+// 所以各组件照旧 import 使用即可，不用层层传 props。
 
 import type { GroupKey } from "../core/agenda.js";
 
-export const C = {
+export type Palette = {
+  accent: string; hot: string; warn: string; good: string; overdue: string; future: string;
+  yellow: string; tag: string; proj: string; dim: string; dimmer: string; border: string;
+  flash: string; select: string;
+};
+export type BorderStyle = "round" | "single" | "double" | "bold" | "classic";
+export type ButtonLook = {
+  /** flat：一行色块；raised：三行立体按钮，按下时凹进去 */
+  style: "flat" | "raised";
+  keyFg: string; keyBg: string; labelFg: string; labelBg: string;
+  /** raised 用：受光的上沿、背光的下沿与投影、按下时的按钮面 */
+  highlight: string; shadow: string; pressedBg: string;
+};
+
+export const C: Palette = {
   accent: "#56d4dd", // 青：主色/横幅/今天
   hot: "#ff6188", // 粉红：最高档/重点
   warn: "#fc9867", // 橙：次高档
@@ -16,30 +34,34 @@ export const C = {
   dimmer: "#5f5f5f",
   border: "#3b3b58",
   flash: "#ffd866",
-  bg: "#10101a",
   select: "#26264a",
-} as const;
+};
+
+export const SKIN: { name: string; border: BorderStyle; button: ButtonLook } = {
+  name: "classic",
+  border: "round",
+  button: { style: "flat", keyFg: "black", keyBg: C.accent, labelFg: "white", labelBg: "#4a4a6a", highlight: "#7a7aa8", shadow: "#16161f", pressedBg: "#26264a" },
+};
 
 export const MODE_LABEL: Record<"levels" | "urgency", string> = { levels: "档位", urgency: "urgency" };
 
 // 按分组 key 上色，而不是按显示出来的名字——名字会随界面语言变
-export const GROUP_COLOR: Record<GroupKey, string> = {
-  overdue: C.overdue,
-  today: C.accent,
-  upcoming: C.future,
-  later: C.dim,
-  waiting: C.tag,
-  nodate: C.dim,
-  finished: C.dimmer,
-  hidden: C.dimmer,
-};
+export const GROUP_COLOR: Record<GroupKey, string> = {} as Record<GroupKey, string>;
+export const STATUS_COLOR: Record<string, string> = {};
+export const BANNER_COLORS: string[] = [];
 
-export const STATUS_COLOR: Record<string, string> = {
-  waiting: C.tag,
-  meeting: C.proj,
-  done: C.dimmer,
-  cancelled: C.dimmer,
+/** 分组和状态的颜色都从调色板派生，皮肤只需要给调色板 */
+export const applyPalette = (palette: Palette, banner: string[]): void => {
+  Object.assign(C, palette);
+  Object.assign(GROUP_COLOR, {
+    doing: C.yellow, overdue: C.overdue, today: C.accent, upcoming: C.future, later: C.dim,
+    waiting: C.tag, paused: C.dim, nodate: C.dim, finished: C.dimmer, hidden: C.dimmer, blocked: C.dimmer,
+  } satisfies Record<GroupKey, string>);
+  for (const key of Object.keys(STATUS_COLOR)) delete STATUS_COLOR[key];
+  Object.assign(STATUS_COLOR, { doing: C.yellow, waiting: C.tag, paused: C.dim, meeting: C.proj, done: C.dimmer, cancelled: C.dimmer });
+  BANNER_COLORS.splice(0, BANNER_COLORS.length, ...banner);
 };
+applyPalette({ ...C }, ["#ff6188", "#56d4dd", "#fc9867", "#a9dc76", "#c678dd"]);
 
 // "ANOTHER TODO" 像素字（figlet standard 字体，6 行高）。逐行渐变色，
 // 终端过窄（<72 列）时退化为紧凑小字。
@@ -56,12 +78,6 @@ export const BANNER_FULL = [
 export const BANNER_SMALL = [
   "██ █▄█ ███ ███ █▄█ ███ █▄█ ███ ███ ██▄ ███",
   "█▄ █ █ █ █  █  █ █ █▄  █▄   █  █ █ █ █ █ █",
-];
-
-export const BANNER_COLORS = [
-  "#ff6188", "#56d4dd", "#fc9867", "#a9dc76", "#c678dd",
-  "#ff6188", "#56d4dd", "#fc9867", "#a9dc76", "#c678dd",
-  "#ff6188", "#56d4dd",
 ];
 
 export const DATE_FORMAT_LABEL: Record<"auto" | "md" | "full", string> = {
@@ -83,8 +99,11 @@ export const HELP_SECTIONS: ReadonlyArray<readonly [string, ReadonlyArray<readon
     ["c / o", "取消任务 / 重新打开 done、cancelled"],
     ["e", "编辑选中任务"],
     ["w / s", "等待到明天 / 提醒推迟 10 分钟"],
+    ["n / p", "放进「在做」/「暂停」（再按一次退回待办）"],
+    ["a / D", "给选中任务加后续任务（它做完才露出来）/ 依赖图"],
+    [",", "设置：皮肤、鼠标点击、完成动画、排序等"],
     ["空格 / Ctrl+A", "打勾多选 / 全选本屏；有勾时 d x c w o s 批量执行"],
-    ["u / r", "撤销上一步 / 重载配置刷新"],
+    ["u / U / r", "撤销 / 重做 / 重载配置和皮肤文件"],
     ["1 / 2", "档位排序 / urgency 排序"],
     ["t", "日期列格式：相对 / 月日 / 完整"],
     ["直接打字", "跳进输入区添加；若首字是快捷键（如 d），先按 i"],
@@ -104,7 +123,8 @@ export const HELP_SECTIONS: ReadonlyArray<readonly [string, ReadonlyArray<readon
   ]],
   ["两区通用", [
     ["? / F1", "本帮助（任意键关闭）"],
-    ["Ctrl+Z / Ctrl+S / Ctrl+F", "撤销 / 同步 / 搜索"],
+    ["Ctrl+Z / Ctrl+Y", "撤销 / 重做"],
+    ["Ctrl+S / Ctrl+F", "同步 / 搜索"],
     ["q / Q / 双击 Esc", "退出（Ctrl+Q 也可）"],
   ]],
 ];
@@ -118,10 +138,11 @@ export const FULL_HELP_LINES =
 export const COMPACT_HELP_ROWS: ReadonlyArray<readonly [string, string]> = [
   ["清单区", "j/k ↑↓ 移动 · PgUp/PgDn 翻页 · g/G 首末 · l 详情"],
   ["", "d 完成 · x 删除 · c 取消 · o 重开 · e 编辑 · w 等待 · s 推迟提醒"],
-  ["", "空格 打勾多选 · Ctrl+A 全选 · u 撤销 · 1/2 排序 · t 日期列"],
+  ["", "n 在做 · p 暂停 · a 加后续任务 · D 依赖图 · , 设置"],
+  ["", "空格 打勾多选 · Ctrl+A 全选 · u 撤销 · U 重做 · 1/2 排序 · t 日期列"],
   ["输入区", "直接打字添加 · Enter 提交 · Tab 补全 #标签/proj:"],
-  ["", ": 命令(list/undo/sync/mode/archive/cancel/meeting) · / 搜索"],
-  ["通用", "? 帮助 · Ctrl+Z 撤销 · Ctrl+S 同步 · Ctrl+F 搜索"],
+  ["", ": 命令(list/undo/redo/graph/skin/sync/mode/archive/cancel/doing/pause) · / 搜索"],
+  ["通用", "? 帮助 · Ctrl+Z 撤销 · Ctrl+Y 重做 · Ctrl+S 同步 · Ctrl+F 搜索"],
   ["退出", "q / Q / Ctrl+Q / 双击 Esc；打 d/x/q 开头标题先按 i"],
 ];
 

@@ -1,28 +1,32 @@
 import { describe, expect, it } from "vitest";
 
 import { footerKeyRanges } from "../src/tui/app.js";
-import { splitMouseData } from "../src/tui/mouse.js";
+import { PassThrough } from "node:stream";
+
+import { createMouseBridge, splitMouseData, subscribeMouse, type MouseEvent } from "../src/tui/mouse.js";
 
 describe("footer key hit ranges", () => {
-  it("lays out the four buttons contiguously from column 2", () => {
+  it("lays out the four buttons from column 2 with a two-column gap between them", () => {
     const ranges = footerKeyRanges();
-    expect(ranges.map((range) => range.name)).toEqual(["help", "input", "done", "quit"]);
+    expect(ranges.map((range) => range.name)).toEqual(["help", "input", "done", "settings", "quit"]);
     expect(ranges[0]?.start).toBe(2);
     for (let index = 1; index < ranges.length; index += 1) {
-      expect(ranges[index]?.start).toBe((ranges[index - 1]?.end ?? 0) + 1);
+      expect(ranges[index]?.start).toBe((ranges[index - 1]?.end ?? 0) + 3);
     }
   });
 
-  it("covers representative click points (key cap and label tail)", () => {
+  it("covers representative click points (key cap and label tail) and ignores the gaps", () => {
     const ranges = footerKeyRanges();
     const hitAt = (x: number): string | undefined => ranges.find((range) => x >= range.start && x <= range.end)?.name;
     expect(hitAt(2)).toBe("help"); // ? 键帽
-    expect(hitAt(12)).toBe("help"); // 帮助 标签尾（两个全角字宽 4 列）
+    expect(hitAt(10)).toBe("help"); // 帮助 标签尾（两个全角字宽 4 列 + 两侧各 1 空格）
+    expect(hitAt(11)).toBeUndefined(); // 按钮之间的空白
     expect(hitAt(13)).toBe("input");
     expect(hitAt(24)).toBe("done");
-    expect(hitAt(35)).toBe("quit"); // q 键帽
-    expect(hitAt(45)).toBe("quit"); // 退出 标签尾
-    expect(hitAt(46)).toBeUndefined();
+    expect(hitAt(35)).toBe("settings"); // , 键帽
+    expect(hitAt(46)).toBe("quit"); // q 键帽
+    expect(hitAt(54)).toBe("quit"); // 退出 标签尾
+    expect(hitAt(55)).toBeUndefined();
   });
 });
 
@@ -64,5 +68,22 @@ describe("mouse SGR sequence parsing", () => {
   it("passes through non-mouse escapes untouched", () => {
     expect(splitMouseData("\x1bOAj", "").chunks).toEqual(["\x1bOAj"]);
     expect(splitMouseData("\x1b[B", "").chunks).toEqual(["\x1b[B"]);
+  });
+});
+
+describe("mouse bridge wiring", () => {
+  it("delivers clicks from real stdin to subscribeMouse without anyone calling bridge.subscribe", async () => {
+    // TuiApp 只用 subscribeMouse；以前事件只在 bridge.subscribe() 里转发，真实终端点击全丢
+    const stdin = Object.assign(new PassThrough(), { fd: 0, isTTY: true, setRawMode: () => stdin }) as unknown as NodeJS.ReadStream & { fd: number };
+    const stdout = new PassThrough() as unknown as NodeJS.WriteStream;
+    const bridge = createMouseBridge(stdin, stdout);
+    const received: MouseEvent[] = [];
+    const off = subscribeMouse((event) => received.push(event));
+    bridge.enable();
+    (stdin as unknown as PassThrough).write("\x1b[<0;20;11M");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    bridge.disable();
+    off();
+    expect(received).toEqual([{ kind: "press", button: 0, x: 20, y: 11 }]);
   });
 });
