@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import { footerKeyRanges } from "../src/tui/app.js";
-import { splitMouseData } from "../src/tui/mouse.js";
+import { PassThrough } from "node:stream";
+
+import { createMouseBridge, splitMouseData, subscribeMouse, type MouseEvent } from "../src/tui/mouse.js";
 
 describe("footer key hit ranges", () => {
   it("lays out the four buttons contiguously from column 2", () => {
@@ -64,5 +66,22 @@ describe("mouse SGR sequence parsing", () => {
   it("passes through non-mouse escapes untouched", () => {
     expect(splitMouseData("\x1bOAj", "").chunks).toEqual(["\x1bOAj"]);
     expect(splitMouseData("\x1b[B", "").chunks).toEqual(["\x1b[B"]);
+  });
+});
+
+describe("mouse bridge wiring", () => {
+  it("delivers clicks from real stdin to subscribeMouse without anyone calling bridge.subscribe", async () => {
+    // TuiApp 只用 subscribeMouse；以前事件只在 bridge.subscribe() 里转发，真实终端点击全丢
+    const stdin = Object.assign(new PassThrough(), { fd: 0, isTTY: true, setRawMode: () => stdin }) as unknown as NodeJS.ReadStream & { fd: number };
+    const stdout = new PassThrough() as unknown as NodeJS.WriteStream;
+    const bridge = createMouseBridge(stdin, stdout);
+    const received: MouseEvent[] = [];
+    const off = subscribeMouse((event) => received.push(event));
+    bridge.enable();
+    (stdin as unknown as PassThrough).write("\x1b[<0;20;11M");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    bridge.disable();
+    off();
+    expect(received).toEqual([{ kind: "press", button: 0, x: 20, y: 11 }]);
   });
 });
