@@ -7,6 +7,7 @@ import { Box, Text, useApp, useInput, useStdout } from "ink";
 
 import { ApplicationService } from "../app/service.js";
 import { groups, nestTasks, type GroupKey } from "../core/agenda.js";
+import { blockedIds, dependencyGraph } from "../core/deps.js";
 import { setConfigValue } from "../core/config.js";
 import type { Config, Task } from "../contracts.js";
 import { scanDate } from "../core/parse.js";
@@ -21,7 +22,7 @@ import {
   CHROME_LINES, DATE_W, EXTRAS_W, GroupSeparator, PRIORITY_W, STATUS_W, TaskRow,
 } from "./rows.js";
 import { Banner, BannerInfo, FooterBar, InputBar, PreviewLine, footerKeyRanges } from "./chrome.js";
-import { ConfirmModal, DetailModal, HelpModal, ModalShell, WelcomeModal } from "./modals.js";
+import { ConfirmModal, DetailModal, GraphModal, HelpModal, ModalShell, WelcomeModal } from "./modals.js";
 import { BANNER_FULL, BANNER_SMALL, C, DATE_FORMAT_LABEL } from "./theme.js";
 
 // 鼠标点击 Footer 需要列区间；测试也直接引它，保持从 app 导出
@@ -67,6 +68,7 @@ const completeAndDescribe = async (service: ApplicationService, id: string): Pro
   const extras: string[] = [];
   if (result.next) extras.push(`下一次 ${result.next.due ? result.next.due.slice(0, 10) : "无日期"}`);
   if (result.openChildren.length) extras.push(`还有 ${result.openChildren.length} 个子任务没完成`);
+  if (result.unblocked.length) extras.push(`解锁 ${result.unblocked.map((next) => next.title).join("、")}`);
   return `✓ 完成：${result.task.title}${extras.length ? `（${extras.join("，")}）` : ""}`;
 };
 
@@ -80,6 +82,14 @@ const runBatch = async (ids: string[], label: string, run: (id: string) => Promi
     catch (error) { failures.push(error instanceof Error ? error.message : String(error)); }
   }
   return `${label} ${done} 条${failures.length ? `，${failures.length} 条没成功：${failures[0]!}` : ""}`;
+};
+
+/** n / p 这类分组键：不在这个分组就放进去，已经在了就退回待办 */
+const toggleStatus = async (service: ApplicationService, task: Task | undefined, id: string, status: "doing" | "paused", label: string): Promise<string> => {
+  const current = task?.id === id ? task : (await service.tasks()).find((item) => item.id === id);
+  const next = current?.status === status ? "todo" : status;
+  const saved = await service.setStatus(id, next);
+  return next === "todo" ? `↩ 退回待办：${saved.title}` : `${label}：${saved.title}`;
 };
 
 /** 打了勾就对勾选的那些干活，没打勾就对光标所在这条干活 */
@@ -97,6 +107,9 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   const [state, dispatch] = useReducer(tuiReducer, undefined, () => initialTuiState());
   const [clock, setClock] = useState(() => new Date());
   const [actionSequence, setActionSequence] = useState(0);
+  const [graphOffset, setGraphOffset] = useState(0);
+  const blocked = useMemo(() => blockedIds(tasks), [tasks]);
+  const graphLines = useMemo(() => dependencyGraph(tasks), [tasks]);
   // 每组内部按父子相邻重排后再摊平：显示顺序和选中索引必须用同一份顺序，
   // 否则按 j/k 选中的行和高亮的行会错开
   const visibleGroups = useMemo(() => config
@@ -112,6 +125,8 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   const detailTask = detailId === undefined ? undefined : (selected ?? tasks.find((task) => task.id === detailId));
   const detailChildren = useMemo(() => detailTask ? tasks.filter((task) => task.parent === detailTask.id) : [], [detailTask, tasks]);
   const detailParent = detailTask?.parent === undefined ? undefined : tasks.find((task) => task.id === detailTask.parent);
+  const detailDeps = useMemo(() => detailTask ? tasks.filter((task) => detailTask.deps?.includes(task.id)) : [], [detailTask, tasks]);
+  const detailDependents = useMemo(() => detailTask ? tasks.filter((task) => task.deps?.includes(detailTask.id)) : [], [detailTask, tasks]);
   const stateRef = useRef(state);
   const configRef = useRef(config);
   const selectedRef = useRef(selected);
@@ -180,16 +195,18 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
         const ids = currentState.marked.length ? [...currentState.marked] : currentSelected ? [currentSelected.id] : [];
         const [verb, ...rest] = command.split(/\s+/u);
         if (command === "undo") dispatch({ type: "flash", message: await service.undo() });
+        else if (command === "redo") dispatch({ type: "flash", message: await service.redo() });
+        else if (command === "graph") { setGraphOffset(0); dispatch({ type: "mode", mode: { kind: "graph" } }); await refresh(); dispatch({ type: "mutationSuccess", id: mutationId }); return; }
         else if (command === "sync") dispatch({ type: "flash", message: await service.sync() });
         else if (command === "mode urgency") { dispatch({ type: "sort", mode: "urgency" }); dispatch({ type: "flash", message: "排序模式：urgency" }); }
         else if (command === "mode levels") { dispatch({ type: "sort", mode: "levels" }); dispatch({ type: "flash", message: "排序模式：档位" }); }
         else if (command === "list") { dispatch({ type: "query", value: "" }); dispatch({ type: "flash", message: "已清除过滤" }); }
         else if (command.startsWith("list ")) { dispatch({ type: "query", value: command.slice(5) }); dispatch({ type: "flash", message: `过滤：${command.slice(5)}` }); }
         else if (command.startsWith("archive")) { const days = command.split(/\s+/u)[1]; dispatch({ type: "flash", message: `归档了 ${await service.archive(days ? Number(days) : 14)} 行` }); }
-        else if (verb === "cancel" || verb === "meeting" || verb === "todo") {
+        else if (verb === "cancel" || verb === "meeting" || verb === "todo" || verb === "doing" || verb === "pause") {
           if (!ids.length) dispatch({ type: "flash", message: "先选中一条任务" });
           else {
-            const status = verb === "cancel" ? "cancelled" : verb;
+            const status = verb === "cancel" ? "cancelled" : verb === "pause" ? "paused" : verb;
             dispatch({ type: "flash", message: await runBatch(ids, `已设为 ${status}`, async (id) => { await service.setStatus(id, status); }) });
             dispatch({ type: "setMarks", ids: [] });
           }
@@ -300,6 +317,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
       runMutation(() => runBatch(ids, "已删除", async (id) => { await service.remove(id); }));
       return;
     }
+    if (action.type === "move" && currentState.mode.kind === "graph") { setGraphOffset((offset) => Math.max(0, Math.min(graphLines.length - 1, offset + action.delta))); return; }
     if (action.type === "move") { dispatch({ type: "select", index: currentState.selectedIndex + action.delta }); return; }
     if (action.type === "page") {
       // 一页按可见任务行数算，翻不动就贴到首尾
@@ -326,6 +344,23 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
         return;
       }
       if (action.name === "undo") { runMutation(() => service.undo()); return; }
+      if (action.name === "redo" || action.name === "U") { runMutation(() => service.redo()); return; }
+      if (action.name === "D") { setGraphOffset(0); dispatch({ type: "mode", mode: { kind: "graph" } }); return; }
+      if (action.name === "a" && currentSelected) {
+        // 后续任务先写好放着，前置做完才露出来；目标分组可以用 in:等待 这类写法指定
+        dispatch({ type: "mode", mode: { kind: "add" } });
+        dispatch({ type: "input", value: `after:${currentSelected.id} ` });
+        dispatch({ type: "flash", message: `给「${currentSelected.title}」加后续任务` });
+        return;
+      }
+      if ((action.name === "n" || action.name === "p") && currentSelected) {
+        const ids = targetIds(currentState, currentSelected);
+        const status = action.name === "n" ? "doing" : "paused";
+        const label = action.name === "n" ? "▶ 在做" : "⏸ 暂停";
+        runMutation(() => runBatch(ids, label, (id) => toggleStatus(service, currentSelected, id, status, label)));
+        dispatch({ type: "setMarks", ids: [] });
+        return;
+      }
       if (action.name === "sync") { runMutation(() => service.sync()); return; }
       if (action.name === "i") { dispatch({ type: "mode", mode: { kind: "add" } }); return; }
       if (action.name === "e" && currentSelected) { dispatch({ type: "mode", mode: { kind: "edit", taskId: currentSelected.id } }); dispatch({ type: "input", value: taskToInput(currentSelected) }); return; }
@@ -393,7 +428,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
         runMutation(() => completeAndDescribe(service, task.id));
       }
     }
-  }, [dispatch, exit, refresh, runMutation, service, store, tasks, visible]);
+  }, [dispatch, exit, graphLines.length, refresh, runMutation, service, store, tasks, visible]);
 
   const today = nowLocal().slice(0, 10);
   const levels = config ? [...config.priority.levels] : ["低", "中", "高"];
@@ -433,7 +468,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     const currentState = stateRef.current;
     const { lines: currentLines, windowStart: start } = viewRef.current;
     // 弹窗打开时任意点击关闭（和任意键关闭一致）
-    if (currentState.mode.kind === "help" || currentState.mode.kind === "welcome" || currentState.mode.kind === "detail" || currentState.mode.kind === "confirm") {
+    if (currentState.mode.kind === "help" || currentState.mode.kind === "welcome" || currentState.mode.kind === "detail" || currentState.mode.kind === "confirm" || currentState.mode.kind === "graph") {
       if (event.kind === "press") { setActionSequence((sequence) => sequence + 1); dispatch({ type: "mode", mode: { kind: "list" } }); }
       return;
     }
@@ -483,11 +518,12 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
 
   if (state.mode.kind === "help") return <ModalShell rows={rows}><HelpModal rows={rows} /></ModalShell>;
   if (state.mode.kind === "welcome") return <ModalShell rows={rows}><WelcomeModal rows={rows} /></ModalShell>;
+  if (state.mode.kind === "graph") return <ModalShell rows={rows}><GraphModal lines={graphLines} offset={graphOffset} rows={rows} columns={columns} /></ModalShell>;
   if (state.mode.kind === "confirm") return <ModalShell rows={rows}><ConfirmModal prompt={state.mode.prompt} rows={rows} /></ModalShell>;
   if (state.mode.kind === "detail" && detailTask) {
     return (
       <ModalShell rows={rows}>
-        <DetailModal task={detailTask} parent={detailParent} rows={rows} columns={columns}>{detailChildren}</DetailModal>
+        <DetailModal task={detailTask} parent={detailParent} deps={detailDeps} dependents={detailDependents} rows={rows} columns={columns}>{detailChildren}</DetailModal>
       </ModalShell>
     );
   }
@@ -507,7 +543,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
         {lines.length === 0 ? <Text color={C.dimmer}>（没有任务）</Text> : windowLines.map((line) => (
           line.kind === "sep"
             ? <GroupSeparator key={`sep-${line.groupKey}-${line.count}`} groupKey={line.groupKey} name={line.name} count={line.count} />
-            : <TaskRow key={line.task.id} task={line.task} selected={line.index === state.selectedIndex} marked={state.marked.includes(line.task.id)} today={today} dateFormat={state.dateFormat} levels={levels} titleWidth={titleWidth} depth={line.depth} />
+            : <TaskRow key={line.task.id} task={line.task} selected={line.index === state.selectedIndex} marked={state.marked.includes(line.task.id)} blocked={blocked.has(line.task.id)} today={today} dateFormat={state.dateFormat} levels={levels} titleWidth={titleWidth} depth={line.depth} />
         ))}
       </Box>
       <Box paddingLeft={2} paddingRight={2}><PreviewLine state={state} levels={levels} /></Box>

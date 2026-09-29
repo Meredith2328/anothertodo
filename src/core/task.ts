@@ -4,8 +4,8 @@ import { TaskSchema, TombstoneSchema, type Task, type Tombstone } from "../contr
 
 export type { Task, Tombstone } from "../contracts.js";
 
-export const DEFAULT_STATES = ["todo", "waiting", "done", "cancelled", "meeting"] as const;
-export const ACTIVE_STATES = new Set(["todo", "waiting", "meeting"]);
+export const DEFAULT_STATES = ["todo", "doing", "waiting", "paused", "done", "cancelled", "meeting"] as const;
+export const ACTIVE_STATES = new Set(["todo", "doing", "waiting", "paused", "meeting"]);
 
 export const utcNow = (): string => new Date().toISOString();
 export const localNow = (): string => {

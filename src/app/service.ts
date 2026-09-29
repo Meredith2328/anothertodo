@@ -1,6 +1,7 @@
 import type { Config, Task } from "../contracts.js";
 import { loadConfig } from "../core/config.js";
 import { daysBetweenDates, parse, shiftDateOnly, nextOccurrence } from "../core/parse.js";
+import { unblockedBy, wouldCycle } from "../core/deps.js";
 import { applyParsedUpdate } from "../core/task-ops.js";
 import { ACTIVE_STATES, cloneTask, localDate, localNow, newId, parseTask, utcNow } from "../core/task.js";
 import { Store } from "../storage/store.js";
@@ -11,8 +12,8 @@ import { snooze as snoozeReminder } from "../reminders/watcher.js";
 const initialStatus = (wait: string | undefined, today: string): "todo" | "waiting" =>
   wait !== undefined && wait > today ? "waiting" : "todo";
 
-export type TaskStatus = "todo" | "waiting" | "done" | "cancelled" | "meeting";
-const STATUS_LABELS: Record<TaskStatus, string> = { todo: "待办", waiting: "等待", done: "已完成", cancelled: "已取消", meeting: "会议" };
+export type TaskStatus = "todo" | "doing" | "waiting" | "paused" | "done" | "cancelled" | "meeting";
+const STATUS_LABELS: Record<TaskStatus, string> = { todo: "待办", doing: "在做", waiting: "等待", paused: "暂停", done: "已完成", cancelled: "已取消", meeting: "会议" };
 
 export type CompleteResult = {
   task: Task;
@@ -22,6 +23,8 @@ export type CompleteResult = {
   cascaded: Task[];
   /** 还没完成、也没被带上的子任务 */
   openChildren: Task[];
+  /** 因为这次完成而不再被前置挡住、该露出来的后续任务 */
+  unblocked: Task[];
 };
 
 /** Application operations shared by CLI and TUI; presentation layers do not mutate tasks themselves. */
@@ -38,12 +41,27 @@ export class ApplicationService {
     return this.store.tasks();
   }
 
+  /** 把 `after:` 里写的 id 前缀解析成全长 id，并拒绝会让依赖成环的写法 */
+  private async resolveDeps(id: string, prefixes: string[]): Promise<string[]> {
+    const deps: string[] = [];
+    for (const prefix of prefixes) {
+      const dep = await this.store.find(prefix);
+      if (!dep) throw new Error(`找不到前置任务：${prefix}`);
+      if (dep.id === id) throw new Error("任务不能依赖自己");
+      if (!deps.includes(dep.id)) deps.push(dep.id);
+    }
+    if (wouldCycle(await this.store.tasks(), id, deps)) throw new Error("这样设置前置会让依赖成环");
+    return deps;
+  }
+
   async add(input: string, now = localNow()): Promise<Task> {
     const config = await this.config();
     const parsed = parse(input, now, [...config.priority.levels]);
     if (!parsed.title) throw new Error("标题不能为空");
+    const id = newId();
+    const deps = parsed.deps ? await this.resolveDeps(id, parsed.deps) : [];
     return this.store.save(parseTask({
-      id: newId(), title: parsed.title, status: initialStatus(parsed.wait, now.slice(0, 10)),
+      id, title: parsed.title, status: parsed.status ?? initialStatus(parsed.wait, now.slice(0, 10)), ...(deps.length ? { deps } : {}),
       ...(parsed.due ? { due: parsed.due } : {}), ...(parsed.priority ? { priority: parsed.priority } : {}),
       tags: parsed.tags, ...(parsed.project ? { project: parsed.project } : {}), ...(parsed.parent ? { parent: parsed.parent } : {}),
       ...(parsed.wait ? { wait: parsed.wait } : {}), ...(parsed.notes ? { notes: parsed.notes } : {}), ...(parsed.recur ? { recur: parsed.recur } : {}),
@@ -56,7 +74,9 @@ export class ApplicationService {
     if (!task) throw new Error(`找不到任务：${idOrPrefix}`);
     const before = cloneTask(task);
     const config = await this.config();
-    applyParsedUpdate(task, parse(input, now, [...config.priority.levels]));
+    const parsed = parse(input, now, [...config.priority.levels]);
+    if (parsed.deps) parsed.deps = await this.resolveDeps(task.id, parsed.deps);
+    applyParsedUpdate(task, parsed);
     return this.store.save(task, before);
   }
 
@@ -70,7 +90,7 @@ export class ApplicationService {
     if (status === "done" || status === "cancelled") task.end = utcNow();
     else delete task.end;
     // 从等待里放出来就该把 wait 一起清掉，否则它会立刻又被折叠回去
-    if (status === "todo" || status === "meeting") delete task.wait;
+    if (status === "todo" || status === "meeting" || status === "doing" || status === "paused") delete task.wait;
     return this.store.save(task, before);
   }
 
@@ -87,12 +107,16 @@ export class ApplicationService {
     const target = await this.store.find(idOrPrefix);
     if (!target) throw new Error(`找不到任务：${idOrPrefix}`);
     const now = options.now ?? localNow();
-    const openChildren = (await this.children(target.id)).filter((child) => ACTIVE_STATES.has(child.status));
-    const cascaded: Task[] = [];
-    if (options.cascade) for (const child of openChildren) cascaded.push(await this.setStatus(child.id, "done"));
-    const task = await this.setStatus(target.id, "done");
-    const next = await this.spawnNextOccurrence(task, now);
-    return { task, ...(next ? { next } : {}), cascaded, openChildren: options.cascade ? [] : openChildren };
+    // 完成、带上的子任务、派生的下一次算同一次操作，撤销一下全部回来
+    return this.store.batch(async () => {
+      const openChildren = (await this.children(target.id)).filter((child) => ACTIVE_STATES.has(child.status));
+      const cascaded: Task[] = [];
+      if (options.cascade) for (const child of openChildren) cascaded.push(await this.setStatus(child.id, "done"));
+      const task = await this.setStatus(target.id, "done");
+      const next = await this.spawnNextOccurrence(task, now);
+      const unblocked = unblockedBy(await this.store.tasks(), task.id);
+      return { task, ...(next ? { next } : {}), cascaded, openChildren: options.cascade ? [] : openChildren, unblocked };
+    });
   }
 
   /**
@@ -156,6 +180,10 @@ export class ApplicationService {
 
   async undo(): Promise<string> {
     return this.store.undo();
+  }
+
+  async redo(): Promise<string> {
+    return this.store.redo();
   }
 
   async archive(days = 14): Promise<number> {

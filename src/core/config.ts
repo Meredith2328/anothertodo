@@ -35,6 +35,10 @@ interval_seconds = 30
 # 只影响界面文案，一行输入语法和查询语法两种语言下都一样。
 lang = "auto"
 
+[deps]
+# 前置任务没做完的后续任务怎么显示：dim 主屏淡字显示，hide 不上主屏（按 D 看依赖图）
+blocked = "dim"
+
 [email]
 host = ""
 port = 465
@@ -50,6 +54,7 @@ const defaultConfig = (): Config => ConfigSchema.parse({
   agenda: { week_days: 7, date_format: "auto" },
   watch: { interval_seconds: 30 },
   ui: { lang: "auto" },
+  deps: { blocked: "dim" },
   email: { host: "", port: 465, ssl: true, user: "", password: "", from: "", to: "" },
 });
 

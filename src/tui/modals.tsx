@@ -1,4 +1,4 @@
-// 四个浮层：帮助、上手引导、任务详情、删除确认。
+// 五个浮层：帮助、上手引导、任务详情、删除确认、依赖图。
 //
 // Ink 从上往下渲染，没有「垂直居中」布局，所以 ModalPage 按终端剩余高度在
 // 弹窗上方垫空行。整帧必须严格等于终端行数（ModalShell 的 height:rows +
@@ -7,6 +7,7 @@ import React from "react";
 import { Box, Text } from "ink";
 
 import type { Task } from "../contracts.js";
+import { GRAPH_MARK, renderGraphLine, type GraphLine } from "../core/deps.js";
 import { t } from "../core/i18n.js";
 import { describeRecur } from "../core/parse.js";
 import { truncateWithEllipsis } from "../core/width.js";
@@ -96,10 +97,12 @@ const DetailRow = ({ label, value }: { label: string; value: string }): React.Re
 );
 
 /** notes 一直只存不显示；详情浮层就是给它一个真正能看到的地方 */
-export const DetailModal = ({ task, children: subtasks, parent, rows, columns }: {
+export const DetailModal = ({ task, children: subtasks, parent, deps = [], dependents = [], rows, columns }: {
   task: Task;
   children: Task[];
   parent: Task | undefined;
+  deps?: Task[];
+  dependents?: Task[];
   rows?: number | undefined;
   columns?: number | undefined;
 }): React.ReactElement => {
@@ -114,6 +117,9 @@ export const DetailModal = ({ task, children: subtasks, parent, rows, columns }:
     [t("field.recur"), task.recur ? describeRecur(task.recur) : t("value.none")],
   ];
   if (parent) fields.push([t("field.parent"), `${parent.id} ${parent.title}`]);
+  const doneMark = (item: Task): string => item.status === "done" || item.status === "cancelled" ? "✓" : "·";
+  if (deps.length) fields.push([t("field.deps"), deps.map((dep) => `${doneMark(dep)} ${dep.title}`).join("  ")]);
+  if (dependents.length) fields.push([t("field.dependents"), dependents.map((next) => `${doneMark(next)} ${next.title}`).join("  ")]);
   if (subtasks.length) fields.push([t("field.subtasks"), subtasks.map((child) => `${child.status === "done" ? "✓" : "·"} ${child.title}`).join("  ")]);
   fields.push([t("field.entry"), task.entry.replace("T", " ").slice(0, 16)]);
   if (task.end) fields.push([t("field.end"), task.end.replace("T", " ").slice(0, 16)]);
@@ -148,3 +154,35 @@ export const ConfirmModal = ({ prompt, rows }: { prompt: string; rows?: number |
     </Box>
   </ModalPage>
 );
+
+const GRAPH_COLOR: Record<GraphLine["mark"], string> = { done: C.dimmer, ready: C.accent, blocked: C.dim };
+
+/**
+ * 依赖图页：从没有前置的任务往后续画成树，多前置的节点只展开一次，别处画成「见上」。
+ * 终端放不下时按 offset 滚动；offset 由 app 用 j/k 调整。
+ */
+export const GraphModal = ({ lines, offset, rows, columns }: {
+  lines: GraphLine[];
+  offset: number;
+  rows?: number | undefined;
+  columns?: number | undefined;
+}): React.ReactElement => {
+  // 边框 2 + 标题 1 + 图例 1 + 提示 1，再减 Footer 1
+  const room = rows === undefined ? lines.length : Math.max(1, rows - 6);
+  const start = Math.max(0, Math.min(offset, lines.length - room));
+  const width = Math.max(40, (columns ?? 80) - 2);
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor={C.accent} paddingLeft={1} paddingRight={1} width={width} {...(rows !== undefined ? { height: rows - 1 } : {})}>
+      <Text><Text bold color={C.accent}>依赖图</Text><Text color={C.dim}>{`  ${lines.filter((line) => !line.ref).length} 个任务参与依赖`}</Text></Text>
+      <Text color={C.dim}>{`${GRAPH_MARK.ready} 可以做  ${GRAPH_MARK.blocked} 等前置  ${GRAPH_MARK.done} 已完成   添加后续：清单里选中任务按 a，或输入 after:<id>`}</Text>
+      <Box flexDirection="column" flexGrow={1}>
+        {lines.length === 0
+          ? <Text color={C.dimmer}>（还没有任务设置前置。选中一条任务按 a，就能给它加一条后续任务）</Text>
+          : lines.slice(start, start + room).map((line, index) => (
+            <Text key={`${start + index}-${line.task.id}`} wrap="truncate" color={line.ref ? C.dimmer : GRAPH_COLOR[line.mark]} bold={line.mark === "ready" && !line.ref}>{truncateWithEllipsis(renderGraphLine(line), width - 4)}</Text>
+          ))}
+      </Box>
+      <Text color={C.dim}>{lines.length > room ? `j/k 滚动（${start + 1}-${Math.min(lines.length, start + room)}/${lines.length}）· ` : ""}其他键返回清单</Text>
+    </Box>
+  );
+};

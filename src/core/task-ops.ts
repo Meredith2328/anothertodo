@@ -1,5 +1,5 @@
 import type { Task } from "../contracts.js";
-import { recurToInput, type Parsed } from "./parse.js";
+import { recurToInput, STATUS_INPUT, type Parsed } from "./parse.js";
 
 /**
  * 把一行输入的解析结果套到已有任务上。
@@ -14,6 +14,13 @@ export const applyParsedUpdate = (task: Task, parsed: Parsed): Task => {
   if (parsed.removeTags.length) task.tags = task.tags.filter((tag) => !parsed.removeTags.includes(tag));
   if (parsed.project !== undefined) task.project = parsed.project;
   if (parsed.parent !== undefined) task.parent = parsed.parent;
+  if (parsed.deps !== undefined) task.deps = [...parsed.deps];
+  if (parsed.status !== undefined && parsed.status !== task.status) {
+    task.status = parsed.status;
+    delete task.end;
+    // 只有等待才看 wait 日期；换去别的分组还留着它，任务会被折叠成「等待未到」
+    if (parsed.status !== "waiting") delete task.wait;
+  }
   if (parsed.wait !== undefined) task.wait = parsed.wait;
   if (parsed.notes !== undefined) task.notes = parsed.notes;
   if (parsed.recur !== undefined) task.recur = parsed.recur;
@@ -23,6 +30,7 @@ export const applyParsedUpdate = (task: Task, parsed: Parsed): Task => {
     else if (field === "priority") delete task.priority;
     else if (field === "project") delete task.project;
     else if (field === "parent") delete task.parent;
+    else if (field === "deps") delete task.deps;
     else if (field === "wait") delete task.wait;
     else if (field === "tags") task.tags = [];
     else if (field === "notes") task.notes = "";
@@ -39,6 +47,9 @@ export const taskToInput = (task: Task): string => {
   if (task.project) parts.push(`proj:${task.project}`);
   parts.push(...task.tags.map((tag) => `#${tag}`));
   if (task.parent) parts.push(`^${task.parent}`);
+  if (task.deps?.length) parts.push(`after:${task.deps.join(",")}`);
+  // 等待带日期时由 `~日期` 表达；其余分组状态要写出来，否则编辑一次就回到待办
+  if (task.status === "doing" || task.status === "paused" || (task.status === "waiting" && !task.wait)) parts.push(`in:${STATUS_INPUT[task.status]}`);
   if (task.wait) parts.push(`~${task.wait}`);
   if (task.recur) parts.push(recurToInput(task.recur));
   if (task.due) {

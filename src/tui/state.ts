@@ -7,6 +7,8 @@ export type UiMode =
   | { kind: "help" }
   | { kind: "welcome" }
   | { kind: "detail"; taskId: string }
+  /** 依赖图页：整屏画出任务之间的前置关系 */
+  | { kind: "graph" }
   /** 不可撤销的操作先问一句；prompt 是问句，pending 是待执行动作的名字 */
   | { kind: "confirm"; prompt: string; pending: "delete" };
 

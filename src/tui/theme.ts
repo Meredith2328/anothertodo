@@ -24,18 +24,23 @@ export const MODE_LABEL: Record<"levels" | "urgency", string> = { levels: "档�
 
 // 按分组 key 上色，而不是按显示出来的名字——名字会随界面语言变
 export const GROUP_COLOR: Record<GroupKey, string> = {
+  doing: C.yellow,
   overdue: C.overdue,
   today: C.accent,
   upcoming: C.future,
   later: C.dim,
   waiting: C.tag,
+  paused: C.dim,
   nodate: C.dim,
   finished: C.dimmer,
   hidden: C.dimmer,
+  blocked: C.dimmer,
 };
 
 export const STATUS_COLOR: Record<string, string> = {
+  doing: C.yellow,
   waiting: C.tag,
+  paused: C.dim,
   meeting: C.proj,
   done: C.dimmer,
   cancelled: C.dimmer,
@@ -83,8 +88,12 @@ export const HELP_SECTIONS: ReadonlyArray<readonly [string, ReadonlyArray<readon
     ["c / o", "取消任务 / 重新打开 done、cancelled"],
     ["e", "编辑选中任务"],
     ["w / s", "等待到明天 / 提醒推迟 10 分钟"],
+    ["n / p", "放进「在做」/「暂停」（再按一次退回待办）"],
+    ["a", "给选中任务加一条后续任务（它做完后才露出来）"],
+    ["D", "依赖图：看任务之间的前置关系"],
     ["空格 / Ctrl+A", "打勾多选 / 全选本屏；有勾时 d x c w o s 批量执行"],
-    ["u / r", "撤销上一步 / 重载配置刷新"],
+    ["u / U", "撤销上一步 / 重做（撤销的撤销）"],
+    ["r", "重载配置刷新"],
     ["1 / 2", "档位排序 / urgency 排序"],
     ["t", "日期列格式：相对 / 月日 / 完整"],
     ["直接打字", "跳进输入区添加；若首字是快捷键（如 d），先按 i"],
@@ -104,7 +113,8 @@ export const HELP_SECTIONS: ReadonlyArray<readonly [string, ReadonlyArray<readon
   ]],
   ["两区通用", [
     ["? / F1", "本帮助（任意键关闭）"],
-    ["Ctrl+Z / Ctrl+S / Ctrl+F", "撤销 / 同步 / 搜索"],
+    ["Ctrl+Z / Ctrl+Y", "撤销 / 重做"],
+    ["Ctrl+S / Ctrl+F", "同步 / 搜索"],
     ["q / Q / 双击 Esc", "退出（Ctrl+Q 也可）"],
   ]],
 ];
@@ -118,10 +128,11 @@ export const FULL_HELP_LINES =
 export const COMPACT_HELP_ROWS: ReadonlyArray<readonly [string, string]> = [
   ["清单区", "j/k ↑↓ 移动 · PgUp/PgDn 翻页 · g/G 首末 · l 详情"],
   ["", "d 完成 · x 删除 · c 取消 · o 重开 · e 编辑 · w 等待 · s 推迟提醒"],
-  ["", "空格 打勾多选 · Ctrl+A 全选 · u 撤销 · 1/2 排序 · t 日期列"],
+  ["", "n 在做 · p 暂停 · a 加后续任务 · D 依赖图"],
+  ["", "空格 打勾多选 · Ctrl+A 全选 · u 撤销 · U 重做 · 1/2 排序 · t 日期列"],
   ["输入区", "直接打字添加 · Enter 提交 · Tab 补全 #标签/proj:"],
-  ["", ": 命令(list/undo/sync/mode/archive/cancel/meeting) · / 搜索"],
-  ["通用", "? 帮助 · Ctrl+Z 撤销 · Ctrl+S 同步 · Ctrl+F 搜索"],
+  ["", ": 命令(list/undo/redo/graph/sync/mode/archive/cancel/doing/pause) · / 搜索"],
+  ["通用", "? 帮助 · Ctrl+Z 撤销 · Ctrl+Y 重做 · Ctrl+S 同步 · Ctrl+F 搜索"],
   ["退出", "q / Q / Ctrl+Q / 双击 Esc；打 d/x/q 开头标题先按 i"],
 ];
 
