@@ -1,17 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { existsSync, watchFile, unwatchFile } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 
 import { ApplicationService } from "../app/service.js";
 import { groups, nestTasks, type GroupKey } from "../core/agenda.js";
-import { blockedIds, dependencyGraph } from "../core/deps.js";
+import { blockedIds, dependencyGraph, waitLabel, wouldCycle } from "../core/deps.js";
 import { setConfigValue } from "../core/config.js";
 import type { Config, Task } from "../contracts.js";
 import { scanDate } from "../core/parse.js";
-import { localNow } from "../core/task.js";
+import { ACTIVE_STATES, localNow } from "../core/task.js";
 import { taskToInput } from "../core/task-ops.js";
 import { Store } from "../storage/store.js";
 import { initialTuiState, tuiReducer, type TuiState } from "./state.js";
@@ -19,10 +19,13 @@ import type { KeyEvent } from "./keymap.js";
 import { mapKey } from "./keymap.js";
 import { setMouseTracking, subscribeMouse, type MouseEvent } from "./mouse.js";
 import {
-  GroupSeparator, TableHeader, TaskRow, tableColumns,
+  CardRow, EmptyState, GroupHeading, GroupSeparator, TableHeader, TaskRow, tableColumns,
 } from "./rows.js";
-import { Banner, BannerInfo, FooterBar, InputBar, PreviewLine, bannerLines, footerHeight, footerKeyRanges, setTightLayout, type FooterButton } from "./chrome.js";
-import { ConfirmModal, DetailModal, GraphModal, HelpModal, ModalShell, SettingsModal, WelcomeModal, modalPad } from "./modals.js";
+import { Banner, FooterBar, InputBar, PreviewLine, TopBar, bannerRows, contentLeft, contentWidth, footerHeight, footerKeyRanges, inputHeight, setTightLayout, type FooterButton } from "./chrome.js";
+import {
+  CONFIRM_LINES, ConfirmModal, DetailModal, DepsModal, GraphModal, HelpModal, HistoryModal, ModalShell, SettingsModal, WELCOME_LINES, WelcomeModal,
+  detailLines, depsLines, depsRoom, graphRoom, helpLines, historyLines, listStart, modalPad, settingsLines, settingsRows, type DepsCandidate,
+} from "./modals.js";
 import { cycleSetting, settingItems, type SettingItem } from "./settings.js";
 import { C, DATE_FORMAT_LABEL, SKIN } from "./theme.js";
 import { listSkins, resolveSkin, loadSkin } from "./skins.js";
@@ -62,7 +65,10 @@ const completeInput = (input: string, tasks: Task[]): string => {
 };
 
 // ---------------------------------------------------------------- 主组件
-type TableLine = { kind: "sep"; groupKey: GroupKey; name: string; count: number } | { kind: "task"; task: Task; depth: number; index: number };
+type TableLine =
+  | { kind: "sep"; groupKey: GroupKey; name: string; count: number }
+  | { kind: "gap"; groupKey: GroupKey }
+  | { kind: "task"; task: Task; depth: number; index: number; groupKey: GroupKey };
 
 /** 完成任务并把「派生了下一次」「还有子任务没做」这两件事说清楚，别让用户自己去发现 */
 const completeAndDescribe = async (service: ApplicationService, id: string): Promise<string> => {
@@ -100,8 +106,23 @@ const targetIds = (state: TuiState, selected: Task): string[] => state.marked.le
 // 完成动画：删除线分几帧从左划到右，划完再真正完成（任务随后离开列表）
 const STRIKE_FRAMES = 8;
 const STRIKE_FRAME_MS = 55;
-// 表格上方的固定行：信息行 1 + 表格上边框 1 + 表头 1；下方：表格下边框 1 + 预览行 1 + 输入框 2 + Footer
-const tableChrome = (columns: number | undefined, rows: number | undefined): number => bannerLines(columns, rows).length + 3 + 4 + footerHeight();
+// Esc 连按两下退出的间隔：1 秒太赶，第二下常常按晚
+const EXIT_WINDOW_MS = 2000;
+// 提示行里的操作反馈停留多久后退回上下文提示
+const TOAST_MS = 4000;
+type Layout = { cards: boolean; compact: boolean; banner: Config["ui"]["banner"] };
+const layoutOf = (config: Config | undefined): Layout => ({
+  cards: (config?.ui.layout ?? "cards") === "cards",
+  compact: config?.ui.density === "compact",
+  banner: config?.ui.banner ?? "line",
+});
+// 清单区上面：横幅 + 顶栏 1（表格布局再加上边框 1 + 表头 1）；
+// 下面：提示行 1 + 输入框 + Footer（表格布局再加下边框 1）
+const listChrome = (columns: number | undefined, rows: number | undefined, layout: Layout): number =>
+  bannerRows(columns, rows, layout.banner) + 1 + (layout.cards ? 0 : 3) + 1 + inputHeight(layout.compact) + footerHeight();
+/** 清单第一行的屏幕行号（1 起），鼠标点任务行按它换算 */
+const firstListRow = (columns: number | undefined, rows: number | undefined, layout: Layout): number =>
+  bannerRows(columns, rows, layout.banner) + (layout.cards ? 2 : 4);
 
 export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: TuiProps): React.ReactElement => {
   const { exit } = useApp();
@@ -132,8 +153,18 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   const [state, dispatch] = useReducer(tuiReducer, undefined, () => initialTuiState());
   const [clock, setClock] = useState(() => new Date());
   const [actionSequence, setActionSequence] = useState(0);
-  const [graphOffset, setGraphOffset] = useState(0);
+  const [graphIndex, setGraphIndex] = useState(0);
   const [pressedButton, setPressedButton] = useState<FooterButton>();
+  const [hoveredButton, setHoveredButton] = useState<FooterButton>();
+  // 后续任务选择列表：勾选状态在保存前只存在这里
+  const [depsPicked, setDepsPicked] = useState<string[]>([]);
+  const [depsIndex, setDepsIndex] = useState(0);
+  const [historySteps, setHistorySteps] = useState<Array<{ ts: string; summary: string }>>([]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  // 刚添加 / 编辑过的那条：换了位置时短暂高亮，眼睛跟得上
+  const [movedId, setMovedId] = useState<string>();
+  // toast 过几秒自动淡出：记下消息出现的时刻
+  const [toastVisible, setToastVisible] = useState(true);
   const [settingIndex, setSettingIndex] = useState(0);
   const [skinChoices, setSkinChoices] = useState<Array<{ name: string; description: string }>>([]);
   const settings = useMemo(() => settingItems(skinChoices), [skinChoices]);
@@ -143,15 +174,42 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     const timer = setTimeout(() => setPressedButton(undefined), 180);
     return () => clearTimeout(timer);
   }, [pressedButton]);
+  useEffect(() => {
+    if (movedId === undefined) return;
+    const timer = setTimeout(() => setMovedId(undefined), 1500);
+    return () => clearTimeout(timer);
+  }, [movedId]);
+  useEffect(() => {
+    setToastVisible(true);
+    if (state.flashMessage === undefined) return;
+    const timer = setTimeout(() => setToastVisible(false), TOAST_MS);
+    return () => clearTimeout(timer);
+  }, [state.flashMessage]);
   const blocked = useMemo(() => blockedIds(tasks), [tasks]);
   const graphLines = useMemo(() => dependencyGraph(tasks), [tasks]);
+  const projects = useMemo(() => [...new Set(tasks.filter((task) => ACTIVE_STATES.has(task.status)).map((task) => task.project).filter((value): value is string => Boolean(value)))].sort(), [tasks]);
   // 每组内部按父子相邻重排后再摊平：显示顺序和选中索引必须用同一份顺序，
   // 否则按 j/k 选中的行和高亮的行会错开
-  const visibleGroups = useMemo(() => config
-    ? groups(tasks, config, state.sortMode, nowLocal(), state.query)
+  const visibleGroups = useMemo(() => {
+    if (!config) return [];
+    const scoped = state.project === undefined ? tasks : tasks.filter((task) => task.project === state.project);
+    return groups(scoped, config, state.sortMode, nowLocal(), state.query)
       .filter((group) => group.tasks.length > 0)
-      .map((group) => ({ ...group, nested: nestTasks(group.tasks), tasks: nestTasks(group.tasks).map((item) => item.task) }))
-    : [], [config, state.query, state.sortMode, tasks]);
+      .map((group) => ({ ...group, nested: nestTasks(group.tasks), tasks: nestTasks(group.tasks).map((item) => item.task) }));
+  }, [config, state.project, state.query, state.sortMode, tasks]);
+  // 后续任务选择列表的候选：除它自己以外还开着的任务；勾上会成环的标灰
+  const depsOwnerId = state.mode.kind === "deps" ? state.mode.taskId : undefined;
+  const depsOwner = depsOwnerId === undefined ? undefined : tasks.find((task) => task.id === depsOwnerId);
+  const depsCandidates = useMemo<DepsCandidate[]>(() => {
+    if (!depsOwner) return [];
+    return tasks
+      .filter((task) => task.id !== depsOwner.id && ACTIVE_STATES.has(task.status))
+      .map((task) => ({
+        task,
+        checked: depsPicked.includes(task.id),
+        disabled: wouldCycle(tasks, task.id, [...(task.deps ?? []), depsOwner.id]) ? "会成环" : undefined,
+      }));
+  }, [depsOwner, depsPicked, tasks]);
   const visible = useMemo(() => flatten(visibleGroups), [visibleGroups]);
   const selected = visible[state.selectedIndex];
   // 详情浮层的数据在早返回之前算好：hooks 数量必须每帧一致，
@@ -187,6 +245,29 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   useEffect(() => { void refresh().catch((error: unknown) => dispatch({ type: "flash", message: error instanceof Error ? error.message : String(error) })); }, [refresh]);
   useEffect(() => { const timer = setInterval(() => { void refresh().catch(() => {}); }, 30_000); return () => clearInterval(timer); }, [refresh]);
   useEffect(() => { const timer = setInterval(() => setClock(new Date()), 10_000); return () => clearInterval(timer); }, []);
+  // 别的进程（CLI、同步、watcher）改了任务文件就跟着刷新；watcher 发出的提醒写进 inbox，
+  // 这里只读新追加的那部分，把提醒顶到提示行上
+  useEffect(() => {
+    const onTasks = (): void => { void refresh().catch(() => {}); };
+    let seen = -1;
+    const onInbox = (): void => {
+      void readFile(store.paths.inbox, "utf8").then((text) => {
+        const lines = text.split("\n").filter(Boolean);
+        if (seen >= 0 && lines.length > seen) {
+          const latest = lines.at(-1);
+          try {
+            const entry = JSON.parse(latest ?? "{}") as { message?: string };
+            if (entry.message) dispatch({ type: "flash", message: `◷ 提醒：${entry.message}` });
+          } catch { /* 半行还没写完，下一轮再读 */ }
+        }
+        seen = lines.length;
+      }).catch(() => { if (seen < 0) seen = 0; });
+    };
+    onInbox();
+    watchFile(store.paths.tasks, { interval: 1000 }, onTasks);
+    watchFile(store.paths.inbox, { interval: 1000 }, onInbox);
+    return () => { unwatchFile(store.paths.tasks, onTasks); unwatchFile(store.paths.inbox, onInbox); };
+  }, [refresh, store]);
   // 首次拿到配置后同步排序模式与日期列格式
   useEffect(() => {
     if (!config || configInitRef.current) return;
@@ -225,9 +306,11 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     try {
       if (currentState.mode.kind === "add") {
         const task = await service.add(currentState.input, nowLocal());
+        setMovedId(task.id);
         dispatch({ type: "flash", message: `已添加：${task.title}` });
       } else if (currentState.mode.kind === "edit" && currentSelected) {
         const task = await service.edit(currentSelected.id, currentState.input, nowLocal());
+        setMovedId(task.id);
         dispatch({ type: "flash", message: `已更新：${task.title}` });
       } else if (currentState.mode.kind === "search") {
         const query = currentState.input.replace(/^\//u, "");
@@ -247,7 +330,8 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
           dispatch({ type: "flash", message: `已换成皮肤 ${name}` });
         }
         else if (command === "settings" || command === "set") { dispatch({ type: "mode", mode: { kind: "settings" } }); await refresh(); dispatch({ type: "mutationSuccess", id: mutationId }); return; }
-        else if (command === "graph") { setGraphOffset(0); dispatch({ type: "mode", mode: { kind: "graph" } }); await refresh(); dispatch({ type: "mutationSuccess", id: mutationId }); return; }
+        else if (command === "history") { setHistorySteps(await service.history(10)); setHistoryIndex(0); dispatch({ type: "mode", mode: { kind: "history" } }); dispatch({ type: "mutationSuccess", id: mutationId }); return; }
+        else if (command === "graph") { setGraphIndex(0); dispatch({ type: "mode", mode: { kind: "graph" } }); await refresh(); dispatch({ type: "mutationSuccess", id: mutationId }); return; }
         else if (command === "sync") dispatch({ type: "flash", message: await service.sync() });
         else if (command === "mode urgency") { dispatch({ type: "sort", mode: "urgency" }); dispatch({ type: "flash", message: "排序模式：urgency" }); }
         else if (command === "mode levels") { dispatch({ type: "sort", mode: "levels" }); dispatch({ type: "flash", message: "排序模式：档位" }); }
@@ -347,6 +431,13 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     handleKeyboard(currentState, currentSelected, input, key);
   });
 
+  // 打开后续任务选择列表：已经在等它的任务预先勾上
+  const openDeps = useCallback((owner: Task): void => {
+    setDepsPicked(tasks.filter((task) => task.deps?.includes(owner.id)).map((task) => task.id));
+    setDepsIndex(0);
+    dispatch({ type: "mode", mode: { kind: "deps", taskId: owner.id } });
+  }, [tasks]);
+
   // ------------------------------------------------ 键盘动作分发（鼠标点击 Footer 复用）
   const handleKeyboard = useCallback((currentState: TuiState, currentSelected: Task | undefined, input: string, key: KeyEvent["key"]): void => {
     const action = mapKey(currentState.mode, { input, key });
@@ -373,12 +464,25 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     if (action.type === "cursorLeft") { dispatch({ type: "cursorMove", delta: -1 }); return; }
     if (action.type === "cursorRight") { dispatch({ type: "cursorMove", delta: 1 }); return; }
     if (action.type === "complete") { dispatch({ type: "input", value: completeInput(currentState.input, tasks) }); return; }
+    if (action.type === "submit" && currentState.mode.kind === "deps") {
+      const owner = currentState.mode.taskId;
+      const picked = [...depsPicked];
+      dispatch({ type: "mode", mode: { kind: "list" } });
+      runMutation(async () => `已设好后续任务：${await service.setDependents(owner, picked)} 处改动`);
+      return;
+    }
+    if (action.type === "submit" && currentState.mode.kind === "history") {
+      const steps = historyIndex + 1;
+      dispatch({ type: "mode", mode: { kind: "list" } });
+      if (historySteps.length) runMutation(() => service.undoSteps(steps));
+      return;
+    }
     if (action.type === "submit") { void submit(); return; }
     if (action.type === "escape") {
       if (currentState.mode.kind === "list") {
         // Esc 先清多选，再当退出的第一下；免得刚勾了一堆就被问退出
         if (currentState.marked.length) { dispatch({ type: "setMarks", ids: [] }); dispatch({ type: "flash", message: "已取消多选" }); return; }
-        if (currentState.exitArmedAt && Date.now() - currentState.exitArmedAt < 1000) { exit(); return; }
+        if (currentState.exitArmedAt && Date.now() - currentState.exitArmedAt < EXIT_WINDOW_MS) { exit(); return; }
         dispatch({ type: "armExit", at: Date.now() });
       } else {
         if (currentState.mode.kind === "edit") dispatch({ type: "flash", message: "取消编辑" });
@@ -397,11 +501,13 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
       return;
     }
     if (action.type === "move" && currentState.mode.kind === "settings") { setSettingIndex((index) => (index + action.delta + settings.length) % settings.length); return; }
-    if (action.type === "move" && currentState.mode.kind === "graph") { setGraphOffset((offset) => Math.max(0, Math.min(graphLines.length - 1, offset + action.delta))); return; }
+    if (action.type === "move" && currentState.mode.kind === "graph") { setGraphIndex((index) => Math.max(0, Math.min(graphLines.length - 1, index + action.delta))); return; }
+    if (action.type === "move" && currentState.mode.kind === "deps") { setDepsIndex((index) => Math.max(0, Math.min(depsCandidates.length - 1, index + action.delta))); return; }
+    if (action.type === "move" && currentState.mode.kind === "history") { setHistoryIndex((index) => Math.max(0, Math.min(historySteps.length - 1, index + action.delta))); return; }
     if (action.type === "move") { dispatch({ type: "select", index: currentState.selectedIndex + action.delta }); return; }
     if (action.type === "page") {
       // 一页按可见任务行数算，翻不动就贴到首尾
-      const page = Math.max(1, (rows ?? 24) - tableChrome(columns, rows) - 1);
+      const page = Math.max(1, (rows ?? 24) - listChrome(columns, rows, layoutOf(configRef.current)) - 1);
       const next = Math.max(0, Math.min(visible.length - 1, currentState.selectedIndex + action.delta * page));
       dispatch({ type: "select", index: next });
       return;
@@ -425,18 +531,52 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
       }
       if (action.name === "undo") { runMutation(() => service.undo()); return; }
       if (action.name === "redo" || action.name === "U") { runMutation(() => service.redo()); return; }
-      if (action.name === "D") { setGraphOffset(0); dispatch({ type: "mode", mode: { kind: "graph" } }); return; }
+      if (action.name === "D") { setGraphIndex(0); dispatch({ type: "mode", mode: { kind: "graph" } }); return; }
       if (action.name === ",") { dispatch({ type: "mode", mode: { kind: "settings" } }); return; }
       if (action.name === "settingPrev" || action.name === "settingNext") {
         const item = settings[settingIndex];
         if (item) applySetting(item, action.name === "settingNext" ? 1 : -1);
         return;
       }
-      if (action.name === "a" && currentSelected) {
-        // 后续任务先写好放着，前置做完才露出来；目标分组可以用 in:等待 这类写法指定
+      if (action.name === "a" && currentSelected) { openDeps(currentSelected); return; }
+      if (action.name === "tab") {
+        // 全部 → 各个项目 → 回到全部
+        const order = [undefined, ...projects];
+        const next = order[(order.indexOf(currentState.project) + 1) % order.length];
+        dispatch({ type: "project", value: next });
+        dispatch({ type: "flash", message: next === undefined ? "全部项目" : `项目：${next}` });
+        return;
+      }
+      if (action.name === "deps.toggle") {
+        const item = depsCandidates[depsIndex];
+        if (!item) return;
+        if (item.disabled && !item.checked) { dispatch({ type: "flash", message: `「${item.task.title}」${item.disabled}，不能选` }); return; }
+        setDepsPicked((picked) => picked.includes(item.task.id) ? picked.filter((id) => id !== item.task.id) : [...picked, item.task.id]);
+        return;
+      }
+      if (action.name === "deps.new" && currentState.mode.kind === "deps") {
+        // 后续任务还没写的话直接新建；目标分组可以用 in:等待 这类写法指定
+        const owner = tasks.find((task) => task.id === (currentState.mode as { taskId: string }).taskId);
         dispatch({ type: "mode", mode: { kind: "add" } });
-        dispatch({ type: "input", value: `after:${currentSelected.id} ` });
-        dispatch({ type: "flash", message: `给「${currentSelected.title}」加后续任务` });
+        dispatch({ type: "input", value: `after:${owner?.id ?? ""} ` });
+        if (owner) dispatch({ type: "flash", message: `给「${owner.title}」加后续任务` });
+        return;
+      }
+      if (action.name.startsWith("graph.")) {
+        const line = graphLines[graphIndex];
+        if (!line) return;
+        if (action.name === "graph.a") { openDeps(line.task); return; }
+        if (action.name === "graph.x") {
+          if (!line.via) { dispatch({ type: "flash", message: "这一行是起点，没有可删的边" }); return; }
+          const via = line.via;
+          runMutation(async () => { await service.setDeps(line.task.id, (line.task.deps ?? []).filter((id) => id !== via.id)); return `已删掉：${via.title} → ${line.task.title}`; });
+          return;
+        }
+        // 回车：回到清单并把光标放到那一条上；它不在当前视图里就先切回全部
+        dispatch({ type: "mode", mode: { kind: "list" } });
+        const index = visible.findIndex((task) => task.id === line.task.id);
+        if (index >= 0) dispatch({ type: "select", index });
+        else dispatch({ type: "flash", message: `「${line.task.title}」不在当前清单里（可能已完成、被过滤或在别的项目页）` });
         return;
       }
       if ((action.name === "n" || action.name === "p") && currentSelected) {
@@ -514,20 +654,23 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
         completeIds([task.id]);
       }
     }
-  }, [applySetting, columns, completeIds, dispatch, exit, graphLines.length, refresh, rows, runMutation, service, settingIndex, settings, store, tasks, visible]);
+  }, [applySetting, columns, completeIds, depsCandidates, depsIndex, depsPicked, dispatch, exit, graphIndex, graphLines, historyIndex, historySteps, openDeps, projects, refresh, rows, runMutation, service, settingIndex, settings, store, tasks, visible]);
 
   const today = nowLocal().slice(0, 10);
   const levels = config ? [...config.priority.levels] : ["低", "中", "高"];
+  const layout = layoutOf(config);
   const cols = tableColumns(columns);
   const lines: TableLine[] = [];
   let taskIndex = 0;
   for (const group of visibleGroups) {
+    // 卡片布局靠空行分组，舒适密度下组和组之间多留一行
+    if (layout.cards && !layout.compact && lines.length) lines.push({ kind: "gap", groupKey: group.key });
     lines.push({ kind: "sep", groupKey: group.key, name: group.name, count: group.tasks.length });
-    for (const { task, depth } of group.nested) lines.push({ kind: "task", task, depth, index: taskIndex++ });
+    for (const { task, depth } of group.nested) lines.push({ kind: "task", task, depth, index: taskIndex++, groupKey: group.key });
   }
   // 终端高度已知时只画放得下的那几行，并让选中行留在窗口里。
   // 必须真的切掉多出来的行：交给 Ink 自己溢出的话整帧会比屏幕高，顶部被卷走
-  const avail = rows === undefined ? lines.length : Math.max(1, rows - tableChrome(columns, rows));
+  const avail = rows === undefined ? lines.length : Math.max(1, rows - listChrome(columns, rows, layout));
   let windowStart = 0;
   if (lines.length > avail) {
     const selectedLine = lines.findIndex((line) => line.kind === "task" && line.index === state.selectedIndex);
@@ -536,14 +679,28 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   }
   const windowLines = lines.slice(windowStart, windowStart + avail);
 
+  // 当前弹窗在屏幕上占哪几行（1 起，含边框）；点在框外关闭，框内不关
+  const dialogBox = ((): { top: number; bottom: number } | undefined => {
+    const box = (total: number): { top: number; bottom: number } => { const top = modalPad(rows, total) + 1; return { top, bottom: top + total - 1 }; };
+    switch (state.mode.kind) {
+      case "help": return box(helpLines(rows));
+      case "welcome": return box(WELCOME_LINES);
+      case "confirm": return box(CONFIRM_LINES);
+      case "settings": return box(settingsLines(settings));
+      case "deps": return box(depsLines(rows, depsCandidates.length));
+      case "history": return box(historyLines(historySteps.length));
+      case "detail": return detailTask ? box(detailLines(detailTask, detailChildren, detailParent, detailDeps, detailDependents)) : undefined;
+      case "graph": return { top: 1, bottom: (rows ?? 24) - footerHeight() };
+      default: return undefined;
+    }
+  })();
+
   // ------------------------------------------------ 鼠标交互
   // 注意：以下钩子必须位于弹窗 early return 之前，否则弹窗打开时钩子数量变化
   // 会让 React 抛 "Rendered fewer hooks" 直接退出（表现为闪退）。
-  // 布局行号（1 起，alt-screen 绝对坐标）：内容首行 = 横幅可见行数 + 信息行 1
-  // + 表格上边框 1 + 表头 1。横幅行数随窗口大小变，和渲染共用 bannerLines。
-  const firstTaskRow = bannerLines(columns, rows).length + 4;
-  const viewRef = useRef({ lines: [] as TableLine[], windowStart: 0 });
-  viewRef.current = { lines, windowStart };
+  const firstTaskRow = firstListRow(columns, rows, layout);
+  const viewRef = useRef({ lines: [] as TableLine[], windowStart: 0, dialogBox, depsTotal: 0, graphTotal: 0 });
+  viewRef.current = { lines, windowStart, dialogBox, depsTotal: depsCandidates.length, graphTotal: graphLines.length };
   const keyboardRef = useRef(handleKeyboard);
   keyboardRef.current = handleKeyboard;
   const completeIdsRef = useRef(completeIds);
@@ -554,36 +711,84 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   settingsRef.current = settings;
   const settingIndexRef = useRef(settingIndex);
   settingIndexRef.current = settingIndex;
+  const historyStepsRef = useRef(historySteps.length);
+  historyStepsRef.current = historySteps.length;
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
+  const firstRowRef = useRef(firstTaskRow);
+  firstRowRef.current = firstTaskRow;
+  const indexRef = useRef({ deps: depsIndex, graph: graphIndex });
+  indexRef.current = { deps: depsIndex, graph: graphIndex };
   useEffect(() => subscribeMouse((event: MouseEvent) => {
     const currentState = stateRef.current;
-    const { lines: currentLines, windowStart: start } = viewRef.current;
+    const { lines: currentLines, windowStart: start, dialogBox: box, depsTotal, graphTotal } = viewRef.current;
     // 立体按钮占 3 行，点上沿 / 按钮面 / 下沿都算点中
     const onFooter = rows !== undefined && event.y > rows - footerHeight();
-    const footerHit = onFooter && event.kind === "press"
-      ? footerKeyRanges().find((range) => event.x >= range.start && event.x <= range.end)
-      : undefined;
+    const footerAt = onFooter ? footerKeyRanges().find((range) => event.x >= range.start && event.x <= range.end) : undefined;
+    // 悬停：鼠标移到按钮上提亮（终端只在按住拖动时上报移动，普通终端悬停不一定有效果）
+    if (event.kind === "move") { setHoveredButton(footerAt?.name); return; }
+    const footerHit = event.kind === "press" ? footerAt : undefined;
     if (footerHit) setPressedButton(footerHit.name);
-    // 弹窗打开时点底部按钮照常生效（点「退出」就退出），其余位置任意点击关闭弹窗
-    if (footerHit && currentState.mode.kind !== "list" && currentState.mode.kind !== "add" && currentState.mode.kind !== "edit" && currentState.mode.kind !== "search" && currentState.mode.kind !== "command") {
+    const modal = currentState.mode.kind;
+    const inModal = modal === "help" || modal === "welcome" || modal === "detail" || modal === "confirm" || modal === "graph" || modal === "settings" || modal === "deps" || modal === "history";
+    // 弹窗打开时点底部按钮照常生效（点「退出」就退出）
+    if (footerHit && inModal) {
       setActionSequence((sequence) => sequence + 1);
       dispatch({ type: "mode", mode: { kind: "list" } });
-      if (footerHit.name === "help" && currentState.mode.kind === "help") return;
+      if (footerHit.name === "help" && modal === "help") return;
       if (footerHit.name === "quit") { exit(); return; }
       if (footerHit.name === "help") { dispatch({ type: "mode", mode: { kind: "help" } }); return; }
       if (footerHit.name === "input") { dispatch({ type: "mode", mode: { kind: "add" } }); return; }
-      if (footerHit.name === "settings" && currentState.mode.kind !== "settings") { dispatch({ type: "mode", mode: { kind: "settings" } }); return; }
+      if (footerHit.name === "settings" && modal !== "settings") { dispatch({ type: "mode", mode: { kind: "settings" } }); return; }
       return;
     }
-    // 弹窗打开时任意点击关闭（和任意键关闭一致）
-    // 设置页：点一下选中那一项，再点同一项就换到下一个值
-    if (currentState.mode.kind === "settings" && event.kind === "press" && !footerHit) {
-      const index = event.y - (modalPad(rows, settingsRef.current.length + 7) + 4);
-      const item = settingsRef.current[index];
-      if (item) { setActionSequence((sequence) => sequence + 1); if (index === settingIndexRef.current) applySettingRef.current(item, 1); else setSettingIndex(index); }
-      return;
-    }
-    if (currentState.mode.kind === "help" || currentState.mode.kind === "welcome" || currentState.mode.kind === "detail" || currentState.mode.kind === "confirm" || currentState.mode.kind === "graph" || currentState.mode.kind === "settings") {
-      if (event.kind === "press") { setActionSequence((sequence) => sequence + 1); dispatch({ type: "mode", mode: { kind: "list" } }); }
+    if (inModal) {
+      // 滚轮在能滚的列表弹窗里移动光标
+      if (event.kind === "wheel-up" || event.kind === "wheel-down") {
+        const delta = event.kind === "wheel-up" ? -1 : 1;
+        if (modal === "settings") setSettingIndex((index) => Math.max(0, Math.min(settingsRef.current.length - 1, index + delta)));
+        else if (modal === "graph") setGraphIndex((index) => Math.max(0, Math.min(graphTotal - 1, index + delta)));
+        else if (modal === "deps") setDepsIndex((index) => Math.max(0, Math.min(depsTotal - 1, index + delta)));
+        else if (modal === "history") setHistoryIndex((index) => Math.max(0, Math.min(Math.max(0, historyStepsRef.current - 1), index + delta)));
+        return;
+      }
+      if (event.kind !== "press") return;
+      setActionSequence((sequence) => sequence + 1);
+      const inside = box !== undefined && event.y >= box.top && event.y <= box.bottom;
+      if (!inside) { dispatch({ type: "mode", mode: { kind: "list" } }); return; }
+      // 设置页：点一下选中那一项，再点同一项就换到下一个值
+      if (modal === "settings") {
+        // 边框 1 + 留白 1 + 标题 1 之后是内容行
+        const row = settingsRows(settingsRef.current)[event.y - (box.top + 3)];
+        const index = row?.item ? settingsRef.current.indexOf(row.item) : -1;
+        if (index >= 0) { if (index === settingIndexRef.current) applySettingRef.current(settingsRef.current[index]!, 1); else setSettingIndex(index); }
+        return;
+      }
+      // 后续任务列表：标题、说明之后是候选；点一下勾选 / 取消
+      if (modal === "deps") {
+        const room = depsRoom(rows);
+        const offset = listStart(indexRef.current.deps, depsTotal, room);
+        const index = offset + event.y - (box.top + 4);
+        if (index >= offset && index < Math.min(depsTotal, offset + room)) {
+          setDepsIndex(index);
+          keyboardRef.current({ ...currentState, mode: currentState.mode }, selectedRef.current, " ", { ctrl: false });
+        }
+        return;
+      }
+      // 依赖图：点哪行选哪行
+      if (modal === "graph") {
+        const room = graphRoom(rows, graphTotal);
+        const offset = listStart(indexRef.current.graph, graphTotal, room);
+        const index = offset + event.y - 5;
+        if (index >= offset && index < Math.min(graphTotal, offset + room)) setGraphIndex(index);
+        return;
+      }
+      if (modal === "history") {
+        const index = event.y - (box.top + 3);
+        if (index >= 0 && index < historyStepsRef.current) setHistoryIndex(index);
+        return;
+      }
+      // 帮助、欢迎、详情、确认：框内点击不做事，免得点着看的时候被关掉
       return;
     }
     // 滚轮：滚动选中行
@@ -592,34 +797,24 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
       return;
     }
     if (event.kind !== "press") return;
-    // Footer 行（最后一行）：点击键帽/标签触发对应快捷键。按钮全局生效——
+    // Footer：点击键帽/标签触发对应快捷键。按钮全局生效——
     // 无论当前焦点在清单区还是输入区，点 ? 就开帮助、点 q 就退出。
     if (onFooter) {
-      const hit = footerHit;
-      if (hit) {
-        const keyByFooter: Record<typeof hit.name, { input: string; key: KeyEvent["key"] }> = {
-          help: { input: "?", key: { ctrl: false } },
-          input: { input: "i", key: { ctrl: false } },
-          done: { input: "d", key: { ctrl: false } },
-          settings: { input: ",", key: { ctrl: false } },
-          quit: { input: "q", key: { ctrl: false } },
-        };
-        const listState: TuiState = currentState.mode.kind === "list"
-          ? currentState
-          : { ...currentState, mode: { kind: "list" } };
-        keyboardRef.current(listState, selectedRef.current, keyByFooter[hit.name].input, keyByFooter[hit.name].key);
+      if (footerHit) {
+        const keyByFooter: Record<FooterButton, string> = { help: "?", input: "i", done: "d", settings: ",", quit: "q" };
+        const listState: TuiState = currentState.mode.kind === "list" ? currentState : { ...currentState, mode: { kind: "list" } };
+        keyboardRef.current(listState, selectedRef.current, keyByFooter[footerHit.name], { ctrl: false });
       }
       return;
     }
     // 点击输入框区域：聚焦输入
-    const bottomInputRow = (rows ?? 24) - 1 - footerHeight();
-    if (event.y >= bottomInputRow && (rows === undefined || event.y <= rows - footerHeight())) {
+    const inputTop = (rows ?? 24) - footerHeight() - inputHeight(layoutRef.current.compact) + 1;
+    if (event.y >= inputTop) {
       if (currentState.mode.kind === "list") dispatch({ type: "mode", mode: { kind: "add" } });
       return;
     }
     // 点击任务行：选中该行；再点同一行 = 完成/重开任务
-    const lineIndex = event.y - firstTaskRow + start;
-    const line = currentLines[lineIndex];
+    const line = currentLines[event.y - firstRowRef.current + start];
     if (line && line.kind === "task") {
       if (line.index === currentState.selectedIndex) {
         const task = line.task;
@@ -631,34 +826,59 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     }
   }), [columns, dispatch, exit, runMutation, service, rows]);
 
-  if (state.mode.kind === "help") return <ModalShell rows={rows} pressed={pressedButton}><HelpModal rows={rows} /></ModalShell>;
-  if (state.mode.kind === "welcome") return <ModalShell rows={rows} pressed={pressedButton}><WelcomeModal rows={rows} /></ModalShell>;
-  if (state.mode.kind === "settings" && config) return <ModalShell rows={rows} pressed={pressedButton}><SettingsModal items={settings} config={config} selected={settingIndex} rows={rows} columns={columns} /></ModalShell>;
-  if (state.mode.kind === "graph") return <ModalShell rows={rows} pressed={pressedButton}><GraphModal lines={graphLines} offset={graphOffset} rows={rows} columns={columns} /></ModalShell>;
-  if (state.mode.kind === "confirm") return <ModalShell rows={rows} pressed={pressedButton}><ConfirmModal prompt={state.mode.prompt} rows={rows} /></ModalShell>;
+  const shell = (node: React.ReactNode): React.ReactElement => <ModalShell rows={rows} pressed={pressedButton} hovered={hoveredButton}>{node}</ModalShell>;
+  if (state.mode.kind === "help") return shell(<HelpModal rows={rows} />);
+  if (state.mode.kind === "welcome") return shell(<WelcomeModal rows={rows} />);
+  if (state.mode.kind === "settings" && config) return shell(<SettingsModal items={settings} config={config} selected={settingIndex} rows={rows} columns={columns} />);
+  if (state.mode.kind === "graph") return shell(<GraphModal lines={graphLines} selected={graphIndex} rows={rows} columns={columns} today={today} />);
+  if (state.mode.kind === "confirm") return shell(<ConfirmModal prompt={state.mode.prompt} rows={rows} />);
+  if (state.mode.kind === "deps" && depsOwner) return shell(<DepsModal owner={depsOwner} candidates={depsCandidates} selected={depsIndex} rows={rows} columns={columns} />);
+  if (state.mode.kind === "history") return shell(<HistoryModal steps={historySteps} selected={historyIndex} rows={rows} columns={columns} />);
   if (state.mode.kind === "detail" && detailTask) {
-    return (
-      <ModalShell rows={rows} pressed={pressedButton}>
-        <DetailModal task={detailTask} parent={detailParent} deps={detailDeps} dependents={detailDependents} rows={rows} columns={columns}>{detailChildren}</DetailModal>
-      </ModalShell>
-    );
+    return shell(<DetailModal task={detailTask} parent={detailParent} deps={detailDeps} dependents={detailDependents} rows={rows} columns={columns}>{detailChildren}</DetailModal>);
   }
+
+  const filtered = Boolean(state.query) || state.project !== undefined;
+  const cardWidth = contentWidth(columns) - 2;
+  const renderLine = (line: TableLine, position: number): React.ReactElement => {
+    if (line.kind === "gap") return <Text key={`gap-${line.groupKey}-${position}`}> </Text>;
+    if (line.kind === "sep") {
+      return layout.cards
+        ? <GroupHeading key={`sep-${line.groupKey}`} groupKey={line.groupKey} name={line.name} count={line.count} />
+        : <GroupSeparator key={`sep-${line.groupKey}`} groupKey={line.groupKey} name={line.name} count={line.count} width={Math.max(20, (columns ?? 100) - 4)} />;
+    }
+    const common = {
+      task: line.task,
+      selected: line.index === state.selectedIndex,
+      marked: state.marked.includes(line.task.id),
+      blocked: blocked.has(line.task.id),
+      completing: strike?.ids.includes(line.task.id) ? strike.frame / STRIKE_FRAMES : undefined,
+      today,
+      dateFormat: state.dateFormat,
+      levels,
+      depth: line.depth,
+    };
+    return layout.cards
+      ? <CardRow key={line.task.id} {...common} width={cardWidth} wait={waitLabel(line.task, tasks, today)} showDate={line.groupKey !== "today" && line.groupKey !== "overdue"} moved={movedId === line.task.id} />
+      : <TaskRow key={line.task.id} {...common} cols={cols} />;
+  };
+  const body = lines.length === 0 ? <EmptyState filtered={filtered} /> : windowLines.map(renderLine);
 
   return (
     <Box flexDirection="column" {...(rows !== undefined ? { height: rows } : {})}>
-      <Banner columns={columns} rows={rows} />
-      <BannerInfo query={state.query} sortMode={state.sortMode} tasks={tasks} clock={clock} marked={state.marked.length} />
-      <Box flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden" borderStyle={SKIN.border} borderColor={C.border} paddingLeft={1} paddingRight={1}>
-        <TableHeader cols={cols} />
-        {lines.length === 0 ? <Text color={C.dimmer}>（没有任务）</Text> : windowLines.map((line) => (
-          line.kind === "sep"
-            ? <GroupSeparator key={`sep-${line.groupKey}-${line.count}`} groupKey={line.groupKey} name={line.name} count={line.count} />
-            : <TaskRow key={line.task.id} task={line.task} selected={line.index === state.selectedIndex} marked={state.marked.includes(line.task.id)} blocked={blocked.has(line.task.id)} completing={strike?.ids.includes(line.task.id) ? strike.frame / STRIKE_FRAMES : undefined} today={today} dateFormat={state.dateFormat} levels={levels} cols={cols} depth={line.depth} />
-        ))}
-      </Box>
-      <Box paddingLeft={2} paddingRight={2}><PreviewLine state={state} levels={levels} /></Box>
-      <InputBar state={state} />
-      <FooterBar pressed={pressedButton} />
+      <Banner columns={columns} rows={rows} mode={layout.banner} />
+      <TopBar query={state.query} sortMode={state.sortMode} tasks={tasks} clock={clock} marked={state.marked.length} projects={projects} project={state.project} showTitle={bannerRows(columns, rows, layout.banner) === 0} columns={columns} />
+      {layout.cards
+        ? <Box flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden" width={contentWidth(columns)} marginLeft={contentLeft(columns)} paddingLeft={1} paddingRight={1}>{body}</Box>
+        : (
+          <Box flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden" borderStyle={SKIN.border} borderColor={C.border} paddingLeft={1} paddingRight={1}>
+            <TableHeader cols={cols} />
+            {body}
+          </Box>
+        )}
+      <PreviewLine state={state} levels={levels} toast={toastVisible ? state.flashMessage : undefined} columns={columns} />
+      <InputBar state={state} columns={columns} compact={layout.compact} />
+      <FooterBar pressed={pressedButton} hovered={hoveredButton} />
     </Box>
   );
 };

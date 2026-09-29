@@ -12,7 +12,11 @@ export type UiMode =
   /** 设置页：上下选一项，左右 / 回车改值，改完立即写回 config.toml */
   | { kind: "settings" }
   /** 不可撤销的操作先问一句；prompt 是问句，pending 是待执行动作的名字 */
-  | { kind: "confirm"; prompt: string; pending: "delete" };
+  | { kind: "confirm"; prompt: string; pending: "delete" }
+  /** 后续任务选择列表：给 taskId 勾选「它做完之后才露出来」的任务 */
+  | { kind: "deps"; taskId: string }
+  /** 操作历史：列出最近几步，选一步回退到那之前 */
+  | { kind: "history" };
 
 export type TuiState = {
   mode: UiMode;
@@ -20,6 +24,8 @@ export type TuiState = {
   /** 输入框光标位置（字符索引，0..input.length） */
   inputCursor: number;
   query: string;
+  /** Tab 切出来的项目页；undefined 是「全部」 */
+  project?: string;
   selectedIndex: number;
   /** 多选打勾的任务 id；有勾时批量操作作用于它们，没有则作用于光标所在那条 */
   marked: string[];
@@ -43,6 +49,7 @@ export type TuiAction =
   | { type: "input"; value: string; cursor?: number }
   | { type: "cursorMove"; delta: number }
   | { type: "query"; value: string }
+  | { type: "project"; value: string | undefined }
   | { type: "select"; index: number }
   | { type: "toggleMark"; id: string }
   | { type: "setMarks"; ids: string[] }
@@ -72,13 +79,14 @@ export const tuiReducer = (state: TuiState, action: TuiAction): TuiState => {
       return { ...state, inputCursor: Math.max(0, Math.min(length, state.inputCursor + action.delta)) };
     }
     case "query": return { ...state, query: action.value };
+    case "project": { const next = { ...state, selectedIndex: 0 }; if (action.value === undefined) delete next.project; else next.project = action.value; return next; }
     case "select": return { ...state, selectedIndex: Math.max(0, action.index) };
     case "toggleMark": return { ...state, marked: state.marked.includes(action.id) ? state.marked.filter((id) => id !== action.id) : [...state.marked, action.id] };
     case "setMarks": return { ...state, marked: [...action.ids] };
     case "flash": { if (action.message === undefined) { const next = { ...state }; delete next.flashMessage; return next; } return { ...state, flashMessage: action.message }; }
     case "sort": return { ...state, sortMode: action.mode };
     case "dateFormat": return { ...state, dateFormat: action.format };
-    case "armExit": return { ...state, exitArmedAt: action.at, flashMessage: "再按一次 Esc 退出（Q 也可）" };
+    case "armExit": return { ...state, exitArmedAt: action.at, flashMessage: "再按一次 Esc 退出（q 也可）" };
     case "mutationStart": return { ...state, mutation: { kind: "running", id: action.id } };
     case "mutationSuccess": return { ...state, mutation: { kind: "success", id: action.id } };
     case "mutationError": return { ...state, mutation: { kind: "error", id: action.id, message: action.message }, flashMessage: action.message };
