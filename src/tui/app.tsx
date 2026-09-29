@@ -21,7 +21,7 @@ import { subscribeMouse, type MouseEvent } from "./mouse.js";
 import {
   CHROME_LINES, DATE_W, EXTRAS_W, GroupSeparator, PRIORITY_W, STATUS_W, TaskRow,
 } from "./rows.js";
-import { Banner, BannerInfo, FooterBar, InputBar, PreviewLine, footerKeyRanges } from "./chrome.js";
+import { Banner, BannerInfo, FooterBar, InputBar, PreviewLine, footerKeyRanges, type FooterButton } from "./chrome.js";
 import { ConfirmModal, DetailModal, GraphModal, HelpModal, ModalShell, WelcomeModal } from "./modals.js";
 import { BANNER_FULL, BANNER_SMALL, C, DATE_FORMAT_LABEL } from "./theme.js";
 
@@ -108,6 +108,12 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   const [clock, setClock] = useState(() => new Date());
   const [actionSequence, setActionSequence] = useState(0);
   const [graphOffset, setGraphOffset] = useState(0);
+  const [pressedButton, setPressedButton] = useState<FooterButton>();
+  useEffect(() => {
+    if (pressedButton === undefined) return;
+    const timer = setTimeout(() => setPressedButton(undefined), 180);
+    return () => clearTimeout(timer);
+  }, [pressedButton]);
   const blocked = useMemo(() => blockedIds(tasks), [tasks]);
   const graphLines = useMemo(() => dependencyGraph(tasks), [tasks]);
   // 每组内部按父子相邻重排后再摊平：显示顺序和选中索引必须用同一份顺序，
@@ -467,6 +473,20 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   useEffect(() => subscribeMouse((event: MouseEvent) => {
     const currentState = stateRef.current;
     const { lines: currentLines, windowStart: start } = viewRef.current;
+    const footerHit = rows !== undefined && event.y === rows && event.kind === "press"
+      ? footerKeyRanges().find((range) => event.x >= range.start && event.x <= range.end)
+      : undefined;
+    if (footerHit) setPressedButton(footerHit.name);
+    // 弹窗打开时点底部按钮照常生效（点「退出」就退出），其余位置任意点击关闭弹窗
+    if (footerHit && currentState.mode.kind !== "list" && currentState.mode.kind !== "add" && currentState.mode.kind !== "edit" && currentState.mode.kind !== "search" && currentState.mode.kind !== "command") {
+      setActionSequence((sequence) => sequence + 1);
+      dispatch({ type: "mode", mode: { kind: "list" } });
+      if (footerHit.name === "help" && currentState.mode.kind === "help") return;
+      if (footerHit.name === "quit") { exit(); return; }
+      if (footerHit.name === "help") { dispatch({ type: "mode", mode: { kind: "help" } }); return; }
+      if (footerHit.name === "input") { dispatch({ type: "mode", mode: { kind: "add" } }); return; }
+      return;
+    }
     // 弹窗打开时任意点击关闭（和任意键关闭一致）
     if (currentState.mode.kind === "help" || currentState.mode.kind === "welcome" || currentState.mode.kind === "detail" || currentState.mode.kind === "confirm" || currentState.mode.kind === "graph") {
       if (event.kind === "press") { setActionSequence((sequence) => sequence + 1); dispatch({ type: "mode", mode: { kind: "list" } }); }
@@ -481,7 +501,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     // Footer 行（最后一行）：点击键帽/标签触发对应快捷键。按钮全局生效——
     // 无论当前焦点在清单区还是输入区，点 ? 就开帮助、点 q 就退出。
     if (rows !== undefined && event.y === rows) {
-      const hit = footerKeyRanges().find((range) => event.x >= range.start && event.x <= range.end);
+      const hit = footerHit;
       if (hit) {
         const keyByFooter: Record<typeof hit.name, { input: string; key: KeyEvent["key"] }> = {
           help: { input: "?", key: { ctrl: false } },
@@ -514,15 +534,15 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
         dispatch({ type: "select", index: line.index });
       }
     }
-  }), [columns, dispatch, runMutation, service, rows]);
+  }), [columns, dispatch, exit, runMutation, service, rows]);
 
-  if (state.mode.kind === "help") return <ModalShell rows={rows}><HelpModal rows={rows} /></ModalShell>;
-  if (state.mode.kind === "welcome") return <ModalShell rows={rows}><WelcomeModal rows={rows} /></ModalShell>;
-  if (state.mode.kind === "graph") return <ModalShell rows={rows}><GraphModal lines={graphLines} offset={graphOffset} rows={rows} columns={columns} /></ModalShell>;
-  if (state.mode.kind === "confirm") return <ModalShell rows={rows}><ConfirmModal prompt={state.mode.prompt} rows={rows} /></ModalShell>;
+  if (state.mode.kind === "help") return <ModalShell rows={rows} pressed={pressedButton}><HelpModal rows={rows} /></ModalShell>;
+  if (state.mode.kind === "welcome") return <ModalShell rows={rows} pressed={pressedButton}><WelcomeModal rows={rows} /></ModalShell>;
+  if (state.mode.kind === "graph") return <ModalShell rows={rows} pressed={pressedButton}><GraphModal lines={graphLines} offset={graphOffset} rows={rows} columns={columns} /></ModalShell>;
+  if (state.mode.kind === "confirm") return <ModalShell rows={rows} pressed={pressedButton}><ConfirmModal prompt={state.mode.prompt} rows={rows} /></ModalShell>;
   if (state.mode.kind === "detail" && detailTask) {
     return (
-      <ModalShell rows={rows}>
+      <ModalShell rows={rows} pressed={pressedButton}>
         <DetailModal task={detailTask} parent={detailParent} deps={detailDeps} dependents={detailDependents} rows={rows} columns={columns}>{detailChildren}</DetailModal>
       </ModalShell>
     );
@@ -548,7 +568,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
       </Box>
       <Box paddingLeft={2} paddingRight={2}><PreviewLine state={state} levels={levels} /></Box>
       <InputBar state={state} />
-      <FooterBar />
+      <FooterBar pressed={pressedButton} />
     </Box>
   );
 };

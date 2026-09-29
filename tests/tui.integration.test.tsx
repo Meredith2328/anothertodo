@@ -216,6 +216,25 @@ describe("footer mouse interaction", () => {
     expect(app.lastFrame()).toContain("atd 帮助");
   });
 
+  it("footer buttons still work while a modal is open (help → click 输入 goes to input)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atd-ink-"));
+    const store = new Store(dir);
+    const signals = createSignals();
+    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={24} />);
+    await signals.ready();
+    await signals.data();
+    const helpAction = signals.action();
+    app.stdin.write("?");
+    await helpAction;
+    expect(app.lastFrame()).toContain("atd 帮助");
+    const inputAction = signals.action();
+    emitMouse({ kind: "press", button: 0, x: 15, y: 24 }); // i 输入 按钮
+    await inputAction;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(app.lastFrame()).not.toContain("atd 帮助");
+    expect(app.lastFrame()).toContain("输入区：Enter 提交");
+  });
+
   it("clicking d on the footer completes the selected task", async () => {
     const dir = await mkdtemp(join(tmpdir(), "atd-ink-"));
     const store = new Store(dir);

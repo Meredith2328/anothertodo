@@ -113,28 +113,40 @@ const FOOTER_KEYS = [
   { name: "done" as const, key: "d", label: "完成" },
   { name: "quit" as const, key: "q", label: "退出" },
 ];
-// 每个 Footer 键的屏幕列区间（1 起，含键帽与标签）。布局：Box paddingLeft=1
-// 占第 1 列；每项 = 键帽 ` x `(3 列) + 空格(1) + 标签(width 列) + 3 空格。
-export const footerKeyRanges = (): Array<{ name: "help" | "input" | "done" | "quit"; start: number; end: number }> => {
-  const ranges: Array<{ name: "help" | "input" | "done" | "quit"; start: number; end: number }> = [];
+export type FooterButton = (typeof FOOTER_KEYS)[number]["name"];
+// 按钮之间留的空白列数；空白不响应点击，免得点在两个按钮中间误触
+const FOOTER_GAP = 2;
+// 一个按钮 = 键帽 ` x `(3 列) + 标签 ` 帮助 `(标签宽 + 2 列)
+const buttonWidth = (label: string): number => 3 + displayWidth(label) + 2;
+// 每个 Footer 按钮的屏幕列区间（1 起，只含按钮本体）。Box paddingLeft=1 占第 1 列。
+export const footerKeyRanges = (): Array<{ name: FooterButton; start: number; end: number }> => {
+  const ranges: Array<{ name: FooterButton; start: number; end: number }> = [];
   let column = 2; // paddingLeft 1 → 内容从第 2 列开始
   for (const entry of FOOTER_KEYS) {
-    const entryWidth = 3 + 1 + displayWidth(entry.label) + 3;
-    ranges.push({ name: entry.name, start: column, end: column + entryWidth - 1 });
-    column += entryWidth;
+    const width = buttonWidth(entry.label);
+    ranges.push({ name: entry.name, start: column, end: column + width - 1 });
+    column += width + FOOTER_GAP;
   }
   return ranges;
 };
 
-export const FooterBar = (): React.ReactElement => (
+/**
+ * 底部按钮条：键帽用主色实底、标签用浅一档的底色，拼成一块有边界的按钮；
+ * 被点中的那个短暂反色，给出「按下去了」的反馈。
+ */
+export const FooterBar = ({ pressed }: { pressed?: FooterButton | undefined } = {}): React.ReactElement => (
   <Box paddingLeft={1} paddingRight={1}>
     <Text>
-      {FOOTER_KEYS.map((entry) => (
-        <React.Fragment key={entry.name}>
-          <Text bold color="black" backgroundColor={C.dim}>{` ${entry.key} `}</Text>
-          <Text color={C.dim}>{` ${entry.label}   `}</Text>
-        </React.Fragment>
-      ))}
+      {FOOTER_KEYS.map((entry) => {
+        const down = pressed === entry.name;
+        return (
+          <React.Fragment key={entry.name}>
+            <Text bold color={down ? C.accent : "black"} backgroundColor={down ? "black" : C.accent}>{` ${entry.key} `}</Text>
+            <Text bold color={down ? "black" : "white"} backgroundColor={down ? C.accent : C.button}>{` ${entry.label} `}</Text>
+            <Text>{" ".repeat(FOOTER_GAP)}</Text>
+          </React.Fragment>
+        );
+      })}
     </Text>
   </Box>
 );
