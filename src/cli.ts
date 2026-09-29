@@ -86,7 +86,7 @@ export const buildProgram = (): Command => {
     const visible = agenda.filter((group) => group.tasks.length > 0);
     if (!visible.length) { console.log("（没有匹配的任务）"); return; }
     for (const group of agenda) {
-      if (!group.tasks.length) { if (group.key === "hidden") console.log(group.name); continue; }
+      if (!group.tasks.length) { console.log(group.name); continue; }
       console.log(`== ${group.name} ==`);
       for (const { task, depth } of nestTasks(group.tasks)) console.log(`  ${task.id.padEnd(8)} ${renderLine(task, cfg, now.slice(0, 10), selectedMode, now, depth, blocked.has(task.id))}`);
     }

@@ -43,6 +43,12 @@ skin = "classic"
 mouse = true
 # 完成任务时的划线小动画
 animations = true
+# 清单样式：cards 卡片式（分组靠留白分隔，默认）/ table 带边框表头的表格
+layout = "cards"
+# 密度：comfortable 分组之间留空行 / compact 挤紧一点，给小终端
+density = "comfortable"
+# 顶部横幅：line 一行标题 / small 两行小字 / full 六行像素字
+banner = "line"
 
 [deps]
 # 前置任务没做完的后续任务怎么显示：dim 主屏淡字显示，hide 不上主屏（按 D 看依赖图）
@@ -62,7 +68,7 @@ const defaultConfig = (): Config => ConfigSchema.parse({
   priority: { mode: "levels", levels: ["低", "中", "高"], urgency: { overdue: 12, due_today: 8, due_week_decay: 8, per_level: 3, age_per_day: 0.05, age_cap: 2, waiting_penalty: 3 } },
   agenda: { week_days: 7, date_format: "auto", tie_break: "entry" },
   watch: { interval_seconds: 30 },
-  ui: { lang: "auto", skin: "classic", mouse: true, animations: true },
+  ui: { lang: "auto", skin: "classic", mouse: true, animations: true, layout: "cards", density: "comfortable", banner: "line" },
   deps: { blocked: "dim" },
   email: { host: "", port: 465, ssl: true, user: "", password: "", from: "", to: "" },
 });
