@@ -18,6 +18,7 @@ export const settingItems = (skins: Array<{ name: string; description: string }>
   { key: "ui.animations", label: "完成动画", hint: "完成任务时标题上划过一道删除线", options: bool, current: (config) => String(config.ui.animations) },
   { key: "deps.blocked", label: "被挡住的后续任务", hint: "前置没做完时：淡字显示，或不上主屏（依赖图里仍能看到）", options: [{ value: "dim", label: "淡字显示" }, { value: "hide", label: "不上主屏" }], current: (config) => config.deps.blocked },
   { key: "priority.mode", label: "默认排序", hint: "1 / 2 键可临时切换", options: [{ value: "levels", label: "按档位" }, { value: "urgency", label: "按 urgency 打分" }], current: (config) => config.priority.mode },
+  { key: "agenda.tie_break", label: "同级排序", hint: "日期和优先级都一样时谁在前；按标题时中文按拼音排", options: [{ value: "entry", label: "先加的在前" }, { value: "entry_desc", label: "后加的在前" }, { value: "title", label: "按标题" }], current: (config) => config.agenda.tie_break },
   { key: "agenda.date_format", label: "日期列", hint: "t 键也能切", options: [{ value: "auto", label: "相对日期" }, { value: "md", label: "月/日" }, { value: "full", label: "完整日期" }], current: (config) => config.agenda.date_format },
   { key: "agenda.week_days", label: "「接下来」的范围", hint: "多少天内到期算接下来，更远的归到「更远」", options: ["3", "7", "14", "30"].map((value) => ({ value, label: `${value} 天` })), current: (config) => String(config.agenda.week_days) },
   { key: "ui.lang", label: "界面语言", hint: "只影响界面文字，输入语法两种语言都一样", options: [{ value: "auto", label: "跟随系统" }, { value: "zh", label: "中文" }, { value: "en", label: "English" }], current: (config) => config.ui.lang },
