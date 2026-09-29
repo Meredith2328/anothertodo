@@ -55,7 +55,7 @@ export const applyPalette = (palette: Palette, banner: string[]): void => {
   Object.assign(C, palette);
   Object.assign(GROUP_COLOR, {
     doing: C.yellow, overdue: C.overdue, today: C.accent, upcoming: C.future, later: C.dim,
-    waiting: C.tag, paused: C.dim, nodate: C.dim, finished: C.dimmer, hidden: C.dimmer, blocked: C.dimmer,
+    waiting: C.tag, paused: C.dim, nodate: C.dim, finished: C.dimmer, blocked: C.dimmer,
   } satisfies Record<GroupKey, string>);
   for (const key of Object.keys(STATUS_COLOR)) delete STATUS_COLOR[key];
   Object.assign(STATUS_COLOR, { doing: C.yellow, waiting: C.tag, paused: C.dim, meeting: C.proj, done: C.dimmer, cancelled: C.dimmer });
@@ -86,7 +86,9 @@ export const DATE_FORMAT_LABEL: Record<"auto" | "md" | "full", string> = {
   full: "完整日期",
 };
 
-export const INPUT_PLACEHOLDER = "添加：后天 买牛奶 很急 @18:30   ·   : 命令   ·   / 搜索   ·   Tab 补全";
+export const INPUT_PLACEHOLDER = "＋ 添加任务，比如：明天 下午两点到三点 开会 很急";
+/** 一行横幅：ui.banner = line 时顶栏左侧的标题 */
+export const BANNER_LINE = "ANOTHER TODO";
 
 // 帮助按“区域”组织：清单区（默认焦点）/ 输入区 / 两区通用
 export const HELP_SECTIONS: ReadonlyArray<readonly [string, ReadonlyArray<readonly [string, string]>]> = [
@@ -100,11 +102,11 @@ export const HELP_SECTIONS: ReadonlyArray<readonly [string, ReadonlyArray<readon
     ["e", "编辑选中任务"],
     ["w / s", "等待到明天 / 提醒推迟 10 分钟"],
     ["n / p", "放进「在做」/「暂停」（再按一次退回待办）"],
-    ["a / D", "给选中任务加后续任务（它做完才露出来）/ 依赖图"],
+    ["a / D", "选后续任务（它做完才露出来；列表里 n 新建一条）/ 依赖图"],
     [",", "设置：皮肤、鼠标点击、完成动画、排序等"],
     ["空格 / Ctrl+A", "打勾多选 / 全选本屏；有勾时 d x c w o s 批量执行"],
-    ["u / U / r", "撤销 / 重做 / 重载配置和皮肤文件"],
-    ["1 / 2", "档位排序 / urgency 排序"],
+    ["u / U / r", "撤销 / 重做 / 重载配置和皮肤文件（:history 看最近几步）"],
+    ["1 / 2 / Tab", "档位排序 / urgency 排序 / 切项目页"],
     ["t", "日期列格式：相对 / 月日 / 完整"],
     ["直接打字", "跳进输入区添加；若首字是快捷键（如 d），先按 i"],
   ]],
@@ -129,25 +131,25 @@ export const HELP_SECTIONS: ReadonlyArray<readonly [string, ReadonlyArray<readon
   ]],
 ];
 
-// 完整帮助的总行数（边框 2 + 标题 1 + 每节 1 行节名 + 条目），用于判断能否整页放下
+// 完整帮助的总行数（边框 2 + 上下留白 2 + 标题 1 + 每节 1 行节名 + 条目），用于判断能否整页放下
 export const FULL_HELP_LINES =
-  3 + HELP_SECTIONS.reduce((lines, [, entries]) => lines + 1 + entries.length, 0);
+  5 + HELP_SECTIONS.reduce((lines, [, entries]) => lines + 1 + entries.length, 0);
 
 // 紧凑帮助（终端高度不足以放下完整版时使用）：几行讲完全部高频操作，
 // 加边框和标题后任何常规终端都放得下。
 export const COMPACT_HELP_ROWS: ReadonlyArray<readonly [string, string]> = [
   ["清单区", "j/k ↑↓ 移动 · PgUp/PgDn 翻页 · g/G 首末 · l 详情"],
   ["", "d 完成 · x 删除 · c 取消 · o 重开 · e 编辑 · w 等待 · s 推迟提醒"],
-  ["", "n 在做 · p 暂停 · a 加后续任务 · D 依赖图 · , 设置"],
+  ["", "n 在做 · p 暂停 · a 选后续任务 · D 依赖图 · Tab 项目页 · , 设置"],
   ["", "空格 打勾多选 · Ctrl+A 全选 · u 撤销 · U 重做 · 1/2 排序 · t 日期列"],
   ["输入区", "直接打字添加 · Enter 提交 · Tab 补全 #标签/proj:"],
-  ["", ": 命令(list/undo/redo/graph/skin/sync/mode/archive/cancel/doing/pause) · / 搜索"],
+  ["", ": 命令(list/undo/redo/history/graph/skin/sync/mode/archive/cancel/doing/pause) · / 搜索"],
   ["通用", "? 帮助 · Ctrl+Z 撤销 · Ctrl+Y 重做 · Ctrl+S 同步 · Ctrl+F 搜索"],
   ["退出", "q / Q / Ctrl+Q / 双击 Esc；打 d/x/q 开头标题先按 i"],
 ];
 
-// 紧凑帮助总行数（边框 2 + 标题 1 + 条目）
-export const COMPACT_HELP_LINES = 3 + COMPACT_HELP_ROWS.length;
+// 紧凑帮助总行数（边框 2 + 上下留白 2 + 标题 1 + 条目）
+export const COMPACT_HELP_LINES = 5 + COMPACT_HELP_ROWS.length;
 
 export const WELCOME_ROWS: ReadonlyArray<readonly [string, string]> = [
   ["直接打字", "添加任务：`后天 买牛奶 很急 @18:30`，回车即存"],

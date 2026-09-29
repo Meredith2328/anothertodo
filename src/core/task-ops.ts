@@ -8,7 +8,11 @@ import { recurToInput, STATUS_INPUT, type Parsed } from "./parse.js";
  */
 export const applyParsedUpdate = (task: Task, parsed: Parsed): Task => {
   if (parsed.title) task.title = parsed.title;
-  if (parsed.due !== undefined) task.due = parsed.due;
+  if (parsed.due !== undefined) {
+    task.due = parsed.due;
+    // 改了时间却没再写时间段，旧的结束时刻就作废了
+    if (parsed.until !== undefined) task.until = parsed.until; else delete task.until;
+  }
   if (parsed.priority) task.priority = parsed.priority;
   if (parsed.tags.length) task.tags = [...parsed.tags];
   if (parsed.removeTags.length) task.tags = task.tags.filter((tag) => !parsed.removeTags.includes(tag));
@@ -26,7 +30,7 @@ export const applyParsedUpdate = (task: Task, parsed: Parsed): Task => {
   if (parsed.recur !== undefined) task.recur = parsed.recur;
   if (parsed.reminders.length) task.reminders = parsed.reminders.map(({ relative: _relative, dead, ...reminder }) => ({ ...reminder, dead: dead ?? false }));
   for (const field of parsed.clears) {
-    if (field === "due") delete task.due;
+    if (field === "due") { delete task.due; delete task.until; }
     else if (field === "priority") delete task.priority;
     else if (field === "project") delete task.project;
     else if (field === "parent") delete task.parent;
@@ -54,7 +58,8 @@ export const taskToInput = (task: Task): string => {
   if (task.recur) parts.push(recurToInput(task.recur));
   if (task.due) {
     parts.push(task.due.slice(0, 10));
-    if (task.due.slice(11, 16) !== "00:00") parts.push(task.due.slice(11, 16));
+    if (task.until) parts.push(`${task.due.slice(11, 16)}-${task.until.slice(11, 16)}`);
+    else if (task.due.slice(11, 16) !== "00:00") parts.push(task.due.slice(11, 16));
   }
   for (const reminder of task.reminders) parts.push(`@${reminder.at.replace("T", " ")}:${reminder.hooks.join(",")}`);
   // 备注放最后：`>>` 之后的内容整段算备注，前面还有字段就会被吞掉

@@ -1,11 +1,12 @@
 // Ink 没有鼠标支持（上游 issue 多年未做）。这里给 Ink 套一层 stdin 代理：
-// 启用终端 SGR 鼠标跟踪（\x1b[?1000h\x1b[?1006h），把鼠标转义序列从数据流里
+// 启用终端 SGR 鼠标跟踪（\x1b[?1002h\x1b[?1006h），把鼠标转义序列从数据流里
 // 剥出来分发给应用，其余数据按原 chunk 边界转发给 Ink，按键解析不受影响。
+// 1002 除了点击和滚轮，还会在按住鼠标拖动时上报位置（move），用来做按钮悬停。
 import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
 import type { ReadableOptions } from "node:stream";
 
-export type MouseKind = "press" | "release" | "wheel-up" | "wheel-down";
+export type MouseKind = "press" | "release" | "move" | "wheel-up" | "wheel-down";
 export type MouseEvent = { kind: MouseKind; button: number; x: number; y: number };
 
 const ESC = "\x1b";
@@ -50,6 +51,8 @@ const parseMouseSequence = (sequence: string): MouseEvent | undefined => {
   if (code & 64) {
     return { kind: code & 1 ? "wheel-down" : "wheel-up", button, x: parts[1] ?? 0, y: current };
   }
+  // 32 位是「移动」：按住拖动（1002）或纯悬停（1003）时终端都带这个位
+  if (code & 32) return { kind: "move", button, x: parts[1] ?? 0, y: current };
   return { kind: flag === "M" ? "press" : "release", button, x: parts[1] ?? 0, y: current };
 };
 
@@ -155,8 +158,8 @@ export const createMouseBridge = (stdin: NodeJS.ReadStream & { fd: number }, std
   const setTracking = (on: boolean): void => {
     if (on === tracking) return;
     tracking = on;
-    // 1000 = 点击/释放 + 滚轮；1006 = SGR 扩展编码（Windows Terminal / xterm 通用）
-    stdout.write(on ? "\x1b[?1000h\x1b[?1006h" : "\x1b[?1000l\x1b[?1006l");
+    // 1002 = 点击/释放 + 滚轮 + 按住时的移动；1006 = SGR 扩展编码（Windows Terminal / xterm 通用）
+    stdout.write(on ? "\x1b[?1002h\x1b[?1006h" : "\x1b[?1002l\x1b[?1006l");
   };
 
   const onReadable = (): void => {

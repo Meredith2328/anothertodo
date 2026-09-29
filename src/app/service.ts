@@ -41,11 +41,24 @@ export class ApplicationService {
     return this.store.tasks();
   }
 
-  /** 把 `after:` 里写的 id 前缀解析成全长 id，并拒绝会让依赖成环的写法 */
+  /** `after:` 后面既可以写 id 前缀，也可以直接写标题：先按 id 找，找不到再按标题（整个匹配，再唯一前缀） */
+  private async findDep(ref: string): Promise<Task | undefined> {
+    const byId = await this.store.find(ref).catch(() => undefined);
+    if (byId) return byId;
+    const candidates = (await this.store.tasks()).filter((task) => ACTIVE_STATES.has(task.status));
+    const exact = candidates.filter((task) => task.title === ref);
+    if (exact.length === 1) return exact[0];
+    const prefixed = candidates.filter((task) => task.title.startsWith(ref));
+    if (prefixed.length === 1) return prefixed[0];
+    if (prefixed.length > 1) throw new Error(`「${ref}」对上了好几条：${prefixed.map((task) => task.title).join("、")}`);
+    return undefined;
+  }
+
+  /** 把 `after:` 里写的 id 前缀或标题解析成全长 id，并拒绝会让依赖成环的写法 */
   private async resolveDeps(id: string, prefixes: string[]): Promise<string[]> {
     const deps: string[] = [];
     for (const prefix of prefixes) {
-      const dep = await this.store.find(prefix);
+      const dep = await this.findDep(prefix);
       if (!dep) throw new Error(`找不到前置任务：${prefix}`);
       if (dep.id === id) throw new Error("任务不能依赖自己");
       if (!deps.includes(dep.id)) deps.push(dep.id);
@@ -62,7 +75,7 @@ export class ApplicationService {
     const deps = parsed.deps ? await this.resolveDeps(id, parsed.deps) : [];
     return this.store.save(parseTask({
       id, title: parsed.title, status: parsed.status ?? initialStatus(parsed.wait, now.slice(0, 10)), ...(deps.length ? { deps } : {}),
-      ...(parsed.due ? { due: parsed.due } : {}), ...(parsed.priority ? { priority: parsed.priority } : {}),
+      ...(parsed.due ? { due: parsed.due } : {}), ...(parsed.until ? { until: parsed.until } : {}), ...(parsed.priority ? { priority: parsed.priority } : {}),
       tags: parsed.tags, ...(parsed.project ? { project: parsed.project } : {}), ...(parsed.parent ? { parent: parsed.parent } : {}),
       ...(parsed.wait ? { wait: parsed.wait } : {}), ...(parsed.notes ? { notes: parsed.notes } : {}), ...(parsed.recur ? { recur: parsed.recur } : {}),
       reminders: parsed.reminders.map(({ relative: _relative, ...reminder }) => reminder), entry: utcNow(), modified: utcNow(),
@@ -78,6 +91,36 @@ export class ApplicationService {
     if (parsed.deps) parsed.deps = await this.resolveDeps(task.id, parsed.deps);
     applyParsedUpdate(task, parsed);
     return this.store.save(task, before);
+  }
+
+  /** 整组改写前置；依赖图里删一条边、选择列表里勾选都走这里 */
+  async setDeps(idOrPrefix: string, depIds: string[]): Promise<Task> {
+    const task = await this.store.find(idOrPrefix);
+    if (!task) throw new Error(`找不到任务：${idOrPrefix}`);
+    const before = cloneTask(task);
+    const deps = await this.resolveDeps(task.id, depIds);
+    if (deps.length) task.deps = deps; else delete task.deps;
+    return this.store.save(task, before);
+  }
+
+  /**
+   * 反过来设：让 dependentIds 这些任务都等 id 做完，其余原来等它的任务不再等。
+   * 后续任务选择列表保存时走这里，整次改动算一步撤销。
+   */
+  async setDependents(id: string, dependentIds: string[]): Promise<number> {
+    const all = await this.store.tasks();
+    let changed = 0;
+    await this.store.batch(async () => {
+      for (const task of all) {
+        if (task.id === id) continue;
+        const has = (task.deps ?? []).includes(id);
+        const want = dependentIds.includes(task.id);
+        if (has === want) continue;
+        await this.setDeps(task.id, want ? [...(task.deps ?? []), id] : (task.deps ?? []).filter((dep) => dep !== id));
+        changed += 1;
+      }
+    });
+    return changed;
   }
 
   async setStatus(idOrPrefix: string, status: TaskStatus): Promise<Task> {
@@ -130,11 +173,14 @@ export class ApplicationService {
     const shift = daysBetweenDates(base, nextDate);
     const draft = structuredClone(task) as Record<string, unknown>;
     delete draft.end;
+    // 前置是这一次的事，早就做完了；带到下一次只会让依赖图每周多长一条重复的枝
+    delete draft.deps;
     const next = parseTask({
       ...draft,
       id: newId(),
       status: task.wait ? "waiting" : "todo",
       ...(task.due ? { due: `${nextDate}${task.due.slice(10)}` } : {}),
+      ...(task.until ? { until: `${shiftDateOnly(task.until.slice(0, 10), shift)}${task.until.slice(10)}` } : {}),
       ...(task.wait ? { wait: shiftDateOnly(task.wait, shift) } : {}),
       // 提醒跟着整体平移，并且清掉 id 和投递状态——旧 id 由 taskId 派生，
       // 留着会让两条任务共用一个提醒身份
@@ -180,6 +226,18 @@ export class ApplicationService {
 
   async undo(): Promise<string> {
     return this.store.undo();
+  }
+
+  /** 最近几步操作，最新的在前 */
+  async history(limit = 10): Promise<Array<{ ts: string; summary: string }>> {
+    return this.store.history(limit);
+  }
+
+  /** 连续撤销 n 步，给「回到历史里的某一步」用 */
+  async undoSteps(steps: number): Promise<string> {
+    let last = "";
+    for (let index = 0; index < steps; index += 1) last = await this.store.undo();
+    return steps === 1 ? last : `已回退 ${steps} 步（${last}）`;
   }
 
   async redo(): Promise<string> {

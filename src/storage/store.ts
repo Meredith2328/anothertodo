@@ -264,6 +264,30 @@ export class Store {
     });
   }
 
+  /** 撤销栈里最近的几步，每个 batch 算一步；给 :history 看 */
+  async history(limit = 10): Promise<Array<{ ts: string; summary: string }>> {
+    const lines = (await readFile(this.paths.undo, "utf8").catch(() => "")).split(/\r?\n/).filter(Boolean);
+    const steps: Array<{ ts: string; summary: string }> = [];
+    let index = lines.length - 1;
+    while (index >= 0 && steps.length < limit) {
+      const record = JSON.parse(lines[index]!) as UndoRecord;
+      const members = [record];
+      if (record.batch !== undefined) while (index > 0 && (JSON.parse(lines[index - 1]!) as UndoRecord).batch === record.batch) { index -= 1; members.unshift(JSON.parse(lines[index]!) as UndoRecord); }
+      const describe = (item: UndoRecord): string => {
+        const title = String((item.after?.deleted === true ? item.before : item.after)?.title ?? "");
+        if (!item.before || item.before.deleted === true) return `新增：${title}`;
+        if (item.after?.deleted === true) return `删除：${title}`;
+        const status = String(item.after?.status ?? "");
+        if (status !== String(item.before.status ?? "")) return `${status === "done" ? "完成" : status === "cancelled" ? "取消" : `改为 ${status}`}：${title}`;
+        return `修改：${title}`;
+      };
+      const main = describe(members[0]!);
+      steps.push({ ts: record.ts, summary: members.length === 1 ? main : `${main}（连同另外 ${members.length - 1} 条）` });
+      index -= 1;
+    }
+    return steps;
+  }
+
   async undo(): Promise<string> {
     return this.replay(this.paths.undo, this.paths.redo, "没有可撤销的操作", "撤销");
   }

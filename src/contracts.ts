@@ -55,6 +55,9 @@ export const TaskSchema = z.object({
   // agenda/watcher while unknown ones remain readable and round-trippable.
   status: z.string().min(1).default("todo"),
   due: CompatibleDateTimeSchema.optional(),
+  // 时间段的结束时刻：`14:00-15:00` 里的 15:00。只有 due 带时间时才有意义；
+  // 可选而不是默认值，老数据写回时不多出字段
+  until: CompatibleDateTimeSchema.optional(),
   priority: z.string().min(1).optional(),
   tags: z.array(z.string().min(1)).default([]),
   project: z.string().min(1).optional(),
@@ -113,7 +116,13 @@ export const ConfigSchema = z.object({
     mouse: z.boolean().default(true),
     // 完成任务时的划线动画
     animations: z.boolean().default(true),
-  }).default({ lang: "auto", skin: "classic", mouse: true, animations: true }),
+    // cards：按分组分块、靠留白分隔的卡片式清单；table：带边框和表头的表格
+    layout: z.enum(["cards", "table"]).default("cards"),
+    // comfortable 分组之间空一行、输入框带完整边框；compact 挤在一起，给小终端
+    density: z.enum(["comfortable", "compact"]).default("comfortable"),
+    // 顶部横幅：line 一行标题；small 两行小字；full 六行像素字
+    banner: z.enum(["line", "small", "full"]).default("line"),
+  }).default({ lang: "auto", skin: "classic", mouse: true, animations: true, layout: "cards", density: "comfortable", banner: "line" }),
   deps: z.object({
     // 被前置任务挡住的后续任务：dim 在主屏淡字显示，hide 不上主屏（依赖图页仍可见）
     blocked: z.enum(["dim", "hide"]).default("dim"),

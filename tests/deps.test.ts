@@ -94,7 +94,7 @@ describe("task dependencies", () => {
     const c = await service.add(`领取身份证 after:${a.id},${b.id}`, now);
     await service.add(`激活社保卡 after:${c.id}`, now);
     await service.add("无关任务", now);
-    const lines = dependencyGraph(await service.tasks()).map(renderGraphLine);
+    const lines = dependencyGraph(await service.tasks()).map((line) => renderGraphLine(line));
     expect(lines).toEqual([
       "● 申请身份证",
       "└─▸ ○ 领取身份证  （另需：拍证件照）",
