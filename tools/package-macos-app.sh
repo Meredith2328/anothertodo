@@ -40,3 +40,11 @@ chmod +x "$app/Contents/MacOS/AnotherTodo"
 plutil -lint "$app/Contents/Info.plist"
 codesign --force --deep --sign - "$app"
 ditto -c -k --sequesterRsrc --keepParent "$app" AnotherTodo-macos-arm64.zip
+
+# 磁盘映像：打开后把 AnotherTodo 拖到旁边的「应用程序」即可安装，是 Mac 上最常见的装法
+staging=release/dmg
+rm -rf "$staging"
+mkdir -p "$staging"
+cp -R "$app" "$staging/"
+ln -s /Applications "$staging/Applications"
+hdiutil create -quiet -volname AnotherTodo -srcfolder "$staging" -fs HFS+ -format UDZO -ov AnotherTodo-macos-arm64.dmg

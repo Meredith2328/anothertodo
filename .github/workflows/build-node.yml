@@ -97,6 +97,7 @@ jobs:
             ${{ matrix.exe }}
             atd-node-${{ matrix.artifact }}.tar.gz
             AnotherTodo-macos-arm64.zip
+            AnotherTodo-macos-arm64.dmg
 
   release:
     if: startsWith(github.ref, 'refs/tags/node-v')
@@ -113,7 +114,7 @@ jobs:
       - name: Write checksums
         run: |
           cd release
-          sha256sum atd-windows.exe atd-macos atd-linux atd-node-*.tar.gz AnotherTodo-macos-arm64.zip > SHA256SUMS.txt
+          sha256sum atd-windows.exe atd-macos atd-linux atd-node-*.tar.gz AnotherTodo-macos-arm64.zip AnotherTodo-macos-arm64.dmg > SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
           files: |
@@ -122,13 +123,14 @@ jobs:
             release/atd-linux
             release/*.tar.gz
             release/AnotherTodo-macos-arm64.zip
+            release/AnotherTodo-macos-arm64.dmg
             release/SHA256SUMS.txt
           fail_on_unmatched_files: true
           body: |
             下载对应平台的独立可执行文件即可使用，无需安装 Node：
 
             - **Windows**: `atd-windows.exe`（双击或在终端运行，直接进入 TUI）
-            - **macOS Apple Silicon**: `AnotherTodo-macos-arm64.zip`（解压后把 `AnotherTodo.app` 放进“应用程序”，双击打开 TUI）；也可直接运行 `atd-macos`。
+            - **macOS Apple Silicon**: 推荐 `AnotherTodo-macos-arm64.dmg`：双击打开，把 AnotherTodo 拖到旁边的「应用程序」，之后在 Finder、Launchpad、Spotlight 里都能找到，双击就在 Terminal 里打开 TUI。第一次打开时 macOS 会提示「无法验证开发者」，请在 Finder 里右键 AnotherTodo →「打开」→ 再点「打开」，之后就能正常双击。也提供同内容的 `AnotherTodo-macos-arm64.zip`，以及单文件 `atd-macos`。
             - **Linux**: `atd-linux`（`chmod +x atd-linux && ./atd-linux`）
 
             另附面向已安装 Node 22+ 环境的便携包 `atd-node-*.tar.gz`，解压后在 `release` 目录运行 `node bin/atd.mjs`。
