@@ -17,8 +17,8 @@ describe("stage 7 TUI state and key boundaries", () => {
     expect(tuiReducer(input, { type: "mode", mode: { kind: "list" } }).input).toBe("");
   });
 
-  it("restricts Tab to input modes", () => {
-    expect(mapKey({ kind: "list" }, { input: "", key: { tab: true } })).toBeUndefined();
+  it("Tab completes in input modes and switches project tabs in the list", () => {
+    expect(mapKey({ kind: "list" }, { input: "", key: { tab: true } })).toEqual({ type: "shortcut", name: "tab" });
     expect(mapKey({ kind: "add" }, { input: "", key: { tab: true } })).toEqual({ type: "complete" });
   });
 });

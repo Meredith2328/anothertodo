@@ -49,6 +49,17 @@ export type GraphLine = {
   ref: boolean;
   /** 除了当前这条父边以外的其他前置，画在行尾提示「另需」 */
   otherDeps: Task[];
+  /** 这一行是顺着哪条前置画下来的；根节点没有。删边就是把它从 task.deps 里拿掉 */
+  via?: Task;
+};
+
+/** 一句话说清任务在等什么：等日期，或等哪些前置。没在等就是空串 */
+export const waitLabel = (task: Task, tasks: Task[], today: string): string => {
+  const byId = new Map(tasks.map((item) => [item.id, item]));
+  const open = openDeps(task, byId);
+  if (open.length) return `等 ${open.map((dep) => dep.title).join("、")}`;
+  if (task.wait !== undefined && task.wait > today) return `等到 ${Number(task.wait.slice(5, 7))}/${Number(task.wait.slice(8, 10))}`;
+  return "";
 };
 
 /**
@@ -68,7 +79,7 @@ export const dependencyGraph = (tasks: Task[]): GraphLine[] => {
   const expanded = new Set<string>();
   const visit = (task: Task, via: Task | undefined, lead: string, branch: string): void => {
     const ref = expanded.has(task.id);
-    lines.push({ task, prefix: `${lead}${branch}`, mark: mark(task), ref, otherDeps: depsOf(task).filter((dep) => dep.id !== via?.id) });
+    lines.push({ task, prefix: `${lead}${branch}`, mark: mark(task), ref, otherDeps: depsOf(task).filter((dep) => dep.id !== via?.id), ...(via ? { via } : {}) });
     if (ref) return;
     expanded.add(task.id);
     const children = [...(dependents.get(task.id) ?? [])].sort(byEntry);
@@ -83,8 +94,8 @@ export const dependencyGraph = (tasks: Task[]): GraphLine[] => {
 
 export const GRAPH_MARK: Record<GraphMark, string> = { done: "✓", ready: "●", blocked: "○" };
 
-export const renderGraphLine = (line: GraphLine): string => {
-  const status = line.task.status === "todo" ? "" : `  [${line.task.status}]`;
+export const renderGraphLine = (line: GraphLine, withStatus = true): string => {
+  const status = !withStatus || line.task.status === "todo" ? "" : `  [${line.task.status}]`;
   if (line.ref) return `${line.prefix}⤷ ${line.task.title}（见上）`;
   const others = line.otherDeps.length ? `  （另需：${line.otherDeps.map((dep) => dep.title).join("、")}）` : "";
   return `${line.prefix}${GRAPH_MARK[line.mark]} ${line.task.title}${status}${others}`;

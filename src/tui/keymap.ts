@@ -68,12 +68,34 @@ export const mapKey = (mode: UiMode, event: KeyEvent): KeyAction | undefined => 
     if (input === "\u001b" || key.escape === true || input === "q" || input === ",") return { type: "escape" };
     return undefined;
   }
-  // 依赖图页：上下翻页，其余键退回清单
+  // 依赖图页：上下选任务，a 加后续、x 删掉这条边、回车跳到清单里那一条，其余键退回清单
   if (mode.kind === "graph") {
     if (key.upArrow === true || input === "k") return { type: "move", delta: -1 };
     if (key.downArrow === true || input === "j") return { type: "move", delta: 1 };
     if (key.ctrl && (input === "q" || input === "c")) return { type: "quit" };
+    if (input === "a" || input === "x") return { type: "shortcut", name: `graph.${input}` };
+    if (input === "\r" || input === "\n" || key.return === true) return { type: "shortcut", name: "graph.enter" };
     return { type: "escape" };
+  }
+  // 后续任务选择列表：空格勾选，回车保存，n 直接新建一条后续
+  if (mode.kind === "deps") {
+    if (key.upArrow === true || input === "k") return { type: "move", delta: -1 };
+    if (key.downArrow === true || input === "j") return { type: "move", delta: 1 };
+    if (key.ctrl && (input === "q" || input === "c")) return { type: "quit" };
+    if (input === " ") return { type: "shortcut", name: "deps.toggle" };
+    if (input === "n") return { type: "shortcut", name: "deps.new" };
+    if (input === "\r" || input === "\n" || key.return === true) return { type: "submit" };
+    if (input === "\u001b" || key.escape === true || input === "q") return { type: "escape" };
+    return undefined;
+  }
+  // 操作历史：上下选一步，回车回退到那之前
+  if (mode.kind === "history") {
+    if (key.upArrow === true || input === "k") return { type: "move", delta: -1 };
+    if (key.downArrow === true || input === "j") return { type: "move", delta: 1 };
+    if (key.ctrl && (input === "q" || input === "c")) return { type: "quit" };
+    if (input === "\r" || input === "\n" || key.return === true) return { type: "submit" };
+    if (input === "\u001b" || key.escape === true || input === "q") return { type: "escape" };
+    return undefined;
   }
   // 详情浮层：上下翻看任务，其余键退回清单
   if (mode.kind === "detail") {
@@ -104,6 +126,8 @@ export const mapKey = (mode: UiMode, event: KeyEvent): KeyAction | undefined => 
   }
   if (input === "\r" || input === "\n") return { type: "shortcut", name: "enter" };
   if (input === "\u001b") return { type: "escape" };
+  // 清单区的 Tab 空着没用，拿来切项目页
+  if (input === "\t" || key.tab === true) return { type: "shortcut", name: "tab" };
   // Ctrl 组合键：Ink 的 key 无 name 字段，字母经 input（小写）+ key.ctrl 标识
   if (key.ctrl) {
     if (input === "q" || input === "c") return { type: "quit" };

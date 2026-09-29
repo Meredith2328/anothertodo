@@ -4,7 +4,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 
-import { formatDate, type GroupKey } from "../core/agenda.js";
+import { formatDate, timeSpan, type GroupKey } from "../core/agenda.js";
 import type { Task } from "../contracts.js";
 import { describeRecur } from "../core/parse.js";
 import { isOverdue, localDate } from "../core/task.js";
@@ -82,17 +82,117 @@ const truncateSegments = (segments: Array<{ text: string; color: string }>, widt
   return out;
 };
 
-export const GroupSeparator = ({ groupKey, name, count }: { groupKey: GroupKey; name: string; count: number }): React.ReactElement => {
+/** 表格里的分组行：一道横线拉满整行 */
+export const GroupSeparator = ({ groupKey, name, count, width }: { groupKey: GroupKey; name: string; count: number; width: number }): React.ReactElement => {
   const color = GROUP_COLOR[groupKey] ?? C.dim;
+  const head = `╾─ ${name} ${count} `;
   return (
     <Text wrap="truncate">
       <Text color={color}>╾─ </Text>
       <Text bold color={color}>{name}</Text>
       <Text color={color}>{` ${count} `}</Text>
-      <Text color={C.dimmer}>{"─".repeat(18)}</Text>
+      <Text color={C.dimmer}>{"─".repeat(Math.max(4, width - displayWidth(head)))}</Text>
     </Text>
   );
 };
+
+/** 卡片式的分组标题：只有名字和数量，靠上面的空行和颜色分隔，不画线 */
+export const GroupHeading = ({ groupKey, name, count }: { groupKey: GroupKey; name: string; count: number }): React.ReactElement => {
+  const color = GROUP_COLOR[groupKey] ?? C.dim;
+  return (
+    <Text wrap="truncate">
+      <Text>{" "}</Text>
+      <Text bold color={color}>{name}</Text>
+      <Text color={C.dimmer}>{`  ${count}`}</Text>
+    </Text>
+  );
+};
+
+/** 卡片式一行右侧的说明：时间段、日期、等什么、项目、标签、重复、备注、提醒，按这个顺序，放不下从右边起收 */
+const metaSegments = (task: Task, today: string, dateFormat: "auto" | "md" | "full", wait: string, showDate: boolean): Array<{ text: string; color: string; bold?: boolean }> => {
+  const segments: Array<{ text: string; color: string; bold?: boolean }> = [];
+  const span = timeSpan(task);
+  if (span) segments.push({ text: span, color: C.accent, bold: true });
+  if (showDate && task.due) { const date = dateCell(task, today, dateFormat); segments.push({ text: date.text, color: date.color, bold: date.bold }); }
+  if (wait) segments.push({ text: wait, color: C.tag });
+  if (task.status !== "todo" && task.status !== "doing" && task.status !== "waiting" && task.status !== "paused") segments.push({ text: task.status, color: STATUS_COLOR[task.status] ?? C.dim });
+  if (task.project) segments.push({ text: `◈ ${task.project}`, color: C.proj });
+  for (const tag of task.tags) segments.push({ text: `#${tag}`, color: C.tag });
+  if (task.recur) segments.push({ text: `↻ ${describeRecur(task.recur)}`, color: C.proj });
+  if (task.notes.trim()) segments.push({ text: "✎", color: C.dim });
+  const reminder = task.reminders.find((item) => !item.fired);
+  if (reminder) segments.push({ text: `◷ ${reminder.at.slice(5, 16).replace("T", " ")}`, color: C.yellow });
+  return segments;
+};
+
+/**
+ * 卡片式任务行：左边一个优先级圆点和标题，右边是淡色的说明，中间用空白撑开。
+ * 说明放不下时从最右边的项起整项收掉，标题再不够才截断——标题永远是最重要的。
+ */
+export const CardRow = ({ task, selected, marked = false, blocked = false, completing, today, dateFormat, levels, width, depth = 0, wait = "", showDate = true, moved = false }: {
+  task: Task;
+  selected: boolean;
+  marked?: boolean;
+  blocked?: boolean;
+  completing?: number | undefined;
+  today: string;
+  dateFormat: "auto" | "md" | "full";
+  levels: string[];
+  /** 整行可用的显示列数 */
+  width: number;
+  depth?: number;
+  /** 「等 X」/「等到 M/D」，来自 deps.waitLabel */
+  wait?: string;
+  /** 分组已经说明了日期（今天 / 逾期）时可以不再重复 */
+  showDate?: boolean;
+  /** 刚被操作过、位置变了的行：短暂高亮一下让眼睛跟得上 */
+  moved?: boolean;
+}): React.ReactElement => {
+  const indent = depth > 0 ? `${"  ".repeat(depth - 1)}↳ ` : "";
+  const priority = priorityCell(task, levels);
+  const dot = completing !== undefined ? "✓" : marked ? "◉" : blocked ? "⊘" : priority.text ? "●" : "○";
+  const dotColor = completing !== undefined ? C.good : marked ? C.hot : blocked ? C.dimmer : priority.text ? priority.color : C.dimmer;
+  const lead = `${selected ? "▍" : " "} `;
+  // 左边：引导 2 + 圆点 1 + 空格 1 + 缩进；右边说明和标题之间至少留 3 格
+  const meta = metaSegments(task, today, dateFormat, wait, showDate);
+  const metaWidth = (items: typeof meta): number => items.reduce((total, item, index) => total + displayWidth(item.text) + (index ? 3 : 0), 0);
+  const minTitle = Math.min(displayWidth(task.title), 16);
+  const fixed = displayWidth(lead) + 2 + displayWidth(indent) + 1;
+  let shown = meta;
+  while (shown.length && fixed + minTitle + 3 + metaWidth(shown) > width) shown = shown.slice(0, -1);
+  const metaText = metaWidth(shown);
+  const room = Math.max(2, width - fixed - (shown.length ? metaText + 3 : 0));
+  const name = [...truncateWithEllipsis(task.title, room)];
+  const struck = completing === undefined ? 0 : Math.ceil(name.length * completing);
+  const gap = " ".repeat(Math.max(1, width - fixed - displayWidth(name.join("")) - metaText));
+  const background = selected ? C.select : moved ? C.border : undefined;
+  const tone = (color: string): string => blocked ? C.dimmer : color;
+  return (
+    <Text wrap="truncate" {...(background ? { backgroundColor: background } : {})} {...(blocked ? { color: C.dimmer } : {})}>
+      <Text color={C.accent}>{lead}</Text>
+      <Text color={dotColor}>{`${dot} `}</Text>
+      <Text color={C.dimmer}>{indent}</Text>
+      <Text strikethrough color={C.good}>{name.slice(0, struck).join("")}</Text>
+      <Text bold={selected && !blocked} {...(completing !== undefined ? { color: C.dim } : {})}>{name.slice(struck).join("")}</Text>
+      <Text>{gap}</Text>
+      {shown.map((segment, index) => (
+        <React.Fragment key={`${segment.text}-${index}`}>
+          {index ? <Text color={C.dimmer}>{" · "}</Text> : null}
+          <Text color={tone(segment.color)} bold={segment.bold === true && !blocked}>{segment.text}</Text>
+        </React.Fragment>
+      ))}
+      <Text>{" "}</Text>
+    </Text>
+  );
+};
+
+/** 没有任务时给一句友好的引导，而不是一个冷冰冰的「（没有任务）」 */
+export const EmptyState = ({ filtered }: { filtered: boolean }): React.ReactElement => (
+  <Box flexDirection="column" paddingLeft={3} paddingTop={1}>
+    <Text color={C.dim}>{filtered ? "没有符合条件的任务" : "还没有任务，轻松一天 ☕"}</Text>
+    <Text color={C.dimmer}>{filtered ? ": 回车或 :list 清除过滤" : "直接打字就能添加，比如：明天 下午两点到三点 开会"}</Text>
+  </Box>
+);
 
 /** 表头和任务行共用 tableColumns，收起的列在表头里一起消失 */
 export const TableHeader = ({ cols }: { cols: Columns }): React.ReactElement => (

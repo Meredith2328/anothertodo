@@ -87,13 +87,12 @@ describe("stage 3 query, priority, and agenda", () => {
     const past = task({ id: "000000b3", title: "该动了", status: "todo", wait: "2026-08-01" });
     const pastWaiting = task({ id: "000000b4", title: "等到了", status: "waiting", wait: "2026-08-01" });
     const result = groups([future, futureTodo, past, pastWaiting], config, "levels", now);
-    expect(result.map((group) => group.name)).toEqual(["等待中", "无日期", "隐藏(等待未到) 2 项"]);
+    // 等待未到的任务不再只给个「隐藏 N 项」计数，直接并进「等待中」，行尾会标出等到哪天
+    expect(result.map((group) => group.name)).toEqual(["等待中", "无日期"]);
     expect(result.find((group) => group.name === "无日期")?.tasks.map((item) => item.id)).toEqual(["000000b3"]);
-    expect(result.find((group) => group.name === "等待中")?.tasks.map((item) => item.id)).toEqual(["000000b4"]);
-    // 查询里点名 wait 时，隐藏折叠让位于「我就是要看这些」
+    expect(result.find((group) => group.name === "等待中")?.tasks.map((item) => item.id).sort()).toEqual(["000000b1", "000000b2", "000000b4"]);
     const revealed = groups([future, futureTodo, past, pastWaiting], config, "levels", now, "wait:any");
     expect(revealed.flatMap((group) => group.tasks).map((item) => item.id).sort()).toEqual(["000000b1", "000000b2", "000000b3", "000000b4"]);
-    expect(revealed.some((group) => group.name.startsWith("隐藏"))).toBe(false);
   });
 
   it("treats a passed meeting as overdue", () => {
