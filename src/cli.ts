@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { ApplicationService } from "./app/service.js";
 import { groups, nestTasks, renderLine } from "./core/agenda.js";
 import { blockedIds, dependencyGraph, renderGraphLine } from "./core/deps.js";
+import { listSkins, resolveSkin, writeSkinTemplate } from "./tui/skins.js";
 import { configPath, dataDir, getConfigValue, loadConfig, setConfigValue } from "./core/config.js";
 import { t } from "./core/i18n.js";
 import { describeRecur, parse, preview, scanDate } from "./core/parse.js";
@@ -122,8 +123,8 @@ export const buildProgram = (): Command => {
   statusCommand("cancel", "cancelled", "取消任务（保留记录，不同于删除）", "✗ 已取消");
   statusCommand("meeting", "meeting", "标记为会议，过了时间同样计入逾期", "已标记为会议");
   statusCommand("todo", "todo", "退回待办状态，并清掉等待日期", "↩ 已退回待办");
-  statusCommand("doing", "doing", "放进「在做」分组", "▶ 在做");
-  statusCommand("pause", "paused", "放进「暂停」分组；暂停期间不发提醒", "⏸ 已暂停");
+  statusCommand("doing", "doing", "放进「在做」分组", "▸ 在做");
+  statusCommand("pause", "paused", "放进「暂停」分组；暂停期间不发提醒", "‖ 已暂停");
 
   program.command("wait").description("设为等待；--until 指定等到哪天，缺省是明天").argument("<ids...>").option("-u, --until <date>", "等到哪天，支持 2026-09-01 / 下周一 / next monday").action(async (ids: string[], options: { until?: string }) => {
     const application = service();
@@ -188,6 +189,18 @@ export const buildProgram = (): Command => {
       }
     }
     if (current.notes.trim()) { console.log(`${t("field.notes")}${t("punct.colon")}`); for (const line of current.notes.split(/\r?\n/)) console.log(`  ${line}`); }
+  });
+  program.command("skin").description("界面皮肤：list 看全部，use <名字> 切换，template <新名字> [--from 基础皮肤] 生成可改的模板").argument("[action]", "list / use / template").argument("[name]").option("--from <skin>", "template 以哪个皮肤为底", "classic").action(async (action: string | undefined, name: string | undefined, options: { from: string }) => {
+    const dir = dataDir();
+    const current = (await loadConfig(dir)).ui.skin;
+    if (!action || action === "list" || action === "ls") {
+      for (const skin of await listSkins(dir)) console.log(`${skin.name === current ? "▶" : " "} ${skin.name.padEnd(12)} ${skin.custom ? "[自定义] " : ""}${skin.description}`);
+      console.log("\natd skin use <名字> 切换；atd skin template <新名字> --from <皮肤> 生成模板到 ~/.atd/skins/");
+      return;
+    }
+    if (action === "use" && name) { await resolveSkin(name, dir); await setConfigValue("ui.skin", name, dir); console.log(`已换成皮肤 ${name}，下次打开 TUI 生效（开着的 TUI 按 r 刷新）`); return; }
+    if (action === "template" && name) { const path = await writeSkinTemplate(name, dir, options.from); console.log(`已生成 ${path}\n改好后：atd skin use ${name}`); return; }
+    throw new Error("用法：atd skin list | atd skin use <名字> | atd skin template <新名字> [--from nord]");
   });
   program.command("undo").description("撤销上一次改动").action(async () => console.log(await service().undo()));
   program.command("redo").description("重做刚撤销的改动；撤销之后又做了新改动就不能再重做").action(async () => console.log(await service().redo()));

@@ -111,7 +111,7 @@ export const formatDate = (task: Task, today: string, dateFormat: "auto" | "md" 
 export const renderLine = (task: Task, config: Config, today: string, mode: SortMode, now = `${today}T00:00`, depth = 0, blocked = false): string => {
   const date = formatDate(task, today, config.agenda.date_format).padEnd(5);
   const status = task.status === "todo" ? "" : `[${task.status}]`;
-  const lock = blocked ? "⛓" : "";
+  const lock = blocked ? "⊘" : "";
   const tags = task.tags.map((tag) => `#${tag}`).join(" ");
   const title = depth > 0 ? `${"  ".repeat(depth - 1)}↳ ${task.title}` : task.title;
   const marks = [task.recur ? `↻${describeRecur(task.recur)}` : "", task.notes.trim() ? ">>" : ""].filter(Boolean).join(" ");

@@ -34,6 +34,13 @@ interval_seconds = 30
 # auto 跟随系统语言（认不出来按中文）；可写成 "zh" 或 "en" 固定界面语言。
 # 只影响界面文案，一行输入语法和查询语法两种语言下都一样。
 lang = "auto"
+# 皮肤：classic（默认）/ raised（立体按钮）/ dracula / nord / gruvbox / catppuccin / paper（浅色终端）/ mono。
+# atd skin list 看全部，atd skin template 我的皮肤 生成可改的模板
+skin = "classic"
+# 鼠标点击：false 时不接管鼠标，终端里可以直接拖选复制文字
+mouse = true
+# 完成任务时的划线小动画
+animations = true
 
 [deps]
 # 前置任务没做完的后续任务怎么显示：dim 主屏淡字显示，hide 不上主屏（按 D 看依赖图）
@@ -53,7 +60,7 @@ const defaultConfig = (): Config => ConfigSchema.parse({
   priority: { mode: "levels", levels: ["低", "中", "高"], urgency: { overdue: 12, due_today: 8, due_week_decay: 8, per_level: 3, age_per_day: 0.05, age_cap: 2, waiting_penalty: 3 } },
   agenda: { week_days: 7, date_format: "auto" },
   watch: { interval_seconds: 30 },
-  ui: { lang: "auto" },
+  ui: { lang: "auto", skin: "classic", mouse: true, animations: true },
   deps: { blocked: "dim" },
   email: { host: "", port: 465, ssl: true, user: "", password: "", from: "", to: "" },
 });

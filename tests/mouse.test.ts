@@ -8,7 +8,7 @@ import { createMouseBridge, splitMouseData, subscribeMouse, type MouseEvent } fr
 describe("footer key hit ranges", () => {
   it("lays out the four buttons from column 2 with a two-column gap between them", () => {
     const ranges = footerKeyRanges();
-    expect(ranges.map((range) => range.name)).toEqual(["help", "input", "done", "quit"]);
+    expect(ranges.map((range) => range.name)).toEqual(["help", "input", "done", "settings", "quit"]);
     expect(ranges[0]?.start).toBe(2);
     for (let index = 1; index < ranges.length; index += 1) {
       expect(ranges[index]?.start).toBe((ranges[index - 1]?.end ?? 0) + 3);
@@ -23,9 +23,10 @@ describe("footer key hit ranges", () => {
     expect(hitAt(11)).toBeUndefined(); // 按钮之间的空白
     expect(hitAt(13)).toBe("input");
     expect(hitAt(24)).toBe("done");
-    expect(hitAt(35)).toBe("quit"); // q 键帽
-    expect(hitAt(43)).toBe("quit"); // 退出 标签尾
-    expect(hitAt(44)).toBeUndefined();
+    expect(hitAt(35)).toBe("settings"); // , 键帽
+    expect(hitAt(46)).toBe("quit"); // q 键帽
+    expect(hitAt(54)).toBe("quit"); // 退出 标签尾
+    expect(hitAt(55)).toBeUndefined();
   });
 });
 
