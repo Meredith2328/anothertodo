@@ -18,7 +18,11 @@ export type UiMode =
   /** 操作历史：列出最近几步，选一步回退到那之前 */
   | { kind: "history" };
 
+import type { AgendaView } from "../core/views.js";
+
 export type TuiState = {
+  view: AgendaView;
+  showUnscheduled: boolean;
   mode: UiMode;
   input: string;
   /** 输入框光标位置（字符索引，0..input.length） */
@@ -42,9 +46,10 @@ export type MutationState =
   | { kind: "success"; id: string }
   | { kind: "error"; id: string; message: string };
 
-export const initialTuiState = (sortMode: "levels" | "urgency" = "levels"): TuiState => ({ mode: { kind: "list" }, input: "", inputCursor: 0, query: "", selectedIndex: 0, marked: [], sortMode, dateFormat: "auto", mutation: { kind: "idle" } });
+export const initialTuiState = (sortMode: "levels" | "urgency" = "levels"): TuiState => ({ view: "all", showUnscheduled: false, mode: { kind: "list" }, input: "", inputCursor: 0, query: "", selectedIndex: 0, marked: [], sortMode, dateFormat: "auto", mutation: { kind: "idle" } });
 
 export type TuiAction =
+  | { type: "view"; view: AgendaView; showUnscheduled?: boolean }
   | { type: "mode"; mode: UiMode }
   | { type: "input"; value: string; cursor?: number }
   | { type: "cursorMove"; delta: number }
@@ -63,6 +68,7 @@ export type TuiAction =
 
 export const tuiReducer = (state: TuiState, action: TuiAction): TuiState => {
   switch (action.type) {
+    case "view": return { ...state, view: action.view, showUnscheduled: action.showUnscheduled ?? state.showUnscheduled };
     case "mode": {
       // detail/confirm 是覆盖在清单之上的浮层，进出时不该清掉正在编辑的输入
       const keepsInput = action.mode.kind !== "list";

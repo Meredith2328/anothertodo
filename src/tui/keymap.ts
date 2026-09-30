@@ -41,7 +41,7 @@ export type KeyAction =
   | { type: "shortcut"; name: string };
 
 /** 清单区被快捷键占掉的字母；打这些字母开头的标题要先按 i 进输入区 */
-const LIST_SHORTCUT_LETTERS = "dxewur12tivsocnpaDU,";
+const LIST_SHORTCUT_LETTERS = "dxewur123456fbtivsocnpaDU,";
 
 // Ink 的 parseKeypress 把 \b 命名为 backspace、\x7f 命名为 delete，
 // 但两个键在主流终端上的语义都是「退格」（Windows Terminal 退格发 \x7f，
@@ -51,6 +51,7 @@ const isBackspace = (input: string, key: KeyEvent["key"]): boolean =>
 
 export const mapKey = (mode: UiMode, event: KeyEvent): KeyAction | undefined => {
   const { input, key } = event;
+  if (key.ctrl && input === "v" && ["list", "add", "edit", "search", "command"].includes(mode.kind)) return { type: "shortcut", name: "f" };
   const is = (name: string, flag?: boolean): boolean => key.name === name || flag === true;
   // 确认框只认「是 / 否」，误触别的键不该悄悄放过或误删
   if (mode.kind === "confirm") {

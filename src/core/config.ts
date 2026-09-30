@@ -28,6 +28,9 @@ week_days = 7
 date_format = "auto"
 # 日期、优先级都相同时怎么排：entry 先加的在前 / entry_desc 后加的在前 / title 按标题（中文按拼音）
 tie_break = "entry"
+# 聚焦视图：all 全部 / recent 近期 / hour 接下来一小时；只改变显示
+view = "all"
+timezone = "Asia/Shanghai"
 
 [watch]
 interval_seconds = 30
@@ -47,6 +50,8 @@ animations = true
 layout = "cards"
 # 密度：comfortable 分组之间留空行 / compact 挤紧一点，给小终端
 density = "comfortable"
+# 每两条任务之间的空白行数：0 / 1 / 2
+line_spacing = 0
 # 顶部横幅：line 一行标题 / small 两行小字 / full 六行像素字
 banner = "line"
 

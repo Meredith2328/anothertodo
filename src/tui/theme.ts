@@ -107,6 +107,7 @@ export const HELP_SECTIONS: ReadonlyArray<readonly [string, ReadonlyArray<readon
     ["空格 / Ctrl+A", "打勾多选 / 全选本屏；有勾时 d x c w o s 批量执行"],
     ["u / U / r", "撤销 / 重做 / 重载配置和皮肤文件（:history 看最近几步）"],
     ["1 / 2 / Tab", "档位排序 / urgency 排序 / 切项目页"],
+    ["3 / 4 / 5", "全部 / 近期 / 接下来一小时；f 循环切换，b 未安排，6 展开已完成"],
     ["t", "日期列格式：相对 / 月日 / 完整"],
     ["直接打字", "跳进输入区添加；若首字是快捷键（如 d），先按 i"],
   ]],
@@ -126,6 +127,7 @@ export const HELP_SECTIONS: ReadonlyArray<readonly [string, ReadonlyArray<readon
   ["两区通用", [
     ["? / F1", "本帮助（任意键关闭）"],
     ["Ctrl+Z / Ctrl+Y", "撤销 / 重做"],
+    ["Ctrl+V", "切视图，保留正在输入的内容"],
     ["Ctrl+S / Ctrl+F", "同步 / 搜索"],
     ["q / Q / 双击 Esc", "退出（Ctrl+Q 也可）"],
   ]],
@@ -142,6 +144,7 @@ export const COMPACT_HELP_ROWS: ReadonlyArray<readonly [string, string]> = [
   ["", "d 完成 · x 删除 · c 取消 · o 重开 · e 编辑 · w 等待 · s 推迟提醒"],
   ["", "n 在做 · p 暂停 · a 选后续任务 · D 依赖图 · Tab 项目页 · , 设置"],
   ["", "空格 打勾多选 · Ctrl+A 全选 · u 撤销 · U 重做 · 1/2 排序 · t 日期列"],
+  ["视图", "3 全部 · 4 近期 · 5 一小时 · f 切换 · b 未安排 · 6 已完成 · Ctrl+V 保留输入切换"],
   ["输入区", "直接打字添加 · Enter 提交 · Tab 补全 #标签/proj:"],
   ["", ": 命令(list/undo/redo/history/graph/skin/sync/mode/archive/cancel/doing/pause) · / 搜索"],
   ["通用", "? 帮助 · Ctrl+Z 撤销 · Ctrl+Y 重做 · Ctrl+S 同步 · Ctrl+F 搜索"],

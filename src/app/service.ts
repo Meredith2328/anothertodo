@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import type { Config, Task } from "../contracts.js";
 import { loadConfig } from "../core/config.js";
 import { daysBetweenDates, parse, shiftDateOnly, nextOccurrence } from "../core/parse.js";
 import { unblockedBy, wouldCycle } from "../core/deps.js";
 import { applyParsedUpdate } from "../core/task-ops.js";
 import { ACTIVE_STATES, cloneTask, localDate, localNow, newId, parseTask, utcNow } from "../core/task.js";
+import { OperationError } from "../core/errors.js";
 import { Store } from "../storage/store.js";
 import { syncDirectory } from "../sync/sync.js";
 import { snooze as snoozeReminder } from "../reminders/watcher.js";
@@ -12,6 +14,7 @@ import { snooze as snoozeReminder } from "../reminders/watcher.js";
 const initialStatus = (wait: string | undefined, today: string): "todo" | "waiting" =>
   wait !== undefined && wait > today ? "waiting" : "todo";
 
+export type MutationOptions = { ifModified?: string };
 export type TaskStatus = "todo" | "doing" | "waiting" | "paused" | "done" | "cancelled" | "meeting";
 const STATUS_LABELS: Record<TaskStatus, string> = { todo: "待办", doing: "在做", waiting: "等待", paused: "暂停", done: "已完成", cancelled: "已取消", meeting: "会议" };
 
@@ -67,24 +70,31 @@ export class ApplicationService {
     return deps;
   }
 
-  async add(input: string, now = localNow()): Promise<Task> {
+  async add(input: string, now = localNow(), options: { requestId?: string } = {}): Promise<Task> {
     const config = await this.config();
-    const parsed = parse(input, now, [...config.priority.levels]);
-    if (!parsed.title) throw new Error("标题不能为空");
-    const id = newId();
-    const deps = parsed.deps ? await this.resolveDeps(id, parsed.deps) : [];
-    return this.store.save(parseTask({
-      id, title: parsed.title, status: parsed.status ?? initialStatus(parsed.wait, now.slice(0, 10)), ...(deps.length ? { deps } : {}),
-      ...(parsed.due ? { due: parsed.due } : {}), ...(parsed.until ? { until: parsed.until } : {}), ...(parsed.priority ? { priority: parsed.priority } : {}),
-      tags: parsed.tags, ...(parsed.project ? { project: parsed.project } : {}), ...(parsed.parent ? { parent: parsed.parent } : {}),
-      ...(parsed.wait ? { wait: parsed.wait } : {}), ...(parsed.notes ? { notes: parsed.notes } : {}), ...(parsed.recur ? { recur: parsed.recur } : {}),
-      reminders: parsed.reminders.map(({ relative: _relative, ...reminder }) => reminder), entry: utcNow(), modified: utcNow(),
-    }));
+    return this.store.save(async () => {
+      const parsed = parse(input, now, [...config.priority.levels]);
+      if (!parsed.title) throw new OperationError("INVALID_INPUT", "标题不能为空");
+      const id = newId();
+      const deps = parsed.deps ? await this.resolveDeps(id, parsed.deps) : [];
+      return parseTask({
+        id, title: parsed.title, status: parsed.status ?? initialStatus(parsed.wait, now.slice(0, 10)), ...(deps.length ? { deps } : {}),
+        ...(parsed.due ? { due: parsed.due } : {}), ...(parsed.until ? { until: parsed.until } : {}), ...(parsed.priority ? { priority: parsed.priority } : {}),
+        tags: parsed.tags, ...(parsed.project ? { project: parsed.project } : {}), ...(parsed.parent ? { parent: parsed.parent } : {}),
+        ...(parsed.wait ? { wait: parsed.wait } : {}), ...(parsed.notes ? { notes: parsed.notes } : {}), ...(parsed.recur ? { recur: parsed.recur } : {}),
+        reminders: parsed.reminders.map(({ relative: _relative, ...reminder }) => reminder), entry: utcNow(), modified: utcNow(),
+      });
+    }, undefined, true, options.requestId === undefined ? undefined : { id: options.requestId, payloadHash: createHash("sha256").update(input).digest("hex") });
   }
 
-  async edit(idOrPrefix: string, input: string, now = localNow()): Promise<Task> {
+  private checkVersion(task: Task, options: MutationOptions): void {
+    if (options.ifModified !== undefined && task.modified !== options.ifModified) throw new OperationError("VERSION_CONFLICT", `任务 ${task.id} 已修改；请读取最新版本后重新判断`);
+  }
+
+  async edit(idOrPrefix: string, input: string, now = localNow(), options: MutationOptions = {}): Promise<Task> {
     const task = await this.store.find(idOrPrefix);
-    if (!task) throw new Error(`找不到任务：${idOrPrefix}`);
+    if (!task) throw new OperationError("NOT_FOUND", `找不到任务：${idOrPrefix}`);
+    this.checkVersion(task, options);
     const before = cloneTask(task);
     const config = await this.config();
     const parsed = parse(input, now, [...config.priority.levels]);
@@ -96,7 +106,7 @@ export class ApplicationService {
   /** 整组改写前置；依赖图里删一条边、选择列表里勾选都走这里 */
   async setDeps(idOrPrefix: string, depIds: string[]): Promise<Task> {
     const task = await this.store.find(idOrPrefix);
-    if (!task) throw new Error(`找不到任务：${idOrPrefix}`);
+    if (!task) throw new OperationError("NOT_FOUND", `找不到任务：${idOrPrefix}`);
     const before = cloneTask(task);
     const deps = await this.resolveDeps(task.id, depIds);
     if (deps.length) task.deps = deps; else delete task.deps;
@@ -123,11 +133,12 @@ export class ApplicationService {
     return changed;
   }
 
-  async setStatus(idOrPrefix: string, status: TaskStatus): Promise<Task> {
+  async setStatus(idOrPrefix: string, status: TaskStatus, options: MutationOptions = {}): Promise<Task> {
     const task = await this.store.find(idOrPrefix);
-    if (!task) throw new Error(`找不到任务：${idOrPrefix}`);
+    if (!task) throw new OperationError("NOT_FOUND", `找不到任务：${idOrPrefix}`);
+    this.checkVersion(task, options);
     // 重复设成同一个状态没有意义，尤其是 done——静默刷新 end 会把真正的完成时间冲掉
-    if (task.status === status) throw new Error(`跳过：${task.title}（已经是${STATUS_LABELS[status]}）`);
+    if (task.status === status) throw new OperationError("ALREADY_IN_STATE", `跳过：${task.title}（已经是${STATUS_LABELS[status]}）`);
     const before = cloneTask(task);
     task.status = status;
     if (status === "done" || status === "cancelled") task.end = utcNow();
@@ -146,16 +157,17 @@ export class ApplicationService {
    * 完成一个任务，顺带处理两件只有在这里才知道该怎么做的事：
    * 重复任务要派生下一次，父任务完成时要交代还开着的子任务。
    */
-  async complete(idOrPrefix: string, options: { cascade?: boolean; now?: string } = {}): Promise<CompleteResult> {
+  async complete(idOrPrefix: string, options: { cascade?: boolean; now?: string; ifModified?: string } = {}): Promise<CompleteResult> {
     const target = await this.store.find(idOrPrefix);
-    if (!target) throw new Error(`找不到任务：${idOrPrefix}`);
+    if (!target) throw new OperationError("NOT_FOUND", `找不到任务：${idOrPrefix}`);
+    this.checkVersion(target, options);
     const now = options.now ?? localNow();
     // 完成、带上的子任务、派生的下一次算同一次操作，撤销一下全部回来
     return this.store.batch(async () => {
       const openChildren = (await this.children(target.id)).filter((child) => ACTIVE_STATES.has(child.status));
       const cascaded: Task[] = [];
       if (options.cascade) for (const child of openChildren) cascaded.push(await this.setStatus(child.id, "done"));
-      const task = await this.setStatus(target.id, "done");
+      const task = await this.setStatus(target.id, "done", { ifModified: options.ifModified ?? target.modified });
       const next = await this.spawnNextOccurrence(task, now);
       const unblocked = unblockedBy(await this.store.tasks(), task.id);
       return { task, ...(next ? { next } : {}), cascaded, openChildren: options.cascade ? [] : openChildren, unblocked };
@@ -197,9 +209,10 @@ export class ApplicationService {
   }
 
   /** 押后到指定日期；TUI 的 w 和 CLI 的 wait 都走这里 */
-  async deferUntil(idOrPrefix: string, date: string): Promise<Task> {
+  async deferUntil(idOrPrefix: string, date: string, options: MutationOptions = {}): Promise<Task> {
     const task = await this.store.find(idOrPrefix);
-    if (!task) throw new Error(`找不到任务：${idOrPrefix}`);
+    if (!task) throw new OperationError("NOT_FOUND", `找不到任务：${idOrPrefix}`);
+    this.checkVersion(task, options);
     const before = cloneTask(task);
     task.status = "waiting";
     task.wait = date;
@@ -207,16 +220,18 @@ export class ApplicationService {
     return this.store.save(task, before);
   }
 
-  async remove(idOrPrefix: string): Promise<void> {
+  async remove(idOrPrefix: string, options: MutationOptions = {}): Promise<void> {
     const task = await this.store.find(idOrPrefix);
-    if (!task) throw new Error(`找不到任务：${idOrPrefix}`);
+    if (!task) throw new OperationError("NOT_FOUND", `找不到任务：${idOrPrefix}`);
+    this.checkVersion(task, options);
     await this.store.delete(task.id, task.modified);
   }
 
-  async reopen(idOrPrefix: string): Promise<Task> {
+  async reopen(idOrPrefix: string, options: MutationOptions = {}): Promise<Task> {
     const task = await this.store.find(idOrPrefix);
-    if (!task) throw new Error(`找不到任务：${idOrPrefix}`);
-    if (task.status !== "done" && task.status !== "cancelled") throw new Error(`跳过：${task.title}（只有 done/cancelled 可 reopen）`);
+    if (!task) throw new OperationError("NOT_FOUND", `找不到任务：${idOrPrefix}`);
+    this.checkVersion(task, options);
+    if (task.status !== "done" && task.status !== "cancelled") throw new OperationError("INVALID_STATE", `跳过：${task.title}（只有 done/cancelled 可 reopen）`);
     const before = cloneTask(task);
     task.status = "todo";
     delete task.end;

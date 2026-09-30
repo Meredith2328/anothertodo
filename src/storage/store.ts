@@ -1,7 +1,8 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { appendFile, mkdir, open, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { OperationError } from "../core/errors.js";
 import { TaskSchema, TombstoneSchema, type Task } from "../contracts.js";
 import { DomainEventBus, type DomainEvents } from "../core/events.js";
 import { cloneTask, newId, parseTask, tombstone, utcNow } from "../core/task.js";
@@ -13,6 +14,9 @@ import { atomicWriteText, withDataLock } from "./lock.js";
 type JsonObject = Record<string, unknown>;
 /** batch 相同的相邻记录是同一次操作（比如完成任务顺带派生了下一次），撤销 / 重做时一起走 */
 type UndoRecord = { before: JsonObject | null; after: JsonObject | null; ts: string; batch?: string };
+type AddRequest = { id: string; payloadHash: string };
+type RequestReceipt = { requestId: string; payloadHash: string; task: Task; committed: boolean; beforeHash: string };
+const objectsHash = (objects: JsonObject[]): string => createHash("sha256").update(JSON.stringify(objects)).digest("hex");
 type ArchiveTransaction = { tasks: string[]; archive: string[] };
 
 export class ConcurrentModificationError extends Error {
@@ -148,7 +152,7 @@ export class Store {
 
   async find(prefix: string): Promise<Task | undefined> {
     const matches = (await this.tasks()).filter((task) => task.id.startsWith(prefix));
-    if (matches.length > 1) throw new Error(`id 前缀 ${JSON.stringify(prefix)} 匹配到多个任务：${matches.map((task) => task.id).join(", ")}`);
+    if (matches.length > 1) throw new OperationError("AMBIGUOUS_ID", `id 前缀 ${JSON.stringify(prefix)} 匹配到多个任务：${matches.map((task) => task.id).join(", ")}`);
     return matches[0];
   }
 
@@ -167,24 +171,63 @@ export class Store {
     await writeFile(this.paths.redo, "", "utf8");
   }
 
-  async save(input: Task, before?: Task, recordUndo = true): Promise<Task> {
+  async save(input: Task | (() => Promise<Task>), before?: Task, recordUndo = true, request?: AddRequest): Promise<Task> {
     return this.withLock(async (emit) => {
       const originalObjects = await this.rawObjects();
       this.assertTasksWritable();
-      const existingObject = originalObjects.filter((obj) => obj.id === input.id && obj.deleted !== true).at(-1);
+      const requestPath = join(this.paths.dir, "requests.json");
+      let receipts: RequestReceipt[] = [];
+      if (request) {
+        if (!request.id.trim() || request.id.length > 128) throw new OperationError("INVALID_REQUEST_ID", "request-id 必须是 1–128 个字符");
+        try {
+          const raw: unknown = JSON.parse(await readFile(requestPath, "utf8"));
+          if (!Array.isArray(raw)) throw new Error("expected array");
+          receipts = raw.map((item: RequestReceipt) => {
+            if (typeof item.requestId !== "string" || typeof item.payloadHash !== "string" || typeof item.committed !== "boolean" || typeof item.beforeHash !== "string") throw new Error("invalid receipt");
+            return { ...item, task: parseTask(item.task) };
+          });
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new OperationError("REQUEST_STORE_INVALID", "requests.json 无法读取，已阻止新增；请检查该文件");
+        }
+        const receipt = receipts.find((item) => item.requestId === request.id);
+        if (receipt) {
+          if (receipt.payloadHash !== request.payloadHash) throw new OperationError("REQUEST_CONFLICT", "这个 request-id 已用于不同输入，请使用新的 request-id");
+          const current = originalObjects.find((obj) => obj.id === receipt.task.id && obj.deleted !== true);
+          if (current) {
+            if (!receipt.committed) { receipt.committed = true; await atomicWriteText(requestPath, JSON.stringify(receipts) + "\n"); }
+            return parseTask(current);
+          }
+          if (receipt.committed || originalObjects.some((obj) => obj.id === receipt.task.id)) throw new OperationError("REQUEST_RESULT_UNAVAILABLE", `原请求任务 ${receipt.task.id} 已被删除或归档，不会重新新增`);
+          // 落盘 intent 后崩溃：只有任务库仍与此前完全一致时才恢复，不覆盖其他 writer。
+          if (objectsHash(originalObjects) !== receipt.beforeHash) throw new OperationError("REQUEST_INCOMPLETE", "原请求尚未完成且任务库已变化；请先检查结果，不能盲重试新增");
+          await atomicWrite(this.paths.tasks, [...originalObjects, TaskSchema.parse(receipt.task)].map(jsonLine));
+          await this.appendUndo(null, TaskSchema.parse(receipt.task));
+          receipt.committed = true;
+          await atomicWriteText(requestPath, JSON.stringify(receipts) + "\n");
+          emit("task.created", { task: cloneTask(receipt.task) });
+          return receipt.task;
+        }
+      }
+      const draft = typeof input === "function" ? await input() : input;
+      const existingObject = originalObjects.filter((obj) => obj.id === draft.id && obj.deleted !== true).at(-1);
       const existing = existingObject ? parseTask(existingObject) : undefined;
-      if (before && (!existing || existing.modified !== before.modified)) throw new ConcurrentModificationError(input.id);
-      let id = input.id || this.idGenerator();
+      if (before && (!existing || existing.modified !== before.modified)) throw new ConcurrentModificationError(draft.id);
+      let id = draft.id || this.idGenerator();
       if (!before && recordUndo) {
         const occupied = new Set(originalObjects.map((obj) => String(obj.id)));
         let attempts = 0;
         while (occupied.has(id) && attempts < 1000) { id = this.idGenerator(); attempts += 1; }
         if (occupied.has(id)) throw new Error("无法生成未占用的任务 ID；请重试或检查随机源");
       }
-      const task = parseTask({ ...input, id, entry: input.entry || utcNow(), modified: utcNow() });
+      const task = parseTask({ ...draft, id, entry: draft.entry || utcNow(), modified: existing && Date.parse(existing.modified) >= Date.now() ? new Date(Date.parse(existing.modified) + 1).toISOString() : utcNow() });
       const objects = originalObjects.filter((obj) => obj.id !== task.id);
       objects.push(TaskSchema.parse(task));
+      if (request) {
+        receipts.push({ requestId: request.id, payloadHash: request.payloadHash, task, committed: false, beforeHash: objectsHash(originalObjects) });
+        await atomicWriteText(requestPath, JSON.stringify(receipts) + "\n");
+      }
       await atomicWrite(this.paths.tasks, objects.map(jsonLine));
+      if (request) { receipts[receipts.length - 1]!.committed = true; await atomicWriteText(requestPath, JSON.stringify(receipts) + "\n"); }
       if (recordUndo) await this.appendUndo(before ? TaskSchema.parse(cloneTask(before)) : null, TaskSchema.parse(task));
       if (existing) emit("task.updated", { before: cloneTask(before ?? existing), after: cloneTask(task) });
       else emit("task.created", { task: cloneTask(task) });

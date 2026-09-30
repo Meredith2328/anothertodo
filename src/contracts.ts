@@ -103,6 +103,11 @@ export const ConfigSchema = z.object({
     date_format: z.enum(["auto", "md", "full"]),
     // 日期、优先级都相同时怎么排：entry 先加的在前 / entry_desc 后加的在前 / title 按标题（中文按拼音）
     tie_break: z.enum(["entry", "entry_desc", "title"]).default("entry"),
+    view: z.enum(["all", "recent", "hour"]).default("all"),
+    timezone: z.string().refine((value) => {
+      try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; }
+      catch { return false; }
+    }, "无效时区").default("Asia/Shanghai"),
   }),
   watch: z.object({
     interval_seconds: z.number().int().positive(),
@@ -119,6 +124,7 @@ export const ConfigSchema = z.object({
     // cards：按分组分块、靠留白分隔的卡片式清单；table：带边框和表头的表格
     layout: z.enum(["cards", "table"]).default("cards"),
     // comfortable 分组之间空一行、输入框带完整边框；compact 挤在一起，给小终端
+    line_spacing: z.number().int().min(0).max(2).default(0),
     density: z.enum(["comfortable", "compact"]).default("comfortable"),
     // 顶部横幅：line 一行标题；small 两行小字；full 六行像素字
     banner: z.enum(["line", "small", "full"]).default("line"),
