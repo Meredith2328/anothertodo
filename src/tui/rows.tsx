@@ -53,7 +53,7 @@ const priorityCell = (task: Task, levels: string[]): Cell => {
 
 const statusCell = (task: Task): Cell => {
   if (task.status === "todo") return { text: "", color: C.dim, bold: false };
-  return { text: task.status, color: STATUS_COLOR[task.status] ?? C.dim, bold: false };
+  return { text: task.status === "done" ? "已完成" : task.status, color: STATUS_COLOR[task.status] ?? C.dim, bold: false };
 };
 
 const extrasSegments = (task: Task): Array<{ text: string; color: string }> => {
@@ -115,7 +115,7 @@ const metaSegments = (task: Task, today: string, dateFormat: "auto" | "md" | "fu
   if (span) segments.push({ text: span, color: C.accent, bold: true });
   if (showDate && task.due) { const date = dateCell(task, today, dateFormat); segments.push({ text: date.text, color: date.color, bold: date.bold }); }
   if (wait) segments.push({ text: wait, color: C.tag });
-  if (task.status !== "todo" && task.status !== "doing" && task.status !== "waiting" && task.status !== "paused") segments.push({ text: task.status, color: STATUS_COLOR[task.status] ?? C.dim });
+  if (task.status !== "todo" && task.status !== "doing" && task.status !== "waiting" && task.status !== "paused") segments.push({ text: task.status === "done" ? "已完成" : task.status, color: STATUS_COLOR[task.status] ?? C.dim });
   if (task.project) segments.push({ text: `◈ ${task.project}`, color: C.proj });
   for (const tag of task.tags) segments.push({ text: `#${tag}`, color: C.tag });
   if (task.recur) segments.push({ text: `↻ ${describeRecur(task.recur)}`, color: C.proj });
@@ -150,8 +150,8 @@ export const CardRow = ({ task, selected, marked = false, blocked = false, compl
 }): React.ReactElement => {
   const indent = depth > 0 ? `${"  ".repeat(depth - 1)}↳ ` : "";
   const priority = priorityCell(task, levels);
-  const dot = completing !== undefined ? "✓" : marked ? "◉" : blocked ? "⊘" : priority.text ? "●" : "○";
-  const dotColor = completing !== undefined ? C.good : marked ? C.hot : blocked ? C.dimmer : priority.text ? priority.color : C.dimmer;
+  const dot = completing !== undefined || task.status === "done" ? "✓" : marked ? "◉" : blocked ? "⊘" : priority.text ? "●" : "○";
+  const dotColor = completing !== undefined || task.status === "done" ? C.good : marked ? C.hot : blocked ? C.dimmer : priority.text ? priority.color : C.dimmer;
   const lead = `${selected ? "▍" : " "} `;
   // 左边：引导 2 + 圆点 1 + 空格 1 + 缩进；右边说明和标题之间至少留 3 格
   const meta = metaSegments(task, today, dateFormat, wait, showDate);
@@ -163,7 +163,7 @@ export const CardRow = ({ task, selected, marked = false, blocked = false, compl
   const metaText = metaWidth(shown);
   const room = Math.max(2, width - fixed - (shown.length ? metaText + 3 : 0));
   const name = [...truncateWithEllipsis(task.title, room)];
-  const struck = completing === undefined ? 0 : Math.ceil(name.length * completing);
+  const struck = completing === undefined ? (task.status === "done" ? name.length : 0) : Math.ceil(name.length * completing);
   const gap = " ".repeat(Math.max(1, width - fixed - displayWidth(name.join("")) - metaText));
   const background = selected ? C.select : moved ? C.border : undefined;
   const tone = (color: string): string => blocked ? C.dimmer : color;
@@ -172,7 +172,7 @@ export const CardRow = ({ task, selected, marked = false, blocked = false, compl
       <Text color={C.accent}>{lead}</Text>
       <Text color={dotColor}>{`${dot} `}</Text>
       <Text color={C.dimmer}>{indent}</Text>
-      <Text strikethrough color={C.good}>{name.slice(0, struck).join("")}</Text>
+      <Text strikethrough color={completing === undefined ? C.dim : C.good}>{name.slice(0, struck).join("")}</Text>
       <Text bold={selected && !blocked} {...(completing !== undefined ? { color: C.dim } : {})}>{name.slice(struck).join("")}</Text>
       <Text>{gap}</Text>
       {shown.map((segment, index) => (
@@ -220,11 +220,11 @@ export const TaskRow = ({ task, selected, marked = false, blocked = false, compl
 }): React.ReactElement => {
   // 子任务缩进后可用的标题宽度也跟着变窄，否则会挤掉右边的列
   const indent = depth > 0 ? `${"  ".repeat(depth - 1)}↳ ` : "";
-  const mark = completing !== undefined ? "✓ " : `${marked ? "◉ " : ""}${blocked ? "⊘ " : ""}`;
+  const mark = completing !== undefined || task.status === "done" ? "✓ " : `${marked ? "◉ " : ""}${blocked ? "⊘ " : ""}`;
   // 标题后面留一格空，免得和紧急度列粘在一起
   const room = Math.max(2, cols.title - displayWidth(indent) - displayWidth(mark) - 1);
   const name = [...truncateWithEllipsis(task.title, room)];
-  const struck = completing === undefined ? 0 : Math.ceil(name.length * completing);
+  const struck = completing === undefined ? (task.status === "done" ? name.length : 0) : Math.ceil(name.length * completing);
   const tail = " ".repeat(Math.max(0, cols.title - displayWidth(indent) - displayWidth(mark) - displayWidth(name.join(""))));
   const date = dateCell(task, today, dateFormat);
   const priority = priorityCell(task, levels);
@@ -238,7 +238,7 @@ export const TaskRow = ({ task, selected, marked = false, blocked = false, compl
       <Text color={C.accent}>{selected ? "▍" : " "}</Text>
       <Text color={tone(date.color)} bold={date.bold}>{padDisplay(truncateDisplay(date.text, cols.date - 1), cols.date - 1)}</Text>
       <Text {...(completing !== undefined ? { color: C.good } : {})}>{`${indent}${mark}`}</Text>
-      <Text strikethrough color={C.good}>{name.slice(0, struck).join("")}</Text>
+      <Text strikethrough color={completing === undefined ? C.dim : C.good}>{name.slice(0, struck).join("")}</Text>
       <Text {...(completing !== undefined ? { color: C.dim } : {})}>{`${name.slice(struck).join("")}${tail}`}</Text>
       {cols.priority ? <Text color={tone(priority.color)} bold={priority.bold}>{padDisplay(priority.text, cols.priority)}</Text> : null}
       {cols.status ? <Text color={tone(status.color)} bold={status.bold}>{padDisplay(truncateDisplay(status.text, cols.status - 1), cols.status)}</Text> : null}

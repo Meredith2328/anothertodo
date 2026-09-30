@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 
 import { ApplicationService } from "../app/service.js";
+import { viewGroups, viewCounts, viewWindow, wallNow, VIEW_ORDER, type AgendaView } from "../core/views.js";
+import { compileQuery, filterTasks } from "../core/query.js";
 import { groups, nestTasks, type GroupKey } from "../core/agenda.js";
 import { blockedIds, dependencyGraph, waitLabel, wouldCycle } from "../core/deps.js";
 import { setConfigValue } from "../core/config.js";
@@ -21,7 +23,7 @@ import { setMouseTracking, subscribeMouse, type MouseEvent } from "./mouse.js";
 import {
   CardRow, EmptyState, GroupHeading, GroupSeparator, TableHeader, TaskRow, tableColumns,
 } from "./rows.js";
-import { Banner, FooterBar, InputBar, PreviewLine, TopBar, bannerRows, contentLeft, contentWidth, footerHeight, footerKeyRanges, inputHeight, setTightLayout, type FooterButton } from "./chrome.js";
+import { Banner, FooterBar, InputBar, PreviewLine, TopBar, ViewBar, viewKeyRanges, bannerRows, contentLeft, contentWidth, footerHeight, footerKeyRanges, inputHeight, setTightLayout, type FooterButton } from "./chrome.js";
 import {
   CONFIRM_LINES, ConfirmModal, DetailModal, DepsModal, GraphModal, HelpModal, HistoryModal, ModalShell, SettingsModal, WELCOME_LINES, WelcomeModal,
   detailLines, depsLines, depsRoom, graphRoom, helpLines, historyLines, listStart, modalPad, settingsLines, settingsRows, type DepsCandidate,
@@ -48,6 +50,7 @@ export type TuiProps = {
 };
 const nowLocal = localNow;
 const flatten = (items: ReturnType<typeof groups>): Task[] => items.flatMap((group) => group.tasks);
+const activeFinishedQuery = (query: string): boolean => compileQuery(query).some((predicate) => predicate[0] === "status" && predicate[1] === "done");
 const completeInput = (input: string, tasks: Task[]): string => {
   const tag = input.match(/#([^\s#]*)$/u);
   if (tag) {
@@ -66,9 +69,12 @@ const completeInput = (input: string, tasks: Task[]): string => {
 
 // ---------------------------------------------------------------- 主组件
 type TableLine =
-  | { kind: "sep"; groupKey: GroupKey; name: string; count: number }
+  | { kind: "hint"; text: string }
+  | { kind: "sep"; groupKey: GroupKey; name: string; count: number; completed?: boolean }
   | { kind: "gap"; groupKey: GroupKey }
-  | { kind: "task"; task: Task; depth: number; index: number; groupKey: GroupKey };
+  | { kind: "task"; task: Task; depth: number; index: number; groupKey: GroupKey; progress?: number | undefined };
+type CompletionPlacement = { groupKey: GroupKey; name: string; position: number; depth: number; context: string };
+type CompletionFeedback = CompletionPlacement & { task: Task; started: number };
 
 /** 完成任务并把「派生了下一次」「还有子任务没做」这两件事说清楚，别让用户自己去发现 */
 const completeAndDescribe = async (service: ApplicationService, id: string): Promise<string> => {
@@ -103,9 +109,8 @@ const toggleStatus = async (service: ApplicationService, task: Task | undefined,
 /** 打了勾就对勾选的那些干活，没打勾就对光标所在这条干活 */
 const targetIds = (state: TuiState, selected: Task): string[] => state.marked.length ? [...state.marked] : [selected.id];
 
-// 完成动画：删除线分几帧从左划到右，划完再真正完成（任务随后离开列表）
-const STRIKE_FRAMES = 8;
-const STRIKE_FRAME_MS = 55;
+// 写入成功后短暂保留原行；计时只影响绘制，不阻塞输入或存储。
+const COMPLETION_MS = 700;
 // Esc 连按两下退出的间隔：1 秒太赶，第二下常常按晚
 const EXIT_WINDOW_MS = 2000;
 // 提示行里的操作反馈停留多久后退回上下文提示
@@ -119,10 +124,10 @@ const layoutOf = (config: Config | undefined): Layout => ({
 // 清单区上面：横幅 + 顶栏 1（表格布局再加上边框 1 + 表头 1）；
 // 下面：提示行 1 + 输入框 + Footer（表格布局再加下边框 1）
 const listChrome = (columns: number | undefined, rows: number | undefined, layout: Layout): number =>
-  bannerRows(columns, rows, layout.banner) + 1 + (layout.cards ? 0 : 3) + 1 + inputHeight(layout.compact) + footerHeight();
+  bannerRows(columns, rows, layout.banner) + 3 + (layout.cards ? 0 : 3) + 1 + inputHeight(layout.compact) + footerHeight();
 /** 清单第一行的屏幕行号（1 起），鼠标点任务行按它换算 */
 const firstListRow = (columns: number | undefined, rows: number | undefined, layout: Layout): number =>
-  bannerRows(columns, rows, layout.banner) + (layout.cards ? 2 : 4);
+  bannerRows(columns, rows, layout.banner) + (layout.cards ? 4 : 6);
 
 export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: TuiProps): React.ReactElement => {
   const { exit } = useApp();
@@ -168,7 +173,24 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   const [settingIndex, setSettingIndex] = useState(0);
   const [skinChoices, setSkinChoices] = useState<Array<{ name: string; description: string }>>([]);
   const settings = useMemo(() => settingItems(skinChoices), [skinChoices]);
-  const [strike, setStrike] = useState<{ ids: string[]; frame: number }>();
+  const [feedback, setFeedback] = useState<CompletionFeedback[]>([]);
+  const [feedbackClock, setFeedbackClock] = useState(0);
+  const [recentCompleted, setRecentCompleted] = useState<string[]>([]);
+  const [completedExpanded, setCompletedExpanded] = useState(false);
+  const completionPlacements = useRef(new Map<string, CompletionPlacement>());
+  const observedTasks = useRef<Map<string, Task>>();
+  const pendingCompletions = useRef(new Set<string>());
+  const failedCompletions = useRef(new Set<string>());
+  const refreshQueue = useRef(Promise.resolve());
+  useEffect(() => {
+    if (!feedback.length) return;
+    const timer = setInterval(() => {
+      const now = Date.now();
+      setFeedbackClock(now);
+      setFeedback((items) => items.filter((item) => now - item.started < COMPLETION_MS));
+    }, 70);
+    return () => clearInterval(timer);
+  }, [feedback.length]);
   useEffect(() => {
     if (pressedButton === undefined) return;
     const timer = setTimeout(() => setPressedButton(undefined), 180);
@@ -190,13 +212,17 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   const projects = useMemo(() => [...new Set(tasks.filter((task) => ACTIVE_STATES.has(task.status)).map((task) => task.project).filter((value): value is string => Boolean(value)))].sort(), [tasks]);
   // 每组内部按父子相邻重排后再摊平：显示顺序和选中索引必须用同一份顺序，
   // 否则按 j/k 选中的行和高亮的行会错开
-  const visibleGroups = useMemo(() => {
+  const activeGroups = useMemo(() => {
     if (!config) return [];
     const scoped = state.project === undefined ? tasks : tasks.filter((task) => task.project === state.project);
-    return groups(scoped, config, state.sortMode, nowLocal(), state.query)
+    return viewGroups(scoped, config, state.sortMode, clock, state.query, state.view, state.showUnscheduled)
+      .map((group) => ({ ...group, tasks: group.tasks.filter((task) => task.status !== "done") }))
       .filter((group) => group.tasks.length > 0)
       .map((group) => ({ ...group, nested: nestTasks(group.tasks), tasks: nestTasks(group.tasks).map((item) => item.task) }));
-  }, [config, state.project, state.query, state.sortMode, tasks]);
+  }, [config, state.project, state.query, state.sortMode, state.view, state.showUnscheduled, tasks, clock]);
+  const scopedTasks = state.project === undefined ? tasks : tasks.filter((task) => task.project === state.project);
+  const counts = config ? viewCounts(scopedTasks, config, clock, state.query, state.view) : { unscheduled: 0, outside: 0 };
+  const window = config ? viewWindow(config, clock) : undefined;
   // 后续任务选择列表的候选：除它自己以外还开着的任务；勾上会成环的标灰
   const depsOwnerId = state.mode.kind === "deps" ? state.mode.taskId : undefined;
   const depsOwner = depsOwnerId === undefined ? undefined : tasks.find((task) => task.id === depsOwnerId);
@@ -210,12 +236,49 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
         disabled: wouldCycle(tasks, task.id, [...(task.deps ?? []), depsOwner.id]) ? "会成环" : undefined,
       }));
   }, [depsOwner, depsPicked, tasks]);
-  const visible = useMemo(() => flatten(visibleGroups), [visibleGroups]);
+  const completionContext = JSON.stringify([state.view, state.showUnscheduled, state.query, state.project, state.sortMode]);
+  const currentFeedback = feedback.filter((item) => item.context === completionContext && tasks.some((task) => task.id === item.task.id && task.status === "done"));
+  // 只记录真正画在当前清单的行；外部完成不凭空把其他项目/历史塞进原位置。
+  completionPlacements.current = new Map(activeGroups.flatMap((group) => group.nested.map(({ task, depth }, position) =>
+    [task.id, { groupKey: group.key, name: group.name, position, depth, context: completionContext }] as const)));
+  const completedTasks = useMemo(() => config ? filterTasks(scopedTasks, state.query, viewWindow(config, clock).today, [...config.priority.levels])
+    .filter((task) => task.status === "done")
+    .sort((a, b) => (b.end ?? b.modified).localeCompare(a.end ?? a.modified) || a.id.localeCompare(b.id)) : [],
+  [config, tasks, state.project, state.query, clock]);
+  const completedShown = completedTasks.filter((task) => !currentFeedback.some((item) => item.task.id === task.id))
+    .filter((task) => completedExpanded || recentCompleted.slice(0, 3).includes(task.id) || activeFinishedQuery(state.query));
+  const visibleKey = [...flatten(activeGroups), ...completedShown].map((task) => `${task.id}:${task.modified}`).join("|");
+  const visible = useMemo(() => [...flatten(activeGroups), ...completedShown], [visibleKey]);
   const selected = visible[state.selectedIndex];
+  const selections = useRef<Partial<Record<AgendaView, string>>>({});
+  const previousList = useRef({ view: state.view, visible, index: state.selectedIndex, query: state.query, project: state.project });
+  useEffect(() => {
+    const previous = previousList.current;
+    if (previous.view === state.view && previous.query === state.query && previous.project === state.project && previous.visible !== visible && previous.index === state.selectedIndex) {
+      const id = previous.visible[previous.index]?.id;
+      const index = visible.findIndex((task) => task.id === id);
+      if (index >= 0 && index !== state.selectedIndex) dispatch({ type: "select", index });
+    }
+    previousList.current = { view: state.view, visible, index: state.selectedIndex, query: state.query, project: state.project };
+  }, [visible, state.view, state.selectedIndex, state.query, state.project]);
+  const switchView = useCallback((next: AgendaView, showUnscheduled = stateRef.current.showUnscheduled): void => {
+    const current = stateRef.current;
+    const cfg = configRef.current;
+    if (!cfg) return;
+    const currentId = selectedRef.current?.id;
+    if (currentId) selections.current[current.view] = currentId;
+    const scoped = current.project === undefined ? tasks : tasks.filter((task) => task.project === current.project);
+    const nextTasks = viewGroups(scoped, cfg, current.sortMode, new Date(), current.query, next, showUnscheduled).flatMap((group) => nestTasks(group.tasks).map((item) => item.task)).filter((task) => task.status !== "done").concat(completedShown);
+    let index = nextTasks.findIndex((task) => task.id === selections.current[next]);
+    if (index < 0) index = nextTasks.findIndex((task) => task.id === currentId);
+    dispatch({ type: "view", view: next, showUnscheduled });
+    dispatch({ type: "select", index: Math.max(0, index) });
+    if (next !== current.view) void setConfigValue("agenda.view", next, store.paths.dir).catch((error: unknown) => dispatch({ type: "flash", message: `视图未保存：${String(error)}` }));
+  }, [store, tasks, visibleKey]);
   // 详情浮层的数据在早返回之前算好：hooks 数量必须每帧一致，
   // 否则 React 会抛 "Rendered fewer hooks"（表现为闪退）
   const detailId = state.mode.kind === "detail" ? state.mode.taskId : undefined;
-  const detailTask = detailId === undefined ? undefined : (selected ?? tasks.find((task) => task.id === detailId));
+  const detailTask = detailId === undefined ? undefined : tasks.find((task) => task.id === detailId);
   const detailChildren = useMemo(() => detailTask ? tasks.filter((task) => task.parent === detailTask.id) : [], [detailTask, tasks]);
   const detailParent = detailTask?.parent === undefined ? undefined : tasks.find((task) => task.id === detailTask.parent);
   const detailDeps = useMemo(() => detailTask ? tasks.filter((task) => detailTask.deps?.includes(task.id)) : [], [detailTask, tasks]);
@@ -226,21 +289,45 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   const configInitRef = useRef(false);
   stateRef.current = state;
   configRef.current = config;
-  selectedRef.current = selected;
+  selectedRef.current = detailTask ?? selected;
 
   // 皮肤颜色存在模块级的可变对象里，换皮肤时靠这个 state 触发重绘
   const [, setSkinName] = useState<string>();
-  const refresh = useCallback(async () => {
-    const nextConfig = await service.config();
-    // 皮肤跟着配置走：手改 config.toml 或皮肤文件后按 r 刷新就能看到
-    const skinError = await loadSkin(nextConfig.ui.skin, store.paths.dir);
-    if (skinError) dispatch({ type: "flash", message: `${skinError}；先用 classic` });
-    setSkinName(SKIN.name);
-    setSkinChoices(await listSkins(store.paths.dir));
-    const nextTasks = await service.tasks();
-    setConfig(nextConfig);
-    setTasks(nextTasks);
-    setDataRevision((revision) => revision + 1);
+  const refresh = useCallback((): Promise<void> => {
+    const queued = refreshQueue.current.catch(() => {}).then(async () => {
+      const nextConfig = await service.config();
+      const skinError = await loadSkin(nextConfig.ui.skin, store.paths.dir);
+      if (skinError) dispatch({ type: "flash", message: `${skinError}；先用 classic` });
+      setSkinName(SKIN.name);
+      setSkinChoices(await listSkins(store.paths.dir));
+      const nextTasks = await service.tasks();
+      const previous = observedTasks.current;
+      const nextObserved = new Map(nextTasks.map((task) => [task.id, task]));
+      const completed = previous ? nextTasks.filter((task) => {
+        const old = previous.get(task.id);
+        if (pendingCompletions.current.has(task.id)) {
+          if (old) nextObserved.set(task.id, old);
+          return false;
+        }
+        return task.status === "done" && old !== undefined && ACTIVE_STATES.has(old.status) && !failedCompletions.current.has(task.id);
+      }) : [];
+      observedTasks.current = nextObserved;
+      failedCompletions.current.clear();
+      const doneIds = new Set(nextTasks.filter((task) => task.status === "done").map((task) => task.id));
+      setRecentCompleted((ids) => [...completed.map((task) => task.id), ...ids.filter((id) => doneIds.has(id) && !completed.some((task) => task.id === id))]);
+      const additions: CompletionFeedback[] = [];
+      for (const task of completed) {
+        const place = completionPlacements.current.get(task.id);
+        if (place && nextConfig.ui.animations) additions.push({ ...place, task, started: Date.now() });
+      }
+      setFeedbackClock(Date.now());
+      setFeedback((items) => [...items.filter((item) => doneIds.has(item.task.id) && !completed.some((task) => task.id === item.task.id)), ...additions]);
+      setConfig(nextConfig);
+      setTasks(nextTasks.map((task) => pendingCompletions.current.has(task.id) ? previous?.get(task.id) ?? task : task));
+      setDataRevision((revision) => revision + 1);
+    });
+    refreshQueue.current = queued;
+    return queued;
   }, [service, store]);
   useEffect(() => { void refresh().catch((error: unknown) => dispatch({ type: "flash", message: error instanceof Error ? error.message : String(error) })); }, [refresh]);
   useEffect(() => { const timer = setInterval(() => { void refresh().catch(() => {}); }, 30_000); return () => clearInterval(timer); }, [refresh]);
@@ -274,6 +361,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     configInitRef.current = true;
     dispatch({ type: "sort", mode: config.priority.mode });
     dispatch({ type: "dateFormat", format: config.agenda.date_format });
+    dispatch({ type: "view", view: config.agenda.view });
   }, [config]);
   useEffect(() => { if (config) setMouseTracking(config.ui.mouse); }, [config]);
   // 首次运行弹上手引导（按任意键关闭，之后不再弹）；测试默认跳过
@@ -305,11 +393,11 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     dispatch({ type: "mutationStart", id: mutationId });
     try {
       if (currentState.mode.kind === "add") {
-        const task = await service.add(currentState.input, nowLocal());
+        const task = await service.add(currentState.input, wallNow(new Date(), currentConfig.agenda.timezone));
         setMovedId(task.id);
         dispatch({ type: "flash", message: `已添加：${task.title}` });
-      } else if (currentState.mode.kind === "edit" && currentSelected) {
-        const task = await service.edit(currentSelected.id, currentState.input, nowLocal());
+      } else if (currentState.mode.kind === "edit") {
+        const task = await service.edit(currentState.mode.taskId, currentState.input, wallNow(new Date(), currentConfig.agenda.timezone));
         setMovedId(task.id);
         dispatch({ type: "flash", message: `已更新：${task.title}` });
       } else if (currentState.mode.kind === "search") {
@@ -389,20 +477,25 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     })();
   }, [refresh]);
 
-  // 完成动画：先让删除线划过标题，最后一帧停住，再真正完成；任务列表刷新后动画自然结束
+  // 同一行在写入中只能提交一次；成功后的观察器统一处理 UI 和外部 CLI 完成。
   const completeIds = useCallback((ids: string[]): void => {
-    const run = (): void => runMutation(() => runBatch(ids, "✓ 已完成", (id) => completeAndDescribe(service, id)));
-    if (configRef.current?.ui.animations === false) { run(); return; }
-    let frame = 0;
-    setStrike({ ids, frame });
-    const timer = setInterval(() => {
-      frame += 1;
-      setStrike({ ids, frame });
-      if (frame >= STRIKE_FRAMES) { clearInterval(timer); run(); }
-    }, STRIKE_FRAME_MS);
-  }, [runMutation, service]);
-  useEffect(() => { setStrike(undefined); }, [tasks]);
-  useEffect(() => { if (state.mutation.kind === "error") setStrike(undefined); }, [state.mutation]);
+    const targets = [...new Set(ids)].filter((id) => !pendingCompletions.current.has(id) && observedTasks.current?.get(id)?.status !== "done");
+    if (!targets.length) return;
+    targets.forEach((id) => pendingCompletions.current.add(id));
+    runMutation(async () => {
+      try {
+        return await runBatch(targets, "✓ 已完成", async (id) => {
+          try { return await completeAndDescribe(service, id); }
+          catch (error) { failedCompletions.current.add(id); throw error; }
+          finally { pendingCompletions.current.delete(id); }
+        });
+      } finally {
+        targets.forEach((id) => pendingCompletions.current.delete(id));
+        // 失败也读回（批量操作可能部分成功），不把失败当作成功反馈。
+        await refresh();
+      }
+    });
+  }, [refresh, runMutation, service]);
 
   // 设置页改一项：写回 config.toml，再刷新让皮肤 / 鼠标 / 排序等立即生效
   const applySetting = useCallback((item: SettingItem, delta: number): void => {
@@ -504,6 +597,13 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     if (action.type === "move" && currentState.mode.kind === "graph") { setGraphIndex((index) => Math.max(0, Math.min(graphLines.length - 1, index + action.delta))); return; }
     if (action.type === "move" && currentState.mode.kind === "deps") { setDepsIndex((index) => Math.max(0, Math.min(depsCandidates.length - 1, index + action.delta))); return; }
     if (action.type === "move" && currentState.mode.kind === "history") { setHistoryIndex((index) => Math.max(0, Math.min(historySteps.length - 1, index + action.delta))); return; }
+    if (action.type === "move" && currentState.mode.kind === "detail") {
+      const index = Math.max(0, Math.min(visible.length - 1, currentState.selectedIndex + action.delta));
+      const next = visible[index];
+      dispatch({ type: "select", index });
+      if (next) dispatch({ type: "mode", mode: { kind: "detail", taskId: next.id } });
+      return;
+    }
     if (action.type === "move") { dispatch({ type: "select", index: currentState.selectedIndex + action.delta }); return; }
     if (action.type === "page") {
       // 一页按可见任务行数算，翻不动就贴到首尾
@@ -516,6 +616,12 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     if (action.type === "last") { dispatch({ type: "select", index: Math.max(0, visible.length - 1) }); return; }
     if (action.type === "command") { dispatch({ type: "mode", mode: { kind: "command" } }); dispatch({ type: "input", value: action.value }); return; }
     if (action.type === "shortcut") {
+      if (action.name === "6") { setCompletedExpanded((expanded) => !expanded); return; }
+      if (["3", "4", "5", "f", "b"].includes(action.name)) {
+        const next = action.name === "f" ? VIEW_ORDER[(VIEW_ORDER.indexOf(currentState.view) + 1) % VIEW_ORDER.length]! : action.name === "b" ? currentState.view : VIEW_ORDER[Number(action.name) - 3]!;
+        switchView(next, action.name === "b" ? !currentState.showUnscheduled : currentState.showUnscheduled);
+        return;
+      }
       if (action.name === "search") { dispatch({ type: "mode", mode: { kind: "search" } }); dispatch({ type: "input", value: "/" }); return; }
       if (action.name === "help") { dispatch({ type: "mode", mode: { kind: "help" } }); return; }
       if (action.name === "1") { dispatch({ type: "sort", mode: "levels" }); dispatch({ type: "flash", message: "档位排序" }); return; }
@@ -648,25 +754,48 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
       if (action.name === "enter" && currentSelected) {
         const task = currentSelected;
         if (task.status === "done") {
-          runMutation(async () => `↺ 重新打开：${(await service.reopen(task.id)).title}`);
+          dispatch({ type: "flash", message: "已完成，按 o 重新打开" });
           return;
         }
         completeIds([task.id]);
       }
     }
-  }, [applySetting, columns, completeIds, depsCandidates, depsIndex, depsPicked, dispatch, exit, graphIndex, graphLines, historyIndex, historySteps, openDeps, projects, refresh, rows, runMutation, service, settingIndex, settings, store, tasks, visible]);
+  }, [applySetting, columns, completeIds, depsCandidates, depsIndex, depsPicked, dispatch, exit, graphIndex, graphLines, historyIndex, historySteps, openDeps, projects, refresh, rows, runMutation, service, settingIndex, settings, store, switchView, tasks, visible]);
 
-  const today = nowLocal().slice(0, 10);
+  const today = window?.today ?? nowLocal().slice(0, 10);
   const levels = config ? [...config.priority.levels] : ["低", "中", "高"];
   const layout = layoutOf(config);
   const cols = tableColumns(columns);
   const lines: TableLine[] = [];
   let taskIndex = 0;
-  for (const group of visibleGroups) {
-    // 卡片布局靠空行分组，舒适密度下组和组之间多留一行
+  const displayGroups = activeGroups.map((group) => ({ key: group.key, name: group.name, nested: group.nested.map((item) => ({ ...item, progress: undefined as number | undefined })) }));
+  for (const item of [...currentFeedback].sort((a, b) => a.position - b.position)) {
+    let group = displayGroups.find((group) => group.key === item.groupKey);
+    if (!group) {
+      group = { key: item.groupKey, name: item.name, nested: [] };
+      // 原组刚好被做完时，仍保留它在原来的分组顺序。
+      const order: GroupKey[] = ["doing", "overdue", "today", "upcoming", "later", "waiting", "paused", "nodate", "finished", "blocked"];
+      const before = displayGroups.findIndex((other) => order.indexOf(other.key) > order.indexOf(item.groupKey));
+      displayGroups.splice(before < 0 ? displayGroups.length : before, 0, group);
+    }
+    group.nested.splice(Math.min(item.position, group.nested.length), 0, { task: item.task, depth: item.depth, progress: Math.min(1, Math.max(0, (feedbackClock - item.started) / (COMPLETION_MS * 0.65))) });
+  }
+  for (const group of displayGroups) {
     if (layout.cards && !layout.compact && lines.length) lines.push({ kind: "gap", groupKey: group.key });
-    lines.push({ kind: "sep", groupKey: group.key, name: group.name, count: group.tasks.length });
-    for (const { task, depth } of group.nested) lines.push({ kind: "task", task, depth, index: taskIndex++, groupKey: group.key });
+    lines.push({ kind: "sep", groupKey: group.key, name: group.name, count: group.nested.length });
+    for (const [position, { task, depth, progress }] of group.nested.entries()) {
+      if (position) for (let spacer = 0; spacer < (config?.ui.line_spacing ?? 0); spacer++) lines.push({ kind: "gap", groupKey: group.key });
+      lines.push({ kind: "task", task, depth, index: progress === undefined ? taskIndex++ : -1, groupKey: group.key, progress });
+    }
+  }
+  if (!lines.length && state.view !== "all" && completedTasks.length) lines.push({ kind: "hint", text: `这个范围暂无已安排事项。${counts.unscheduled ? `未安排 ${counts.unscheduled} 项，按 b 展开。` : "按 3 查看全部。"}` });
+  if (completedTasks.length) {
+    if (layout.cards && !layout.compact && lines.length) lines.push({ kind: "gap", groupKey: "finished" });
+    lines.push({ kind: "sep", groupKey: "finished", name: `已完成 · 6 ${completedExpanded ? "收起" : "展开"}`, count: completedTasks.length, completed: true });
+    for (const [position, task] of completedShown.entries()) {
+      if (position) for (let spacer = 0; spacer < (config?.ui.line_spacing ?? 0); spacer++) lines.push({ kind: "gap", groupKey: "finished" });
+      lines.push({ kind: "task", task, depth: 0, index: taskIndex++, groupKey: "finished" });
+    }
   }
   // 终端高度已知时只画放得下的那几行，并让选中行留在窗口里。
   // 必须真的切掉多出来的行：交给 Ink 自己溢出的话整帧会比屏幕高，顶部被卷走
@@ -807,6 +936,16 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
       }
       return;
     }
+    const viewRow = bannerRows(columns, rows, layoutRef.current.banner) + 2;
+    if (event.y === viewRow) {
+      const hit = viewKeyRanges(columns).find((range) => event.x >= range.start && event.x <= range.end);
+      if (hit) keyboardRef.current({ ...currentState, mode: { kind: "list" } }, selectedRef.current, hit.key, { ctrl: false });
+      return;
+    }
+    if (event.y === viewRow + 1) {
+      keyboardRef.current({ ...currentState, mode: { kind: "list" } }, selectedRef.current, "b", { ctrl: false });
+      return;
+    }
     // 点击输入框区域：聚焦输入
     const inputTop = (rows ?? 24) - footerHeight() - inputHeight(layoutRef.current.compact) + 1;
     if (event.y >= inputTop) {
@@ -815,10 +954,11 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     }
     // 点击任务行：选中该行；再点同一行 = 完成/重开任务
     const line = currentLines[event.y - firstRowRef.current + start];
-    if (line && line.kind === "task") {
+    if (line?.kind === "sep" && line.completed) { setCompletedExpanded((expanded) => !expanded); return; }
+    if (line && line.kind === "task" && line.index >= 0) {
       if (line.index === currentState.selectedIndex) {
         const task = line.task;
-        if (task.status === "done") runMutation(async () => `↺ 重新打开：${(await service.reopen(task.id)).title}`);
+        if (task.status === "done") dispatch({ type: "flash", message: "已完成，按 o 重新打开" });
         else completeIdsRef.current([task.id]);
       } else {
         dispatch({ type: "select", index: line.index });
@@ -841,18 +981,19 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   const filtered = Boolean(state.query) || state.project !== undefined;
   const cardWidth = contentWidth(columns) - 2;
   const renderLine = (line: TableLine, position: number): React.ReactElement => {
+    if (line.kind === "hint") return <Text key="empty-focus" color={C.dim}>{line.text}</Text>;
     if (line.kind === "gap") return <Text key={`gap-${line.groupKey}-${position}`}> </Text>;
     if (line.kind === "sep") {
       return layout.cards
-        ? <GroupHeading key={`sep-${line.groupKey}`} groupKey={line.groupKey} name={line.name} count={line.count} />
-        : <GroupSeparator key={`sep-${line.groupKey}`} groupKey={line.groupKey} name={line.name} count={line.count} width={Math.max(20, (columns ?? 100) - 4)} />;
+        ? <GroupHeading key={`sep-${line.groupKey}-${position}`} groupKey={line.groupKey} name={line.name} count={line.count} />
+        : <GroupSeparator key={`sep-${line.groupKey}-${position}`} groupKey={line.groupKey} name={line.name} count={line.count} width={Math.max(20, (columns ?? 100) - 4)} />;
     }
     const common = {
       task: line.task,
       selected: line.index === state.selectedIndex,
       marked: state.marked.includes(line.task.id),
       blocked: blocked.has(line.task.id),
-      completing: strike?.ids.includes(line.task.id) ? strike.frame / STRIKE_FRAMES : undefined,
+      completing: line.progress,
       today,
       dateFormat: state.dateFormat,
       levels,
@@ -862,12 +1003,15 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
       ? <CardRow key={line.task.id} {...common} width={cardWidth} wait={waitLabel(line.task, tasks, today)} showDate={line.groupKey !== "today" && line.groupKey !== "overdue"} moved={movedId === line.task.id} />
       : <TaskRow key={line.task.id} {...common} cols={cols} />;
   };
-  const body = lines.length === 0 ? <EmptyState filtered={filtered} /> : windowLines.map(renderLine);
+  const body = lines.length === 0 && state.view !== "all"
+    ? <Text color={C.dim}>这个范围暂无已安排事项。{counts.unscheduled ? `未安排 ${counts.unscheduled} 项，按 b 展开。` : "按 3 查看全部。"}</Text>
+    : lines.length === 0 ? <EmptyState filtered={filtered} /> : windowLines.map(renderLine);
 
   return (
     <Box flexDirection="column" {...(rows !== undefined ? { height: rows } : {})}>
       <Banner columns={columns} rows={rows} mode={layout.banner} />
-      <TopBar query={state.query} sortMode={state.sortMode} tasks={tasks} clock={clock} marked={state.marked.length} projects={projects} project={state.project} showTitle={bannerRows(columns, rows, layout.banner) === 0} columns={columns} />
+      <TopBar query={state.query} sortMode={state.sortMode} tasks={tasks} clock={clock} timezone={config?.agenda.timezone} marked={state.marked.length} projects={projects} project={state.project} showTitle={bannerRows(columns, rows, layout.banner) === 0} columns={columns} />
+      <ViewBar view={state.view} showUnscheduled={state.showUnscheduled} counts={counts} window={window} columns={columns} />
       {layout.cards
         ? <Box flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden" width={contentWidth(columns)} marginLeft={contentLeft(columns)} paddingLeft={1} paddingRight={1}>{body}</Box>
         : (

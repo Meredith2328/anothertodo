@@ -6,6 +6,7 @@ import { Box, Text } from "ink";
 import type { Config, Task } from "../contracts.js";
 import { preview } from "../core/parse.js";
 import { ACTIVE_STATES, isOverdue, localDate, localNow } from "../core/task.js";
+import { VIEW_ORDER, VIEW_LABEL, wallNow, type AgendaView, type ViewWindow } from "../core/views.js";
 import { displayWidth } from "../core/width.js";
 import type { TuiState } from "./state.js";
 import {
@@ -58,7 +59,8 @@ export const Banner = ({ columns, rows, mode }: { columns: number | undefined; r
  * 顶栏：左边标题（一行横幅模式）或项目页签，右边是三个数字和时间。
  * 数字用文字说明，不用 ! ● ∑ 这类要猜的符号。
  */
-export const TopBar = ({ query, sortMode, tasks, clock, marked = 0, projects, project, showTitle, columns }: {
+export const TopBar = ({ query, sortMode, tasks, clock, marked = 0, projects, project, showTitle, columns, timezone = "Asia/Shanghai" }: {
+  timezone?: string | undefined;
   query: string;
   sortMode: "levels" | "urgency";
   tasks: Task[];
@@ -69,11 +71,11 @@ export const TopBar = ({ query, sortMode, tasks, clock, marked = 0, projects, pr
   showTitle: boolean;
   columns: number | undefined;
 }): React.ReactElement => {
-  const today = nowLocal().slice(0, 10);
+  const today = wallNow(clock, timezone).slice(0, 10);
   const overdue = tasks.filter((task) => isOverdue(task, today)).length;
   const dueToday = tasks.filter((task) => (task.status === "todo" || task.status === "meeting") && task.due !== undefined && localDate(task.due) === today).length;
   const active = tasks.filter((task) => ACTIVE_STATES.has(task.status)).length;
-  const hhmm = `${String(clock.getHours()).padStart(2, "0")}:${String(clock.getMinutes()).padStart(2, "0")}`;
+  const hhmm = wallNow(clock, timezone).slice(11, 16);
   const narrow = columns !== undefined && columns < 70;
   const tabs = projects.length ? ["全部", ...projects] : [];
   return (
@@ -107,6 +109,28 @@ export const TopBar = ({ query, sortMode, tasks, clock, marked = 0, projects, pr
   );
 };
 
+const viewTab = (view: AgendaView, index: number, columns: number | undefined): string => `${index + 3} ${view === "hour" && columns !== undefined && columns < 70 ? "一小时" : VIEW_LABEL[view]}  `;
+export const viewKeyRanges = (columns: number | undefined): Array<{ key: string; start: number; end: number }> => {
+  let cursor = contentLeft(columns) + 2;
+  return VIEW_ORDER.map((view, index) => {
+    const width = displayWidth(viewTab(view, index, columns));
+    const range = { key: String(index + 3), start: cursor, end: cursor + width - 3 };
+    cursor += width;
+    return range;
+  });
+};
+export const ViewBar = ({ view, showUnscheduled, counts, window, columns }: {
+  view: AgendaView; showUnscheduled: boolean; counts: { unscheduled: number; outside: number }; window: ViewWindow | undefined; columns: number | undefined;
+}): React.ReactElement => {
+  const range = !window || view === "all" ? "完整清单" : view === "hour"
+    ? `${window.now.slice(11, 16)}–${window.hourEnd.slice(0, 10) === window.today ? "" : window.hourEnd.slice(5, 10) + " "}${window.hourEnd.slice(11, 16)} · 含在做、逾期和今天未定时事项`
+    : `今天至 ${window.recentEnd.slice(5, 10)} · 含在做和逾期`;
+  return <Box flexDirection="column" width={contentWidth(columns)} marginLeft={contentLeft(columns)} paddingLeft={1} paddingRight={1}>
+    <Text wrap="truncate">{VIEW_ORDER.map((item, index) => <Text key={item} bold={view === item} underline={view === item} color={view === item ? C.accent : C.dim}>{viewTab(item, index, columns)}</Text>)}<Text color={C.dimmer}>f 切换</Text></Text>
+    <Text wrap="truncate"><Text color={counts.unscheduled ? C.yellow : C.dim}>{`未安排 ${counts.unscheduled}${view === "all" ? " 项" : showUnscheduled ? " 项 · b 收起" : " 项 · b 展开"}`}</Text><Text color={C.dimmer}>{`  ${range}${counts.outside ? ` · 范围外 ${counts.outside} 项（3 全部）` : ""}`}</Text></Text>
+  </Box>;
+};
+
 /** 提示行：正在输入时显示解析预览，否则显示最近一条操作反馈（toast）或上下文提示 */
 export const PreviewLine = ({ state, levels, toast, columns }: { state: TuiState; levels: string[]; toast?: string | undefined; columns: number | undefined }): React.ReactElement => {
   const width = contentWidth(columns);
@@ -120,7 +144,7 @@ export const PreviewLine = ({ state, levels, toast, columns }: { state: TuiState
     }
     const hint = state.mode.kind === "list"
       ? "清单区：j/k 移动 · d 完成 · l 详情 · 空格多选 · 打字即添加 · : 命令 · ? 帮助"
-      : "输入区：Enter 提交 · Esc 回清单";
+      : "输入区：Enter 提交 · Ctrl+V 切视图 · Esc 回清单";
     return line(<Text wrap="truncate"><Text color={C.accent}>› </Text><Text color={C.dimmer}>{hint}</Text></Text>);
   }
   if (state.input.startsWith(":") || state.input.startsWith("/")) {
