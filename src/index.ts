@@ -10,3 +10,4 @@ export {
 } from "./contracts.js";
 export { DomainEventBus, type DomainEvents } from "./core/events.js";
 export { ApplicationService } from "./app/service.js";
+export { dependencyCandidates, blockedDependencies, validateDependencies } from './core/dependencies.js';

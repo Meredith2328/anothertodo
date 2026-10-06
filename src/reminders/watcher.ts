@@ -63,7 +63,7 @@ export const checkOnceDetailed = async (store: Store, quiet = false, now = local
 
 export const checkOnce = async (store: Store, quiet = false, now = localNow(), dir = store.paths.dir): Promise<number> => (await checkOnceDetailed(store, quiet, now, dir)).processed;
 
-export const snooze = async (store: Store, idOrPrefix: string, minutes: number): Promise<void> => {
+export const snooze = async (store: Pick<Store, "find" | "save">, idOrPrefix: string, minutes: number): Promise<void> => {
   const task = await store.find(idOrPrefix);
   if (!task) throw new Error(`找不到任务：${idOrPrefix}`);
   const before = cloneTask(task);

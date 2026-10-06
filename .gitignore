@@ -38,3 +38,8 @@ node_modules/
 dist-sea/
 atd-test.exe
 atd*.exe
+
+# Android 构建与本机验收数据
+apps/android/build/
+apps/android/.local/
+apps/android/test-results/

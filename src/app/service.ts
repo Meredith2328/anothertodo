@@ -3,9 +3,10 @@ import { loadConfig } from "../core/config.js";
 import { daysBetweenDates, parse, shiftDateOnly, nextOccurrence } from "../core/parse.js";
 import { applyParsedUpdate } from "../core/task-ops.js";
 import { ACTIVE_STATES, cloneTask, localDate, localNow, newId, parseTask, utcNow } from "../core/task.js";
-import { Store } from "../storage/store.js";
+import type { Store } from "../storage/store.js";
 import { syncDirectory } from "../sync/sync.js";
 import { snooze as snoozeReminder } from "../reminders/watcher.js";
+import { planDependencies, blockedDependencies } from '../core/dependencies.js';
 
 /** 写了未来的 `~日期` 就是在说「先押后」，直接落成 waiting，别留一个看不出状态的 todo */
 const initialStatus = (wait: string | undefined, today: string): "todo" | "waiting" =>
@@ -26,7 +27,7 @@ export type CompleteResult = {
 
 /** Application operations shared by CLI and TUI; presentation layers do not mutate tasks themselves. */
 export class ApplicationService {
-  constructor(readonly store: Store) {}
+  constructor(readonly store: Pick<Store, "paths" | "events" | "tasks" | "save" | "saveMany" | "archived" | "dependencyTasks" | "find" | "delete" | "undo" | "archive" | "restore">) {}
 
   async config(): Promise<Config> {
     const config = await loadConfig(this.store.paths.dir);
@@ -39,16 +40,29 @@ export class ApplicationService {
   }
 
   async add(input: string, now = localNow()): Promise<Task> {
+    return (await this.addBatch([input], now))[0]!;
+  }
+
+  async dependencyTasks(): Promise<Task[]> {
+    return this.store.dependencyTasks();
+  }
+
+  async addBatch(inputs: string[], now = localNow(), selections: (string | undefined)[][] = [], parent?: string, reservedIds: string[] = []): Promise<Task[]> {
     const config = await this.config();
-    const parsed = parse(input, now, [...config.priority.levels]);
-    if (!parsed.title) throw new Error("标题不能为空");
-    return this.store.save(parseTask({
-      id: newId(), title: parsed.title, status: initialStatus(parsed.wait, now.slice(0, 10)),
+    const parsedInputs = inputs.map(input => parse(input, now, [...config.priority.levels]));
+    if (!parsedInputs.length || parsedInputs.some(parsed => !parsed.title)) throw new Error('每一行都需要填写任务标题');
+    const drafts = parsedInputs.map((parsed, index) => parseTask({
+      id: reservedIds[index] ?? newId(), title: parsed.title, status: initialStatus(parsed.wait, now.slice(0, 10)),
       ...(parsed.due ? { due: parsed.due } : {}), ...(parsed.priority ? { priority: parsed.priority } : {}),
-      tags: parsed.tags, ...(parsed.project ? { project: parsed.project } : {}), ...(parsed.parent ? { parent: parsed.parent } : {}),
+      tags: parsed.tags, ...(parsed.project ? { project: parsed.project } : {}), ...((parent ?? parsed.parent) ? { parent: parent ?? parsed.parent } : {}),
       ...(parsed.wait ? { wait: parsed.wait } : {}), ...(parsed.notes ? { notes: parsed.notes } : {}), ...(parsed.recur ? { recur: parsed.recur } : {}),
       reminders: parsed.reminders.map(({ relative: _relative, ...reminder }) => reminder), entry: utcNow(), modified: utcNow(),
     }));
+    const existing = await this.tasks();
+    const changes = planDependencies(drafts, parsedInputs.map(parsed => parsed.dependencies), await this.dependencyTasks(), selections);
+    if (changes.some(task => !existing.some(item => item.id === task.id) && !drafts.some(item => item.id === task.id))) throw new Error('归档中的任务不能新增依赖，请先恢复任务');
+    const saved = await this.store.saveMany(changes.map(task => { const before = existing.find(item => item.id === task.id); return before ? { task, before } : { task }; }));
+    return drafts.map(draft => saved.find(task => task.id === draft.id)!);
   }
 
   async edit(idOrPrefix: string, input: string, now = localNow()): Promise<Task> {
@@ -56,7 +70,15 @@ export class ApplicationService {
     if (!task) throw new Error(`找不到任务：${idOrPrefix}`);
     const before = cloneTask(task);
     const config = await this.config();
-    applyParsedUpdate(task, parse(input, now, [...config.priority.levels]));
+    const parsed = parse(input, now, [...config.priority.levels]);
+    applyParsedUpdate(task, parsed);
+    if (parsed.dependencies.length) {
+      const existing = await this.tasks();
+      const changed = planDependencies([task], [parsed.dependencies], await this.dependencyTasks());
+      if (changed.some(value => !existing.some(item => item.id === value.id))) throw new Error('归档中的任务不能新增依赖，请先恢复任务');
+      const saved = await this.store.saveMany(changed.map(value => ({ task: value, before: existing.find(item => item.id === value.id)! })));
+      return saved.find(value => value.id === task.id)!;
+    }
     return this.store.save(task, before);
   }
 
@@ -66,6 +88,10 @@ export class ApplicationService {
     // 重复设成同一个状态没有意义，尤其是 done——静默刷新 end 会把真正的完成时间冲掉
     if (task.status === status) throw new Error(`跳过：${task.title}（已经是${STATUS_LABELS[status]}）`);
     const before = cloneTask(task);
+    if (status === 'done') {
+      const catalog = await this.dependencyTasks(); const blocked = blockedDependencies(task, catalog);
+      if (blocked.length) throw new Error(`依赖尚未完成：${blocked.map(id => catalog.find(item => item.id === id)?.title ?? id).join('、')}`);
+    }
     task.status = status;
     if (status === "done" || status === "cancelled") task.end = utcNow();
     else delete task.end;
@@ -88,18 +114,33 @@ export class ApplicationService {
     if (!target) throw new Error(`找不到任务：${idOrPrefix}`);
     const now = options.now ?? localNow();
     const openChildren = (await this.children(target.id)).filter((child) => ACTIVE_STATES.has(child.status));
-    const cascaded: Task[] = [];
-    if (options.cascade) for (const child of openChildren) cascaded.push(await this.setStatus(child.id, "done"));
-    const task = await this.setStatus(target.id, "done");
-    const next = await this.spawnNextOccurrence(task, now);
-    return { task, ...(next ? { next } : {}), cascaded, openChildren: options.cascade ? [] : openChildren };
+    if (target.status === 'done') throw new Error(`跳过：${target.title}（已经是已完成）`);
+    const all = await this.tasks(); const ids = new Set([target.id]);
+    if (options.cascade) {
+      let previous = -1;
+      while (previous !== ids.size) { previous = ids.size; for (const task of all) if (task.parent && ids.has(task.parent) && ACTIVE_STATES.has(task.status)) ids.add(task.id); }
+    }
+    const catalog = await this.dependencyTasks();
+    const finished = all.filter(task => ids.has(task.id)).map(task => ({ ...cloneTask(task), status: 'done', end: utcNow() }));
+    const resulting = [...catalog.filter(task => !ids.has(task.id)), ...finished];
+    for (const task of finished) {
+      const blocked = blockedDependencies(task, resulting);
+      if (blocked.length) throw new Error(`依赖尚未完成：${blocked.map(id => catalog.find(item => item.id === id)?.title ?? id).join('、')}`);
+    }
+    const occurrences = new Map(finished.map(task => [task.id, this.nextOccurrence(task, now)]));
+    const nextTasks = [...occurrences.values()].filter((task): task is Task => task !== undefined);
+    const saved = await this.store.saveMany([...finished.map(task => ({ task, before: all.find(item => item.id === task.id)! })), ...nextTasks.map(task => ({ task }))]);
+    const task = saved.find(item => item.id === target.id)!;
+    const nextId = occurrences.get(target.id)?.id;
+    const next = nextId ? saved.find(item => item.id === nextId) : undefined;
+    return { task, ...(next ? { next } : {}), cascaded: saved.filter(item => ids.has(item.id) && item.id !== target.id), openChildren: options.cascade ? [] : openChildren };
   }
 
   /**
    * 重复任务完成后另开一条新任务，而不是把原任务的日期往后挪：
    * 这样历史上「哪天真的做了」还留着，也不会把已完成的提醒记录带进下一次。
    */
-  private async spawnNextOccurrence(task: Task, now: string): Promise<Task | undefined> {
+  private nextOccurrence(task: Task, now: string): Task | undefined {
     if (!task.recur) return undefined;
     const base = task.due ? localDate(task.due) : now.slice(0, 10);
     const nextDate = nextOccurrence(base, task.recur);
@@ -119,7 +160,7 @@ export class ApplicationService {
       })),
       entry: utcNow(), modified: utcNow(),
     });
-    return this.store.save(next);
+    return next;
   }
 
   async deferUntilTomorrow(idOrPrefix: string, today = localNow().slice(0, 10)): Promise<Task> {

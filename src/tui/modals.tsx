@@ -123,6 +123,7 @@ export const DetailModal = ({ task, children: subtasks, parent, rows, columns }:
     [t("field.tags"), task.tags.length ? task.tags.map((tag) => `#${tag}`).join(" ") : t("value.none")],
     [t("field.wait"), task.wait ?? t("value.none")],
     [t("field.recur"), task.recur ? describeRecur(task.recur) : t("value.none")],
+    [t('field.dependencies'), task.dependsOn?.join('、') || t('value.none')],
   ];
   if (parent) fields.push([t("field.parent"), `${parent.id} ${parent.title}`]);
   if (subtasks.length) fields.push([t("field.subtasks"), subtasks.map((child) => `${child.status === "done" ? "✓" : "·"} ${child.title}`).join("  ")]);

@@ -54,6 +54,7 @@ const extrasSegments = (task: Task): Array<{ text: string; color: string }> => {
   for (const tag of task.tags) segments.push({ text: `#${tag} `, color: C.tag });
   if (task.recur) segments.push({ text: `↻${describeRecur(task.recur)} `, color: C.proj });
   if (task.notes.trim()) segments.push({ text: "✎ ", color: C.dim });
+  if (task.dependsOn?.length) segments.push({ text: `依赖:${task.dependsOn.join(',')} `, color: C.yellow });
   const reminder = task.reminders.find((item) => !item.fired);
   if (reminder) segments.push({ text: `⏰${reminder.at.slice(5, 16).replace("T", " ")}`, color: C.yellow });
   return segments;

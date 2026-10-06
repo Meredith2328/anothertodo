@@ -59,6 +59,7 @@ export const TaskSchema = z.object({
   tags: z.array(z.string().min(1)).default([]),
   project: z.string().min(1).optional(),
   parent: z.string().min(1).optional(),
+  dependsOn: z.array(IdSchema).optional(),
   wait: z.string().min(1).optional(),
   notes: z.string().default(""),
   recur: RecurSchema.optional(),

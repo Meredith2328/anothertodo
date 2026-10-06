@@ -93,6 +93,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   const service = useMemo(() => new ApplicationService(store), [store]);
   const [config, setConfig] = useState<Config>();
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [dependencyCatalog, setDependencyCatalog] = useState<Task[]>([]);
   const [dataRevision, setDataRevision] = useState(0);
   const [state, dispatch] = useReducer(tuiReducer, undefined, () => initialTuiState());
   const [clock, setClock] = useState(() => new Date());
@@ -100,10 +101,10 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   // 每组内部按父子相邻重排后再摊平：显示顺序和选中索引必须用同一份顺序，
   // 否则按 j/k 选中的行和高亮的行会错开
   const visibleGroups = useMemo(() => config
-    ? groups(tasks, config, state.sortMode, nowLocal(), state.query)
+    ? groups(tasks, config, state.sortMode, nowLocal(), state.query, dependencyCatalog)
       .filter((group) => group.tasks.length > 0)
       .map((group) => ({ ...group, nested: nestTasks(group.tasks), tasks: nestTasks(group.tasks).map((item) => item.task) }))
-    : [], [config, state.query, state.sortMode, tasks]);
+    : [], [config, state.query, state.sortMode, tasks, dependencyCatalog]);
   const visible = useMemo(() => flatten(visibleGroups), [visibleGroups]);
   const selected = visible[state.selectedIndex];
   // 详情浮层的数据在早返回之前算好：hooks 数量必须每帧一致，
@@ -125,6 +126,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     const nextTasks = await service.tasks();
     setConfig(nextConfig);
     setTasks(nextTasks);
+    setDependencyCatalog(await service.dependencyTasks());
     setDataRevision((revision) => revision + 1);
   }, [service]);
   useEffect(() => { void refresh().catch((error: unknown) => dispatch({ type: "flash", message: error instanceof Error ? error.message : String(error) })); }, [refresh]);

@@ -34,6 +34,7 @@ const MESSAGES: Catalog = {
   "group.nodate": ["无日期", "No date"],
   "group.finished": ["已完成/已取消", "Done / cancelled"],
   "group.hidden": ["隐藏(等待未到) {count} 项", "{count} hidden (waiting)"],
+  'group.blocked': ['等待依赖', 'Blocked by dependencies'],
 
   // 日期列
   "date.today": ["今天", "today"],
@@ -67,6 +68,7 @@ const MESSAGES: Catalog = {
   "field.wait": ["等待到", "Wait until"],
   "field.recur": ["重复", "Repeat"],
   "field.parent": ["父任务", "Parent"],
+  'field.dependencies': ['依赖任务', 'Prerequisites'],
   "field.subtasks": ["子任务", "Subtasks"],
   "field.entry": ["创建", "Created"],
   "field.end": ["完成", "Finished"],
