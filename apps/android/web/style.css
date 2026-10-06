@@ -184,8 +184,66 @@ summary { min-height: 44px; cursor: pointer; font-size: 15px; font-weight: 550; 
 #batch button { font-size: 14px; padding: 8px 10px; }
 .busy { pointer-events: none; opacity: .6; }
 .error-box { padding: 14px 0; border-bottom: 1px solid var(--error); color: var(--error); font-size: 14px; line-height: 1.8; white-space: pre-wrap; }
+.map-independent { margin: 10px 0; }
+.map-progress { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; margin: 14px 0 8px; font-size: 14px; }
+.map-progress strong { font-weight: 550; }
+.map-progress span { color: var(--muted); }
+#content > progress { width: 100%; height: 5px; border: 0; display: block; appearance: none; }
+#content > progress::-webkit-progress-bar { background: var(--soft); }
+#content > progress::-webkit-progress-value { background: var(--success); }
+.map-legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 18px; font-size: 13px; color: var(--muted); }
+.map-legend span::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border: 1px solid currentColor; transform: rotate(45deg); background: currentColor; }
+.state-done { color: var(--success); }
+.state-ready { color: #a96729; }
+:root[data-theme=dark] .state-ready { color: #d9b679; }
+.state-locked, .state-deferred, .state-inactive { color: var(--muted); }
+.state-missing, .state-cancelled { color: var(--error); }
+.map-hint { margin: 12px 0; }
+.map-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 12px; }
+.map-controls button { min-height: 44px; padding: 6px 8px; font-size: 13px; border: 1px solid var(--line); }
+.map-zoom { display: flex; gap: 4px; }
+.map-zoom button { min-width: 44px; font-size: 20px; }
+.map-controls button:disabled { opacity: .45; }
+.map-body { display: grid; gap: 24px; min-width: 0; }
+.map-viewport { position: relative; height: clamp(280px, 43dvh, 460px); max-height: max(160px, calc(100dvh - 160px)); overflow: auto; overscroll-behavior: contain; border: 2px solid #726047; background: #292923; scrollbar-color: #9b8b69 #292923; touch-action: pan-x pan-y; }
+.map-spacer { position: relative; min-width: 100%; min-height: 100%; }
+.map-stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; background-image: radial-gradient(#494537 1px, transparent 1px); background-size: 24px 24px; }
+.map-loading { position: absolute; inset: 30px 20px auto; color: #e1d4b5; font-size: 14px; }
+.map-viewport .error-box { color: #efba99; margin: 20px; }
+.map-viewport > button { color: #e1d4b5; margin: 0 20px; }
+.map-roads { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+.map-road { stroke: #726953; stroke-width: 3; stroke-dasharray: 5 5; fill: none; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.map-road.passed { stroke: #6a9873; stroke-dasharray: none; }
+.map-road.related { stroke-width: 5; stroke: #bd9c60; }
+.map-road.related.passed { stroke: #94be83; }
+.map-node { position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; width: 144px; height: 136px; padding: 0 5px; gap: 10px; min-height: 44px; color: #dad3c2; line-height: 1.5; text-align: center; }
+.map-node { content-visibility: auto; contain-intrinsic-size: 144px 136px; }
+.map-stage.overview .map-node-state, .map-stage.overview .map-node-title { visibility: hidden; }
+.map-frontier-marker { position: absolute; width: 8px; height: 8px; background: #e0bd72; border: 1px solid #fff3ce; transform: translate(-50%, -50%) rotate(45deg); pointer-events: none; }
+.map-node-state { height: 20px; font-size: 11px; color: #a5a190; background: #292923; }
+.map-gem { display: flex; justify-content: center; align-items: center; flex: 0 0 42px; width: 42px; height: 42px; border: 3px solid #94876b; outline: 2px solid #171914; transform: rotate(45deg); background: #444336; box-shadow: inset 4px 4px #5b5946, inset -4px -4px #35372c; }
+.map-gem > span { transform: rotate(-45deg); color: #e7e2d4; font-family: ui-monospace, monospace; font-size: 19px; font-weight: 650; }
+.map-node-title { font-size: 13px; line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; max-width: 134px; background: #292923; }
+.map-node.state-done .map-gem { background: #42684c; border-color: #8daa70; box-shadow: inset 4px 4px #58845c, inset -4px -4px #324b3c; }
+.map-node.state-ready .map-gem { background: #a16b34; border-color: #e0bd72; box-shadow: inset 4px 4px #be8846, inset -4px -4px #78512e; }
+.map-node.state-ready .map-node-state { color: #efd28d; }
+.map-node.state-cancelled .map-gem, .map-node.state-missing .map-gem { border-color: #a56854; background: #553c32; }
+.map-node.selected .map-gem { outline: 3px solid #fff3ce; outline-offset: 5px; }
+.map-node:focus-visible { outline: 2px dashed #fff3ce; outline-offset: 0; }
+.map-detail { min-width: 0; padding-bottom: 24px; }
+.map-state { margin: 0 0 6px; font-size: 14px; }
+.map-detail h2 { font-size: 20px; line-height: 1.75; margin: 0 0 6px; font-weight: 550; overflow-wrap: anywhere; }
+.map-detail-actions { display: flex; gap: 12px; flex-wrap: wrap; margin: 18px 0 24px; }
+.map-detail-actions button { flex: 1 1 120px; margin: 0; }
+.map-relations { border-top: 1px solid var(--line); padding: 16px 0 8px; }
+.map-relations h3 { font-size: 14px; font-weight: 550; margin: 0 0 8px; }
+.map-relation { display: flex; width: 100%; gap: 16px; justify-content: space-between; align-items: center; padding: 12px 0; text-align: left; line-height: 1.7; font-size: 14px; }
+.map-relation > span { min-width: 0; overflow-wrap: anywhere; }
+.map-relation small { font-size: 12px; flex: 0 0 auto; max-width: 94px; }
 #form-error:empty, [hidden] { display: none !important; }
 @media (min-width: 760px) {
+  .map-body { grid-template-columns: minmax(0, 1fr) minmax(230px, .65fr); align-items: start; }
+  .map-viewport { height: 560px; }
   .quadrants { grid-template-columns: 1fr 1fr; }
   .quadrant:not(.selected) { display: block; }
   .matrix-overview { display: none; }

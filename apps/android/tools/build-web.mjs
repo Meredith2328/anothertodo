@@ -19,3 +19,5 @@ await build({
   } }],
 });
 for (const name of ['index.html', 'style.css']) await copyFile(resolve(mobile, name), resolve(output, name));
+await copyFile(resolve('../../node_modules/elkjs/lib/elk-worker.min.js'), resolve(output, 'elk-worker.min.js'));
+await copyFile(resolve('../../node_modules/elkjs/LICENSE.md'), resolve(output, 'elk-LICENSE.md'));
