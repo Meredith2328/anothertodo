@@ -13,6 +13,7 @@ import { configureSync, syncDirectory, syncStatus, type SyncSettings } from './s
 import { dependencyCandidates, planDependencies, blockedDependencies, dependencyOrder, extractDependencies, type DependencyRequest } from '../../../src/core/dependencies.js';
 import { dateKey, weekDays, monthDays, completedByDate, quadrant } from '../../../src/core/calendar.js';
 import { AutoSave } from './autosave.js';
+import type { MapViewState } from './dependency-map.js';
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const result = document.getElementById(id);
@@ -24,6 +25,10 @@ const service = new ApplicationService(store);
 let config = await loadConfig();
 let tasks = await store.tasks();
 let page = 'tasks';
+let taskView = 'list';
+const mapState: MapViewState = { zoom: 1, showIndependent: false };
+let disposeMap: (() => void) | undefined;
+let renderRevision = 0;
 let filter = 'agenda';
 let selecting = false;
 let selected = new Set<string>();
@@ -47,6 +52,7 @@ const paths: Record<string, string> = {
   sync: 'M4 9V5h13V2 M17 5h4v4 M20 15v4H7v3 M7 19H3v-4',
   folder: 'M3 6h7l2 3h9v11H3z', tag: 'M3 3h8l10 10-8 8L3 11z M7 7h.01',
   archive: 'M3 4h18v5H3z M5 9v12h14V9 M9 13h6', export: 'M12 15V3 M7 8l5-5 5 5 M4 14v7h16v-7',
+  map: 'M12 2l3 3-3 3-3-3z M5 10l3 3-3 3-3-3z M19 10l3 3-3 3-3-3z M12 17l3 3-3 3-3-3z M10 7l-3 4 M14 7l3 4 M7 15l3 4 M17 15l-3 4',
   import: 'M12 3v12 M7 10l5 5 5-5 M4 14v7h16v-7', settings: 'M8 5h8v3h3v8h-3v3H8v-3H5V8h3z M10 10h4v4h-4z M12 2v3 M12 19v3 M2 12h3 M19 12h3',
   bell: 'M8 5h8v3h3v8h2v3H3v-3h2V8h3z M10 21h4', help: 'M4 4h16v16H4z M8 8h7v4h-3v3 M12 18v1',
 };
@@ -57,6 +63,7 @@ const icon = (name: string): SVGSVGElement => {
 };
 const en: Record<string, string> = { '任务': 'Tasks', '日程': 'Schedule', '统计': 'Statistics', '更多': 'More', '今天': 'Today', '接下来': 'Upcoming', '全部任务': 'All tasks', '等待': 'Waiting', '已完成': 'Completed', '已取消': 'Cancelled', '选择任务': 'Select tasks', '撤销操作': 'Undo', '添加任务': 'Add task', '关闭': 'Close', '保存任务': 'Save task', '保存修改': 'Save changes', '一行输入': 'Quick input', '任务标题': 'Title', '备注': 'Notes', '截止时间': 'Due date', '优先级': 'Priority', '项目': 'Project', '标签': 'Tags', '父任务': 'Parent task', '等待日期': 'Waiting until', '重复规则': 'Recurrence', '提醒': 'Reminders', '状态': 'Status', '待办': 'To do', '会议': 'Meeting', '取消任务': 'Cancel task', '删除任务': 'Delete task', '重新打开': 'Reopen', '推迟提醒': 'Snooze', '添加子任务': 'Add subtask', '完成任务': 'Complete task', '确认删除': 'Delete', '连同子任务完成': 'Complete with subtasks', '仅完成父任务': 'Complete parent only', '返回待办': 'Return to todo', '等到明天': 'Defer to tomorrow', '标记会议': 'Mark as meeting', '排序：优先级': 'Sort: priority', '排序：紧急度': 'Sort: urgency', '搜索与查询': 'Search and query', '清空搜索': 'Clear search', '归档': 'Archive', '导入': 'Import', '导出': 'Export', '设置': 'Settings', '同步': 'Sync', '使用帮助': 'Help', '近七天完成': 'Completed in 7 days', '近三十天完成': 'Completed in 30 days', '未完成': 'Open', '逾期': 'Overdue', '今天到期': 'Due today', '本周到期': 'Due this week', '待发提醒': 'Pending reminders', '重复任务': 'Recurring tasks', '恢复任务': 'Restore task', '保存配置': 'Save configuration', '立即同步': 'Sync now', '保存同步设置': 'Save sync settings', '保存导出文件': 'Save export', '分享导出文件': 'Share export', '添加提醒': 'Add reminder', '删除提醒': 'Remove reminder', '逐项填写': 'Edit fields', '没有任务': 'No tasks', '可以安心休息一下': 'Enjoy a little breathing room', '取消选择': 'Clear selection', '全选当前结果': 'Select all results' };
 Object.assign(en, {
+  '任务列表': 'Task list', '依赖地图': 'Dependency map', '查看依赖地图': 'View dependency map',
   '完成': 'Complete', '未设置': 'Unset', '排序方式': 'Sorting', '界面语言': 'Language', '跟随系统': 'System language',
   '提醒时间': 'Reminder time', '通知方式': 'Delivery hooks', '已投递': 'Delivered', '投递失败': 'Delivery failed', '等待投递': 'Pending',
   '查看等待任务': 'Show waiting tasks', '子任务': 'Subtasks', '最紧急的任务': 'Most urgent tasks', '归档超过多少天的历史': 'Archive history older than days',
@@ -89,8 +96,14 @@ const message = (zh: string, english: string): string => isEnglish() ? english :
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, className?: string): HTMLElementTagNameMap[K] => {
   const node = document.createElement(tag); if (text !== undefined) node.textContent = tr(text); if (className) node.className = className; return node;
 };
+const rawEl = <K extends keyof HTMLElementTagNameMap>(tag: K, text: string, className?: string): HTMLElementTagNameMap[K] => {
+  const node = el(tag, undefined, className); node.textContent = text; return node;
+};
 const button = (text: string, action: () => void | Promise<void>, className = 'secondary'): HTMLButtonElement => {
   const node = el('button', tr(text), className); node.type = 'button'; node.onclick = () => { void action(); }; return node;
+};
+const rawButton = (text: string, action: () => void | Promise<void>, className = 'secondary'): HTMLButtonElement => {
+  const node = button('', action, className); node.textContent = text; return node;
 };
 const notify = (text: string, error = false): void => {
   clearTimeout(noticeTimer); const node = $('notice'); node.textContent = text; node.classList.toggle('error', error); node.hidden = false;
@@ -122,9 +135,9 @@ const open = (title: string): HTMLElement => {
 const field = (container: HTMLElement, label: string, value = '', type = 'text'): HTMLInputElement => {
   const wrapper = el('label', tr(label), 'form-field'); const input = el('input'); input.type = type; input.value = value; input.setAttribute('aria-label', tr(label)); wrapper.append(input); container.append(wrapper); return input;
 };
-const selectField = (container: HTMLElement, label: string, values: Array<[string, string]>, current: string): HTMLSelectElement => {
+const selectField = (container: HTMLElement, label: string, values: Array<[string, string]>, current: string, translateValues = true): HTMLSelectElement => {
   const wrapper = el('label', tr(label), 'form-field'); const node = el('select'); node.setAttribute('aria-label', tr(label));
-  for (const [value, name] of values) { const option = el('option', tr(name)); option.value = value; node.append(option); }
+  for (const [value, name] of values) { const option = rawEl('option', translateValues ? tr(name) : name); option.value = value; node.append(option); }
   node.value = current; wrapper.append(node); container.append(wrapper); return node;
 };
 const textarea = (container: HTMLElement, label: string, value: string): HTMLTextAreaElement => {
@@ -164,7 +177,7 @@ const addDialog = (parent?: string): void => {
         for (const [index, task] of drafts.entries()) {
           const row = el('section', undefined, 'review-row'); row.append(el('div', `${index + 1}. ${task.title || '标题需要填写'}`, 'review-title'));
           row.append(el('p', [task.due?.replace('T', ' ').slice(0, 16), task.priority, task.project, ...task.tags.map(tag => `#${tag}`)].filter(Boolean).join(' · '), 'task-meta'));
-          if (task.notes) row.append(el('p', task.notes, 'review-notes'));
+          if (task.notes) row.append(rawEl('p', task.notes, 'review-notes'));
           if (!task.title) unresolved = true;
           for (const [requestIndex, dependency] of requests[index]!.entries()) {
             row.append(el('p', `${dependency.direction === 'after' ? '需要先完成' : '先于'}：${dependency.reference}`, 'dependency-label'));
@@ -175,7 +188,7 @@ const addDialog = (parent?: string): void => {
               const chosen = choices[index]![requestIndex] === candidate.task.id;
               const option = button('', () => { choices[index]![requestIndex] = candidate.task.id; renderReview(); }, `dependency-option${chosen ? ' active' : ''}`);
               option.setAttribute('aria-label', `选择依赖 ${candidate.task.id} ${candidate.task.title}`); option.setAttribute('aria-pressed', String(chosen));
-              option.append(el('span', candidate.task.title), el('small', `${candidate.task.id} · ${tr(statusName(candidate.task.status))}${chosen ? ' · 已选择' : ''}`)); row.append(option);
+              option.append(rawEl('span', candidate.task.title), el('small', `${candidate.task.id} · ${tr(statusName(candidate.task.status))}${chosen ? ' · 已选择' : ''}`)); row.append(option);
             }
             if (!choices[index]![requestIndex]) unresolved = true;
           }
@@ -232,13 +245,13 @@ const editDialog = (task: Task): void => {
       if (matches.length === 1) titleChoices[index] = matches[0]!.task.id;
       for (const candidate of matches) {
         const option = button('', () => { titleChoices[index] = candidate.task.id; renderTitleRelations(); autosave.changed(); }, `dependency-option${titleChoices[index] === candidate.task.id ? ' active' : ''}`);
-        option.setAttribute('aria-label', `选择依赖 ${candidate.task.id} ${candidate.task.title}`); option.append(el('span', candidate.task.title), el('small', `${candidate.task.id} · ${tr(statusName(candidate.task.status))}`)); titleRelations.append(option);
+        option.setAttribute('aria-label', `选择依赖 ${candidate.task.id} ${candidate.task.title}`); option.append(rawEl('span', candidate.task.title), el('small', `${candidate.task.id} · ${tr(statusName(candidate.task.status))}`)); titleRelations.append(option);
       }
     }
   };
   title.addEventListener('input', renderTitleRelations);
   const due = field(content, '截止时间', task.due?.slice(0, 16) ?? '', 'datetime-local');
-  const priority = selectField(content, '优先级', [['', '未设置'], ...config.priority.levels.map(level => [level, level] as [string, string])], task.priority ?? '');
+  const priority = selectField(content, '优先级', [['', tr('未设置')], ...config.priority.levels.map(level => [level, level] as [string, string])], task.priority ?? '', false);
   const notes = textarea(content, '备注', task.notes);
   const section = (label: string): HTMLDetailsElement => { const node = el('details'); node.append(el('summary', label)); content.append(node); return node; };
   const projectSection = section('项目与标签');
@@ -249,7 +262,7 @@ const editDialog = (task: Task): void => {
   const wait = field(scheduling, '等待日期', task.wait ?? '', 'date');
   const status = selectField(scheduling, '状态', ['todo', 'waiting', 'meeting', 'done', 'cancelled', ...(!['todo', 'waiting', 'meeting', 'done', 'cancelled'].includes(task.status) ? [task.status] : [])].map(value => [value, statusName(value)]), task.status);
   const relations = section(`执行顺序 · ${task.dependsOn?.length ?? 0}`);
-  const parent = selectField(relations, '父任务', [['', '未设置'], ...tasks.filter(item => item.id !== task.id).map(item => [item.id, item.title] as [string, string]), ...(task.parent && !tasks.some(item => item.id === task.parent) ? [[task.parent, `${task.parent}（父任务已归档或删除）`] as [string, string]] : [])], task.parent ?? '');
+  const parent = selectField(relations, '父任务', [['', tr('未设置')], ...tasks.filter(item => item.id !== task.id).map(item => [item.id, item.title] as [string, string]), ...(task.parent && !tasks.some(item => item.id === task.parent) ? [[task.parent, `${task.parent}（父任务已归档或删除）`] as [string, string]] : [])], task.parent ?? '', false);
   let dependencies = [...task.dependsOn ?? []];
   const dependencyRows = el('div'); relations.append(dependencyRows);
   const search = field(relations, '查找依赖任务'); search.autocomplete = 'off'; const candidates = el('div'); relations.append(candidates);
@@ -258,7 +271,7 @@ const editDialog = (task: Task): void => {
     relations.querySelector('summary')!.textContent = `执行顺序 · ${dependencies.length}`;
     for (const id of dependencies) {
       const prerequisite = dependencyCatalog.find(item => item.id === id);
-      const row = el('div', undefined, 'dependency-row'); row.append(el('span', prerequisite?.title ?? `任务 ${id} 已移除`), el('small', prerequisite ? tr(statusName(prerequisite.status)) : '需要重新选择'));
+      const row = el('div', undefined, 'dependency-row'); row.append(rawEl('span', prerequisite?.title ?? `任务 ${id} 已移除`), el('small', prerequisite ? tr(statusName(prerequisite.status)) : '需要重新选择'));
       row.append(button('移除依赖', () => { dependencies = dependencies.filter(value => value !== id); renderDependencies(); autosave.changed(); })); dependencyRows.append(row);
     }
     for (const follower of tasks.filter(item => item.dependsOn?.includes(task.id))) dependencyRows.append(button(`后续任务：${follower.title}`, async () => { try { await autosave.flush(); activeEditor = undefined; editDialog(follower); } catch (error) { showError(error); } }, 'dependency-option'));
@@ -267,7 +280,7 @@ const editDialog = (task: Task): void => {
     candidates.replaceChildren();
     for (const candidate of dependencyCandidates(search.value, dependencyCatalog).filter(item => item.task.id !== task.id && !dependencies.includes(item.task.id))) {
       const option = button('', () => { dependencies.push(candidate.task.id); search.value = ''; candidates.replaceChildren(); renderDependencies(); autosave.changed(); }, 'dependency-option');
-      option.append(el('span', candidate.task.title), el('small', `${candidate.task.id} · ${tr(statusName(candidate.task.status))}`));
+      option.append(rawEl('span', candidate.task.title), el('small', `${candidate.task.id} · ${tr(statusName(candidate.task.status))}`));
       option.setAttribute('aria-label', `添加依赖 ${candidate.task.id} ${candidate.task.title}`); candidates.append(option);
     }
   };
@@ -330,13 +343,14 @@ const editDialog = (task: Task): void => {
     input.addEventListener('input', () => autosave.changed()); input.addEventListener('change', () => { void autosave.flush().catch(showError); });
   }
   const guarded = async (action: () => void | Promise<void>): Promise<void> => { try { await autosave.flush(); activeEditor = undefined; await action(); } catch (error) { showError(error); } };
+  content.append(button('查看依赖地图', () => guarded(() => { dialog.close(); showMap(base.id); })));
   const footer = el('div', undefined, 'editor-footer'); content.append(footer);
   const primaryAction = button(ACTIVE_STATES.has(base.status) ? '完成任务' : '重新打开', () => guarded(() => ACTIVE_STATES.has(base.status) ? complete([base.id]) : act(() => service.reopen(base.id))), 'primary'); primaryAction.dataset.primaryTaskAction = ''; footer.append(primaryAction);
   const actions = section('其他操作'); actions.className = 'editor-actions';
   actions.append(button('等到明天', () => guarded(() => act(() => service.deferUntilTomorrow(task.id)))), button('标记会议', () => guarded(() => act(() => service.setStatus(task.id, 'meeting')))), button('取消任务', () => guarded(() => act(() => service.setStatus(task.id, 'cancelled')))));
   actions.append(button('返回待办', () => guarded(() => act(() => service.setStatus(task.id, 'todo')))), button('推迟提醒', () => guarded(() => snoozeDialog([task.id]))), button('添加子任务', () => guarded(() => addDialog(task.id))), button('删除任务', () => guarded(() => deleteTasks([task.id])), 'secondary danger'));
   const relatives = tasks.filter(item => item.parent === task.id);
-  if (relatives.length) { content.append(el('p', '子任务', 'section-title')); for (const child of relatives) content.append(button(child.title, () => guarded(() => editDialog(child)))); }
+  if (relatives.length) { content.append(el('p', '子任务', 'section-title')); for (const child of relatives) content.append(rawButton(child.title, () => guarded(() => editDialog(child)))); }
   content.append(el('p', `${task.id} · ${task.entry.replace('T', ' ').slice(0, 16)} UTC`, 'status'));
 };
 const snoozeDialog = (ids: string[]): void => {
@@ -362,10 +376,10 @@ const taskRow = (task: Task, depth = 0, archived = false): HTMLElement => {
   const circle = el('span', undefined, `circle${selected.has(task.id) || task.status === 'done' ? ' checked' : ''}`);
   if (selected.has(task.id) || task.status === 'done') circle.append(icon('check')); check.append(circle);
   const body = button('', () => selecting ? toggle(task.id) : archived ? restoreDialog(task.id) : editDialog(task), 'task-body');
-  body.append(el('span', task.title, 'task-title')); const meta = el('span', undefined, 'task-meta'); body.append(meta);
+  body.append(rawEl('span', task.title, 'task-title')); const meta = el('span', undefined, 'task-meta'); body.append(meta);
   if (task.due) meta.append(el('span', `${formatDate(task, localNow().slice(0, 10), config.agenda.date_format)} ${task.due.slice(11, 16) !== '00:00' ? task.due.slice(11, 16) : ''}`, `task-date${isOverdue(task, localNow().slice(0, 10)) ? ' late' : ''}`));
-  if (task.priority) meta.append(el('span', task.priority, `pill ${config.priority.levels.indexOf(task.priority) === config.priority.levels.length - 1 ? 'high' : config.priority.levels.indexOf(task.priority) === 0 ? 'low' : 'medium'}`));
-  if (task.project) meta.append(el('span', task.project));
+  if (task.priority) meta.append(rawEl('span', task.priority, `pill ${config.priority.levels.indexOf(task.priority) === config.priority.levels.length - 1 ? 'high' : config.priority.levels.indexOf(task.priority) === 0 ? 'low' : 'medium'}`));
+  if (task.project) meta.append(rawEl('span', task.project));
   for (const tag of task.tags.slice(0, 3)) meta.append(el('span', `#${tag}`));
   if (task.recur) meta.append(el('span', `↻ ${describeRecur(task.recur)}`));
   if (task.status !== 'todo') meta.append(el('span', tr(statusName(task.status))));
@@ -377,13 +391,26 @@ const taskRow = (task: Task, depth = 0, archived = false): HTMLElement => {
   if (!archived) row.append(check); row.append(body); return row;
 };
 const toggle = (id: string): void => { if (selected.has(id)) selected.delete(id); else selected.add(id); render(); };
+const showMap = (id?: string): void => {
+  page = 'tasks'; taskView = 'map'; selecting = false; selected.clear();
+  if (id) { mapState.selected = id; mapState.route = undefined; mapState.left = undefined; mapState.top = undefined; mapState.zoom = 1; }
+  render(); window.scrollTo(0, 0);
+};
 const render = (): void => {
-  $('heading').textContent = tr({ tasks: '任务', calendar: '日程', stats: '统计', more: '更多' }[page]!);
+  disposeMap?.(); disposeMap = undefined;
+  const revision = ++renderRevision;
+  $('heading').textContent = tr(page === 'tasks' && taskView === 'map' ? '依赖地图' : { tasks: '任务', calendar: '日程', stats: '统计', more: '更多' }[page]!);
   $('subtitle').textContent = new Intl.DateTimeFormat(isEnglish() ? 'en' : 'zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date());
   for (const [id, label] of [['undo', '撤销操作'], ['select', '选择任务'], ['add', '添加任务'], ['search', '搜索与查询'], ['clear-search', '清空搜索']]) $(id!).setAttribute('aria-label', tr(label!));
   $<HTMLInputElement>('search').placeholder = message('搜索任务，或输入 due:week #标签', 'Search tasks, or use due:week #tag');
-  $('task-controls').hidden = page !== 'tasks'; $('add').hidden = page === 'more' || page === 'stats' || selecting;
-  $('select').hidden = page !== 'tasks'; $('undo').hidden = page === 'more' || page === 'stats';
+  $('task-controls').hidden = page !== 'tasks'; $('add').hidden = page === 'more' || page === 'stats' || selecting || (page === 'tasks' && taskView === 'map');
+  $('select').hidden = page !== 'tasks' || taskView === 'map'; $('undo').hidden = page === 'more' || page === 'stats';
+  $('list-controls').hidden = taskView === 'map';
+  const taskViews = $('task-views'); taskViews.replaceChildren();
+  for (const [view, name] of [['list', '任务列表'], ['map', '依赖地图']]) {
+    const choice = button(name!, () => { taskView = view!; selecting = false; selected.clear(); render(); }, taskView === view ? 'active' : '');
+    choice.setAttribute('aria-pressed', String(taskView === view)); taskViews.append(choice);
+  }
   const nav = $('navigation'); nav.replaceChildren();
   for (const [key, name] of [['tasks', '任务'], ['calendar', '日程'], ['stats', '统计'], ['more', '更多']]) {
     const item = button('', () => { page = key!; selecting = false; selected.clear(); if (page === 'calendar') filter = 'agenda'; render(); window.scrollTo(0, 0); }, page === key ? 'active' : ''); item.setAttribute('aria-label', tr(name!)); const mark = el('span', undefined, 'nav-icon'); mark.append(icon(key!)); item.append(mark, el('span', tr(name!))); nav.append(item);
@@ -395,6 +422,16 @@ const render = (): void => {
   if (page === 'stats') renderStats(content);
   else if (page === 'more') renderMore(content);
   else if (page === 'calendar') renderCalendar(content);
+  else if (taskView === 'map') {
+    content.append(el('p', message('正在加载地图', 'Loading map'), 'status'));
+    void import('./dependency-map.js').then(({ mountMap }) => {
+      if (revision !== renderRevision) return;
+      disposeMap = mountMap(content, { catalog: dependencyCatalog, today: localNow().slice(0, 10), state: mapState, english: isEnglish(),
+        archived: new Set(dependencyCatalog.filter(task => !tasks.some(item => item.id === task.id)).map(task => task.id)),
+        open: id => { const task = tasks.find(task => task.id === id); if (task) editDialog(task); else restoreDialog(id); },
+        complete: id => { mapState.selected = undefined; mapState.left = undefined; mapState.top = undefined; mapState.zoom = 1; void complete([id]); }, list: () => { taskView = 'list'; render(); } });
+    }).catch(error => { if (revision === renderRevision) { content.replaceChildren(el('p', error instanceof Error ? error.message : String(error), 'error-box'), button(message('重新加载地图', 'Reload map'), render)); } });
+  }
   else {
     const permissions = native<{ notifications: boolean; exact: boolean }>('permissions');
     const needsReminder = tasks.some(task => ACTIVE_STATES.has(task.status) && task.reminders.some(reminder => !reminder.fired && !reminder.dead));
@@ -520,7 +557,7 @@ const renderStats = (content: HTMLElement): void => {
     const row = el('div', undefined, 'summary-row'); row.append(el('span', String(label)), el('span', String(value))); detail.append(row);
   }
   content.append(el('h2', '最紧急的任务', 'group-title'));
-  for (const item of stats.topUrgent) { const row = button(item.title, () => { const task = tasks.find(task => task.id === item.id); if (task) editDialog(task); }, 'menu-item'); row.append(el('small', String(item.score))); content.append(row); }
+  for (const item of stats.topUrgent) { const row = rawButton(item.title, () => { const task = tasks.find(task => task.id === item.id); if (task) editDialog(task); }, 'menu-item'); row.append(el('small', String(item.score))); content.append(row); }
   renderActivity(content);
 };
 const menu = (content: HTMLElement, name: string, description: string, image: string, action: () => void): void => {
@@ -528,7 +565,8 @@ const menu = (content: HTMLElement, name: string, description: string, image: st
 };
 const renderMore = (content: HTMLElement): void => {
   const list = el('div', undefined, 'menu-list'); content.append(list);
-  menu(list, '全部任务', '查看所有状态的任务', 'tasks', () => { page = 'tasks'; filter = 'all'; render(); });
+  menu(list, '全部任务', '查看所有状态的任务', 'tasks', () => { page = 'tasks'; taskView = 'list'; filter = 'all'; render(); });
+  menu(list, '依赖地图', message('查看前置任务、分支路线与当前进度', 'Explore prerequisites, branches and progress'), 'map', () => showMap());
   menu(list, '项目', '按项目查看任务与完成数量', 'folder', () => summaryDialog('项目'));
   menu(list, '标签', '按标签浏览任务', 'tag', () => summaryDialog('标签'));
   menu(list, '归档', '整理已完成任务与恢复历史', 'archive', archiveDialog);
@@ -541,8 +579,8 @@ const renderMore = (content: HTMLElement): void => {
 const summaryDialog = (kind: string): void => {
   const content = open(kind); const rows = kind === '项目' ? projectSummary(tasks, localNow().slice(0, 10)) : tagSummary(tasks, localNow().slice(0, 10));
   for (const row of rows) {
-    const item = button('', () => { query = kind === '项目' ? row.name === '（无项目）' ? '-has:project' : `project:${row.name}` : row.name === '（无标签）' ? '-has:tags' : `#${row.name}`; $<HTMLInputElement>('search').value = query; filter = 'all'; page = 'tasks'; dialog.close(); render(); }, 'summary-row');
-    item.append(el('span', row.name), el('small', `${row.open} 未完成 · ${row.done} 已完成 · ${row.overdue} 逾期`)); content.append(item);
+    const item = button('', () => { query = kind === '项目' ? row.name === '（无项目）' ? '-has:project' : `project:${row.name}` : row.name === '（无标签）' ? '-has:tags' : `#${row.name}`; $<HTMLInputElement>('search').value = query; filter = 'all'; page = 'tasks'; taskView = 'list'; dialog.close(); render(); }, 'summary-row');
+    item.append(rawEl('span', row.name), el('small', `${row.open} 未完成 · ${row.done} 已完成 · ${row.overdue} 逾期`)); content.append(item);
   }
 };
 const restoreDialog = (id: string): void => { const content = open('恢复任务'); content.append(button('恢复任务', () => act(() => service.restore(id), '已恢复任务'), 'primary')); };
@@ -627,7 +665,7 @@ $('clear-search').onclick = () => { query = ''; $<HTMLInputElement>('search').va
 $('sort').onclick = () => { void act(async () => { config.priority.mode = config.priority.mode === 'levels' ? 'urgency' : 'levels'; store.state.config = configText(config); }); };
 dialog.addEventListener('click', event => { if (event.target === dialog && event.clientY < dialog.getBoundingClientRect().top) void closeDialog(); });
 dialog.addEventListener('cancel', event => { event.preventDefault(); void closeDialog(); });
-window.nativeBack = () => { if (dialog.open) { void closeDialog(); return true; } if (selecting) { selecting = false; selected.clear(); render(); return true; } if (page !== 'tasks') { page = 'tasks'; render(); return true; } return false; };
+window.nativeBack = () => { if (dialog.open) { void closeDialog(); return true; } if (selecting) { selecting = false; selected.clear(); render(); return true; } if (page !== 'tasks') { page = 'tasks'; render(); return true; } if (taskView === 'map') { taskView = 'list'; render(); return true; } return false; };
 window.nativeRefresh = () => { if (busy) return; store.reload(); void refresh(); };
 window.nativeOpenTask = (id: string) => { store.reload(); void refresh().then(() => { const task = tasks.find(item => item.id === id); if (task) editDialog(task); else notify('任务已移除'); }); };
 document.addEventListener('visibilitychange', () => { if (document.hidden) void activeEditor?.flush().catch(showError); else if (!busy) window.nativeRefresh(); });
