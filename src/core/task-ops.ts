@@ -28,6 +28,7 @@ export const applyParsedUpdate = (task: Task, parsed: Parsed): Task => {
     else if (field === "notes") task.notes = "";
     else if (field === "recur") delete task.recur;
     else if (field === "reminders") task.reminders = [];
+    else if (field === 'dependencies') task.dependsOn = [];
   }
   return task;
 };
@@ -39,6 +40,7 @@ export const taskToInput = (task: Task): string => {
   if (task.project) parts.push(`proj:${task.project}`);
   parts.push(...task.tags.map((tag) => `#${tag}`));
   if (task.parent) parts.push(`^${task.parent}`);
+  for (const dependency of task.dependsOn ?? []) parts.push(`after:${dependency}`);
   if (task.wait) parts.push(`~${task.wait}`);
   if (task.recur) parts.push(recurToInput(task.recur));
   if (task.due) {

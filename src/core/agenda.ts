@@ -5,16 +5,17 @@ import { describeRecur } from "./parse.js";
 import { compileQuery, match } from "./query.js";
 import { sortKey, urgency, type SortMode, compareTuple } from "./priority.js";
 import { hiddenByWait, isOverdue, localDate, ACTIVE_STATES } from "./task.js";
+import { blockedDependencies } from './dependencies.js';
 
 /**
  * 分组的 key 是稳定标识，name 只是给人看的字。
  * 上层判断分组用 key，不要去匹配 name——否则换个语言就全失效。
  */
-export type GroupKey = "overdue" | "today" | "upcoming" | "later" | "waiting" | "nodate" | "finished" | "hidden";
+export type GroupKey = "overdue" | "today" | "upcoming" | "later" | "waiting" | "nodate" | "finished" | "hidden" | 'blocked';
 export type Group = { key: GroupKey; name: string; style: string; tasks: Task[] };
 const sort = (tasks: Task[], mode: SortMode, config: Config, now: string): Task[] => [...tasks].sort((a, b) => compareTuple(sortKey(a, mode, config, now), sortKey(b, mode, config, now)));
 
-export const groups = (allTasks: Task[], config: Config, mode: SortMode = config.priority.mode, now = new Date().toISOString().slice(0, 16), query = ""): Group[] => {
+export const groups = (allTasks: Task[], config: Config, mode: SortMode = config.priority.mode, now = new Date().toISOString().slice(0, 16), query = "", catalog: Task[] = allTasks): Group[] => {
   const today = now.slice(0, 10);
   const predicates = query ? compileQuery(query, today, configLevels(config)) : [];
   const tasks = predicates.length ? allTasks.filter((task) => match(task, predicates, today)) : [...allTasks];
@@ -25,7 +26,9 @@ export const groups = (allTasks: Task[], config: Config, mode: SortMode = config
   const revealWaiting = predicates.some((predicate) => predicate[0] === "wait");
   const hidden = revealWaiting ? [] : tasks.filter((task) => ACTIVE_STATES.has(task.status) && hiddenByWait(task, today));
   const hiddenIds = new Set(hidden.map((task) => task.id));
-  const open = tasks.filter((task) => ACTIVE_STATES.has(task.status) && !hiddenIds.has(task.id));
+  const blocked = tasks.filter(task => ACTIVE_STATES.has(task.status) && !hiddenIds.has(task.id) && blockedDependencies(task, catalog).length);
+  const blockedIds = new Set(blocked.map(task => task.id));
+  const open = tasks.filter((task) => ACTIVE_STATES.has(task.status) && !hiddenIds.has(task.id) && !blockedIds.has(task.id));
   // wait 只决定「现在要不要露出来」，不再决定分组归属；否则 todo + ~日期
   // 的任务两头落空，永远看不见
   const scheduled = open.filter((task) => task.status !== "waiting" && task.due !== undefined && !isOverdue(task, today));
@@ -43,6 +46,7 @@ export const groups = (allTasks: Task[], config: Config, mode: SortMode = config
   if (later.length) result.push({ key: "later", name: t("group.later"), style: "dim", tasks: later });
   if (waiting.length) result.push({ key: "waiting", name: t("group.waiting"), style: "magenta", tasks: waiting });
   if (nodate.length) result.push({ key: "nodate", name: t("group.nodate"), style: "dim", tasks: nodate });
+  if (blocked.length) result.push({ key: 'blocked', name: t('group.blocked'), style: 'yellow', tasks: sort(blocked, mode, config, now) });
   if (predicates.some((predicate) => predicate[0] === "status" && (predicate[1] === "done" || predicate[1] === "cancelled"))) {
     const finished = sort(tasks.filter((task) => task.status === "done" || task.status === "cancelled"), mode, config, now);
     if (finished.length) result.push({ key: "finished", name: t("group.finished"), style: "dim strike", tasks: finished });

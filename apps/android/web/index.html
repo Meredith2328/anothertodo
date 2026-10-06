@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f7f7f7">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'">
+  <title>AnotherTODO</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header><div><div class="eyebrow">ANOTHER TODO</div><h1 id="heading">任务</h1><p id="subtitle"></p></div><div class="header-actions"><button id="undo" aria-label="撤销操作" class="icon-button"></button><button id="select" aria-label="选择任务" class="icon-button"></button></div></header>
+  <main id="main">
+    <div id="task-controls"><div class="search-box"><span id="search-icon"></span><input id="search" aria-label="搜索与查询" placeholder="搜索任务，或输入 due:week #标签"><button id="clear-search" aria-label="清空搜索">×</button></div><div id="filters" class="chips"></div><div class="list-toolbar"><span id="count"></span><button id="sort"></button></div></div>
+    <div id="content"></div>
+  </main>
+  <button id="add" class="fab" aria-label="添加任务"></button>
+  <div id="batch" hidden></div>
+  <nav id="navigation" aria-label="主要导航"></nav>
+  <dialog id="dialog"><div id="dialog-content"></div></dialog>
+  <div id="notice" role="status" hidden></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

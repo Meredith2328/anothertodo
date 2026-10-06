@@ -1,11 +1,13 @@
 import { ReminderSchema, RecurSchema, type Recur, type Reminder } from "../contracts.js";
 import { t, weekdayName } from "./i18n.js";
+import { extractDependencies, type DependencyRequest } from './dependencies.js';
 
 export type ParsedReminder = Omit<Reminder, "dead"> & { dead?: boolean; relative: boolean };
 /** edit 时可以显式清空的字段名 */
-export type ParsedClear = "due" | "priority" | "project" | "parent" | "wait" | "tags" | "notes" | "recur" | "reminders";
+export type ParsedClear = "due" | "priority" | "project" | "parent" | "wait" | "tags" | "notes" | "recur" | "reminders" | "dependencies";
 export type Parsed = {
   title: string;
+  dependencies: DependencyRequest[];
   due?: string;
   dueHasTime: boolean;
   priority?: string;
@@ -234,6 +236,7 @@ const CLEAR_ALIASES: Record<string, ParsedClear> = {
   note: "notes", notes: "notes", 备注: "notes",
   recur: "recur", repeat: "recur", 重复: "recur",
   reminder: "reminders", reminders: "reminders", 提醒: "reminders",
+  dependencies: 'dependencies', depends: 'dependencies', 依赖: 'dependencies',
 };
 
 const RECUR_CN_WEEKDAY: Record<string, number> = { 一: 0, 二: 1, 三: 2, 四: 3, 五: 4, 六: 5, 日: 6, 天: 6 };
@@ -241,6 +244,7 @@ const RECUR_CN_WEEKDAY: Record<string, number> = { 一: 0, 二: 1, 三: 2, 四: 
 const CLEAR_LABELS: Record<ParsedClear, string> = {
   due: "日期", priority: "优先级", project: "项目", parent: "父任务",
   wait: "等待", tags: "标签", notes: "备注", recur: "重复", reminders: "提醒",
+  dependencies: '依赖',
 };
 
 /**
@@ -324,7 +328,7 @@ export const recurToInput = (recur: Recur): string => {
 };
 
 export const parse = (text: string, now = localNow(), levels = ["低", "中", "高"]): Parsed => {
-  const parsed: Parsed = { title: "", dueHasTime: false, tags: [], removeTags: [], reminders: [], clears: new Set(), remindersOptedOut: false };
+  const parsed: Parsed = { title: "", dependencies: [], dueHasTime: false, tags: [], removeTags: [], reminders: [], clears: new Set(), remindersOptedOut: false };
   let source = text.trim();
   if (!source) return parsed;
   const today = now.slice(0, 10);
@@ -420,6 +424,10 @@ export const parse = (text: string, now = localNow(), levels = ["低", "中", "�
     source = `${source.slice(0, reminderMatch.index!)} ${source.slice(reminderMatch.index! + reminderMatch[0].length)}`;
   }
 
+  const extracted = extractDependencies(source, reference => {
+    const found = scanDate(reference, today); return !!found && found.start === 0 && found.end === reference.length;
+  });
+  source = extracted.source; parsed.dependencies = extracted.dependencies;
   const dateFound = scanDate(source, today);
   let date: string | undefined;
   let time: string | undefined;
@@ -465,6 +473,7 @@ export const preview = (text: string, now = localNow(), levels = ["低", "中", 
   if (p.recur) parts.push(`↻${describeRecur(p.recur)}`);
   for (const reminder of p.reminders) parts.push(`⏰${reminder.at.replace("T", " ")}(${reminder.hooks.join(",")})`);
   if (p.parent) parts.push(`父:${p.parent}`);
+  for (const dependency of p.dependencies) parts.push(`${dependency.direction === 'after' ? '依赖' : '先于'}:${dependency.reference}`);
   if (p.notes) parts.push(`备注:${p.notes.length > 20 ? `${p.notes.slice(0, 20)}…` : p.notes}`);
   for (const tag of p.removeTags) parts.push(`去#${tag}`);
   for (const field of p.clears) {

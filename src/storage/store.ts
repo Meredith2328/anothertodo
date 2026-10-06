@@ -8,9 +8,10 @@ import { addLocalMinutes, parseCompatibleDateTime } from "../core/time.js";
 import { readJsonlDetailed } from "./jsonl.js";
 import { pathsFor, type Paths } from "./paths.js";
 import { atomicWriteText, withDataLock } from "./lock.js";
+import { validateDependencies, blockedDependencies } from '../core/dependencies.js';
 
 type JsonObject = Record<string, unknown>;
-type UndoRecord = { before: JsonObject | null; after: JsonObject | null; ts: string };
+type UndoRecord = { before: JsonObject | null; after: JsonObject | null; ts: string; changes?: Array<{ before: JsonObject | null; after: JsonObject }> };
 type ArchiveTransaction = { tasks: string[]; archive: string[] };
 
 export class ConcurrentModificationError extends Error {
@@ -138,6 +139,10 @@ export class Store {
     }
     return [...latest.values()].filter((obj) => obj.deleted !== true).map(parseTask);
   }
+  async dependencyTasks(): Promise<Task[]> {
+    const catalog = new Map([...(await this.archived()), ...(await this.rawObjects())].map(record => [String(record.id), record]));
+    return [...catalog.values()].filter(record => record.deleted !== true).map(parseTask);
+  }
 
   async get(id: string): Promise<Task | undefined> {
     return (await this.tasks()).find((task) => task.id === id);
@@ -171,11 +176,37 @@ export class Store {
       const task = parseTask({ ...input, id, entry: input.entry || utcNow(), modified: utcNow() });
       const objects = originalObjects.filter((obj) => obj.id !== task.id);
       objects.push(TaskSchema.parse(task));
+      validateDependencies(objects.filter(obj => obj.deleted !== true).map(parseTask));
       await atomicWrite(this.paths.tasks, objects.map(jsonLine));
       if (recordUndo) await this.appendUndo(before ? TaskSchema.parse(cloneTask(before)) : null, TaskSchema.parse(task));
       if (existing) emit("task.updated", { before: cloneTask(before ?? existing), after: cloneTask(task) });
       else emit("task.created", { task: cloneTask(task) });
       return task;
+    });
+  }
+
+  async saveMany(entries: Array<{ task: Task; before?: Task }>): Promise<Task[]> {
+    return this.withLock(async emit => {
+      const objects = await this.rawObjects(); this.assertTasksWritable();
+      const latest = new Map(objects.map(obj => [String(obj.id), obj]));
+      const changes: Array<{ before: JsonObject | null; after: JsonObject }> = [];
+      const saved: Task[] = [];
+      for (const entry of entries) {
+        const existing = latest.get(entry.task.id);
+        if (entry.before && (!existing || existing.deleted === true || existing.modified !== entry.before.modified)) throw new ConcurrentModificationError(entry.task.id);
+        if (!entry.before && existing) throw new Error(`任务编号已存在：${entry.task.id}`);
+        const task = parseTask({ ...entry.task, modified: utcNow(), entry: entry.task.entry || utcNow() });
+        changes.push({ before: entry.before ? cloneTask(entry.before) : null, after: task });
+        latest.set(task.id, task); saved.push(task);
+      }
+      validateDependencies([...latest.values()].filter(obj => obj.deleted !== true).map(parseTask));
+      await atomicWrite(this.paths.tasks, [...latest.values()].map(jsonLine));
+      await appendFile(this.paths.undo, `${JSON.stringify({ before: null, after: null, ts: utcNow(), changes } satisfies UndoRecord)}\n`, 'utf8');
+      for (const change of changes) {
+        if (change.before) emit('task.updated', { before: parseTask(change.before), after: parseTask(change.after) });
+        else emit('task.created', { task: parseTask(change.after) });
+      }
+      return saved;
     });
   }
 
@@ -203,6 +234,7 @@ export class Store {
       if (!current) return undefined;
       const task = parseTask(current);
       if (task.status !== "todo" && task.status !== "waiting" && task.status !== "meeting") return undefined;
+      if (blockedDependencies(task, [...objects.filter(obj => obj.deleted !== true), ...(await this.archived()).filter(obj => obj.deleted !== true)].map(parseTask)).length) return undefined;
       const reminder = task.reminders.find((item) => item.id === reminderId);
       if (!reminder || reminder.fired || reminder.dead) return undefined;
       const reminderAt = parseCompatibleDateTime(reminder.at);
@@ -258,6 +290,33 @@ export class Store {
       const record = JSON.parse(lines.at(-1) ?? "") as UndoRecord;
       const objects = await this.rawObjects();
       this.assertTasksWritable();
+      if (record.changes) {
+        const latest = new Map(objects.map(obj => [String(obj.id), obj]));
+        for (const change of record.changes) {
+          const id = String(change.after.id), current = latest.get(id);
+          if (!current || current.modified !== change.after.modified) throw new ConcurrentModificationError(id);
+          if (change.before) {
+            const restored = mergeReminderRuntime(parseTask(change.before), parseTask(current)); restored.modified = utcNow(); latest.set(id, restored);
+          } else latest.set(id, tombstone(id));
+        }
+        validateDependencies([...latest.values()].filter(obj => obj.deleted !== true).map(parseTask));
+        const history = lines.slice(0, -1).map(line => JSON.parse(line) as UndoRecord);
+        for (const change of record.changes) {
+          const id = String(change.after.id), restored = latest.get(id)!;
+          for (let index = history.length - 1; index >= 0; index--) {
+            const previous = history[index]!;
+            const entry = previous.changes?.find(item => item.after.id === id);
+            const after = entry?.after ?? (previous.after?.id === id ? previous.after : undefined);
+            if (after) { if (after.modified === change.before?.modified) after.modified = restored.modified; break; }
+          }
+          if (change.before) emit('task.updated', { before: parseTask(change.after), after: parseTask(restored) });
+          else emit('task.deleted', { task: parseTask(change.after), tombstone: tombstone(id, String(restored.modified)) });
+        }
+        await atomicWrite(this.paths.tasks, [...latest.values()].map(jsonLine));
+        await atomicWrite(this.paths.undo, history.map(item => JSON.stringify(item)));
+        if (record.changes.length === 1) { const change = record.changes[0]!; return `${change.before ? '撤销修改' : '撤销新增'}：${String(change.after.title)}`; }
+        return `撤销批量操作：${record.changes.length} 个任务`;
+      }
       if (record.after) {
         const id = String(record.after.id);
         if (record.after.deleted === true) {

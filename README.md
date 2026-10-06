@@ -97,6 +97,21 @@ atd preview "后天 下午2点半 复盘 特急"           # 先看解析结果�
 
 不写提醒时，有截止时间的任务会自动补一个 toast：距截止超过 24 小时提前 1 天，否则提前 15 分钟；写 `@none`、`@off` 或 `no reminders` 可关闭。
 
+## 任务依赖
+
+在输入中描述执行顺序，会识别任务标题或编号并保存依赖关系：
+
+```bash
+atd add "整理资料" "整理资料之后写报告" "发邮件 after:写报告"
+atd add "检查附件 before:提交材料"
+atd edit a1b2 "after:整理资料"
+atd edit a1b2 "-dependencies"
+```
+
+支持 `之前 / 之后 / 以前 / 以后 / 完成后`、`before / after / following / depends on / prior to` 等写法。包含空格的名称可以使用引号，例如 `write report after "collect data"`。唯一匹配会直接建立关系，多个候选会明确列出编号，Android 检查页可以点击选择。任务只有在所有依赖完成后才能完成；循环依赖会拒绝保存。
+
+批量输入可以引用同一批中的后续任务，整批添加与关系更新使用同一个事务。`dependsOn` 保存稳定任务编号，并随 JSONL 导出与 Git 同步。`has:dependencies` 可以查询带依赖的任务；任务详情展示前置任务，归档中的已完成任务仍能满足依赖。
+
 ## 提醒
 
 ```bash
@@ -174,6 +189,8 @@ atd sync          # commit + fetch + rebase + push
 点击和滚轮在三档下都照常可用，降档只是让终端少报移动事件。鼠标在终端里划动时 `hover` 档会持续产生事件，嫌费 CPU 就 `atd config set ui.mouse drag`。
 
 ## 开发与打包
+
+Android 手机版本的操作、提醒、数据备份、Git 同步与 APK 构建说明见 [Android 文档](apps/android/README.md)。
 
 ```bash
 npm test                 # 运行测试套件

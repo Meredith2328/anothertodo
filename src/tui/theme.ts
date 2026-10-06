@@ -32,6 +32,7 @@ export const MODE_LABEL: Record<"levels" | "urgency", string> = { levels: "档�
 
 // 按分组 key 上色，而不是按显示出来的名字——名字会随界面语言变
 export const GROUP_COLOR: Record<GroupKey, string> = {
+  blocked: C.yellow,
   overdue: C.overdue,
   today: C.accent,
   upcoming: C.future,

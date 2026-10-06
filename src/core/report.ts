@@ -92,11 +92,11 @@ export type ExportFormat = "json" | "csv" | "markdown";
 export const exportTasks = (tasks: Task[], format: ExportFormat): string => {
   if (format === "json") return JSON.stringify(tasks, null, 2);
   if (format === "csv") {
-    const header = ["id", "title", "status", "due", "priority", "project", "tags", "parent", "wait", "recur", "notes", "entry", "end"];
+    const header = ["id", "title", "status", "due", "priority", "project", "tags", "parent", "wait", "recur", "notes", "entry", "end", 'dependsOn'];
     const rows = tasks.map((task) => [
       task.id, task.title, task.status, task.due ?? "", task.priority ?? "", task.project ?? "",
       task.tags.join("|"), task.parent ?? "", task.wait ?? "", task.recur ? describeRecur(task.recur) : "",
-      task.notes.replace(/\r?\n/gu, " "), task.entry, task.end ?? "",
+      task.notes.replace(/\r?\n/gu, " "), task.entry, task.end ?? "", (task.dependsOn ?? []).join('|'),
     ]);
     return [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
   }
@@ -109,6 +109,7 @@ export const exportTasks = (tasks: Task[], format: ExportFormat): string => {
       task.project ? `◈${task.project}` : "",
       ...task.tags.map((tag) => `#${tag}`),
       task.recur ? `↻${describeRecur(task.recur)}` : "",
+      task.dependsOn?.length ? `依赖 ${task.dependsOn.join(', ')}` : '',
     ].filter(Boolean);
     lines.push(`- ${box} ${task.title}${bits.length ? `  ${bits.join(" ")}` : ""}`);
     if (task.notes.trim()) for (const line of task.notes.split(/\r?\n/)) lines.push(`      ${line}`);

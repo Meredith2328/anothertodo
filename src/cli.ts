@@ -61,8 +61,7 @@ export const buildProgram = (): Command => {
   // 清空指令开头，commander 默认会把它当命令行选项拒掉
   program.command("add").description("新增任务，可一次给多条输入").argument("<inputs...>", "一行输入，例如「明天 下午3点 写周报 高 #工作」").allowUnknownOption().action(async (inputs: string[]) => {
     const application = service();
-    for (const input of inputs) {
-      const task = await application.add(input, nowLocal());
+    for (const task of await application.addBatch(inputs.flatMap(input => input.split(/\r?\n/).filter(line => line.trim())), nowLocal())) {
       console.log(`已添加 ${task.id}  ${task.title}`);
     }
   });
@@ -74,7 +73,7 @@ export const buildProgram = (): Command => {
     const cfg = await loadConfig();
     const now = nowLocal();
     const selectedMode = options.mode ?? cfg.priority.mode;
-    const agenda = groups(await store().tasks(), cfg, selectedMode, now, query.join(" "));
+    const agenda = groups(await store().tasks(), cfg, selectedMode, now, query.join(" "), await service().dependencyTasks());
     const visible = agenda.filter((group) => group.tasks.length > 0);
     if (!visible.length) { console.log("（没有匹配的任务）"); return; }
     for (const group of agenda) {
@@ -152,6 +151,7 @@ export const buildProgram = (): Command => {
     if (options.json === true) { console.log(JSON.stringify(current, null, 2)); return; }
     const application = service();
     const children = await application.children(current.id);
+    const catalog = await application.dependencyTasks();
     const parent = current.parent === undefined ? undefined : await store().find(current.parent);
     const rows: Array<[string, string]> = [
       [t("field.id"), current.id], [t("field.title"), current.title], [t("field.status"), current.status],
@@ -162,6 +162,7 @@ export const buildProgram = (): Command => {
       [t("field.recur"), current.recur ? describeRecur(current.recur) : t("value.none")],
       [t("field.parent"), current.parent === undefined ? t("value.none") : `${current.parent}${parent ? ` ${parent.title}` : t("value.missing")}`],
       [t("field.subtasks"), children.length ? children.map((child) => `${child.id} ${child.title}`).join("、") : t("value.none")],
+      [t('field.dependencies'), (current.dependsOn ?? []).map(id => `${id} ${catalog.find(task => task.id === id)?.title ?? t('value.missing')}`).join('、') || t('value.none')],
       [t("field.entry"), current.entry.replace("T", " ").slice(0, 16)],
       [t("field.end"), current.end ? current.end.replace("T", " ").slice(0, 16) : t("value.none")],
     ];
