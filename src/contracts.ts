@@ -55,12 +55,18 @@ export const TaskSchema = z.object({
   // agenda/watcher while unknown ones remain readable and round-trippable.
   status: z.string().min(1).default("todo"),
   due: CompatibleDateTimeSchema.optional(),
+  // 时间段的结束时刻：`14:00-15:00` 里的 15:00。只有 due 带时间时才有意义；
+  // 可选而不是默认值，老数据写回时不多出字段
+  until: CompatibleDateTimeSchema.optional(),
   priority: z.string().min(1).optional(),
   tags: z.array(z.string().min(1)).default([]),
   project: z.string().min(1).optional(),
   parent: z.string().min(1).optional(),
   kind: z.literal("project").optional(),
   dependsOn: z.array(IdSchema).optional(),
+  // 前置任务 id：全部前置完成后才可以执行本任务。
+  // 可选而不是默认空数组，免得每条老任务写回时都多出一个 "deps":[]
+  deps: z.array(IdSchema).optional(),
   wait: z.string().min(1).optional(),
   notes: z.string().default(""),
   recur: RecurSchema.optional(),
@@ -95,7 +101,7 @@ export const ConfigSchema = z.object({
     script: z.string().default(""),
     files: z.array(z.object({ name: z.string().min(1), source: z.string().min(1) })).default([]),
     list: z.boolean().default(false),
-  }).default({}),
+  }).prefault({}),
   priority: z.object({
     mode: z.enum(["levels", "urgency"]),
     levels: z.array(z.string().min(1)).min(1),
@@ -104,6 +110,13 @@ export const ConfigSchema = z.object({
   agenda: z.object({
     week_days: z.number().int().positive(),
     date_format: z.enum(["auto", "md", "full"]),
+    // 日期、优先级都相同时怎么排：entry 先加的在前 / entry_desc 后加的在前 / title 按标题（中文按拼音）
+    tie_break: z.enum(["entry", "entry_desc", "title"]).default("entry"),
+    view: z.enum(["all", "recent", "hour"]).default("all"),
+    timezone: z.string().refine((value) => {
+      try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; }
+      catch { return false; }
+    }, "无效时区").default("Asia/Shanghai"),
   }),
   watch: z.object({
     interval_seconds: z.number().int().positive(),
@@ -111,15 +124,24 @@ export const ConfigSchema = z.object({
   ui: z.object({
     // auto 跟随环境变量（认不出来按中文）；只影响界面文案，不影响输入与查询语法
     lang: z.enum(["auto", "zh", "en"]).default("auto"),
-    /**
-     * 鼠标跟踪档位：
-     * - hover：SGR 1003，上报所有移动，悬浮高亮可用（默认）
-     * - drag：SGR 1002，只在按住时上报移动，没有纯悬浮高亮，事件量小得多
-     * - click：SGR 1000，只上报按下/释放，点击和滚轮仍可用
-     * 终端里鼠标划动会持续产生事件；嫌吵或嫌费 CPU 就往下降一档。
-     */
-    mouse: z.enum(["hover", "drag", "click"]).default("hover"),
-  }).default({ lang: "auto", mouse: "hover" }),
+    // 皮肤名：内置的 classic / raised / dracula …，或 ~/.atd/skins/ 下的自定义皮肤
+    skin: z.string().min(1).default("classic"),
+    // 鼠标点击：关掉后终端原生的选中复制就能用了
+    mouse: z.union([z.boolean(), z.enum(['hover', 'drag', 'click'])]).default('hover'),
+    // 完成任务时的划线动画
+    animations: z.boolean().default(true),
+    // cards：按分组分块、靠留白分隔的卡片式清单；table：带边框和表头的表格
+    layout: z.enum(["cards", "table"]).default("cards"),
+    // comfortable 分组之间空一行、输入框带完整边框；compact 挤在一起，给小终端
+    line_spacing: z.number().int().min(0).max(2).default(0),
+    density: z.enum(["comfortable", "compact"]).default("comfortable"),
+    // 顶部横幅：line 一行标题；small 两行小字；full 六行像素字
+    banner: z.enum(["line", "small", "full"]).default("line"),
+  }).prefault({ lang: "auto", skin: "classic", mouse: 'hover', animations: true, layout: "cards", density: "comfortable", banner: "line" }),
+  deps: z.object({
+    // 被前置任务挡住的后续任务：dim 在主屏淡字显示，hide 不上主屏（依赖图页仍可见）
+    blocked: z.enum(["dim", "hide"]).default("dim"),
+  }).default({ blocked: "dim" }),
   email: z.object({
     host: z.string(),
     port: z.number().int().positive(),

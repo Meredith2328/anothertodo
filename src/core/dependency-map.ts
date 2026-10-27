@@ -1,6 +1,6 @@
 import type { Task } from '../contracts.js';
 import { ACTIVE_STATES } from './task.js';
-import { dependencyOrder } from './dependencies.js';
+import { dependencyOrder, dependencyIds } from './dependencies.js';
 
 export type MapState = 'done' | 'ready' | 'locked' | 'deferred' | 'cancelled' | 'inactive' | 'missing';
 export type MapNode = { id: string; task: Task | undefined; state: MapState; previous: string[]; next: string[] };
@@ -12,10 +12,10 @@ export const dependencyMap = (catalog: readonly Task[], today: string): Dependen
   const ordered = dependencyOrder([...catalog].sort((a, b) => a.entry.localeCompare(b.entry) || a.id.localeCompare(b.id)));
   const tasks = new Map(ordered.map(task => [task.id, task]));
   const nodes = new Map<string, MapNode>(), edges: MapEdge[] = [];
-  const missing = new Set(ordered.flatMap(task => task.dependsOn ?? []).filter(id => !tasks.has(id)));
+  const missing = new Set(ordered.flatMap(dependencyIds).filter(id => !tasks.has(id)));
   for (const id of [...missing].sort()) nodes.set(id, { id, task: undefined, state: 'missing', previous: [], next: [] });
   for (const task of ordered) {
-    const previous = [...new Set(task.dependsOn ?? [])].sort();
+    const previous = dependencyIds(task).sort();
     const state: MapState = task.status === 'done' ? 'done' : task.status === 'cancelled' ? 'cancelled'
       : !ACTIVE_STATES.has(task.status) ? 'inactive' : previous.some(id => tasks.get(id)?.status !== 'done') ? 'locked'
       : task.wait && task.wait > today ? 'deferred' : 'ready';

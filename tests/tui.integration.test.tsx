@@ -4,11 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { render, cleanup } from "ink-testing-library";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ApplicationService } from "../src/app/service.js";
+import { readFile } from "node:fs/promises";
+import { loadConfig, setConfigValue } from "../src/core/config.js";
 import { parseTask } from "../src/core/task.js";
 import { Store } from "../src/storage/store.js";
-import { TuiApp, type TuiTestSignals } from "../src/tui/app.js";
+import { TuiApp, footerKeyRanges, type TuiTestSignals } from "../src/tui/app.js";
 import { emitMouse } from "../src/tui/mouse.js";
 
 async function withTimeout<T>(promise: Promise<T>, label: string, timeoutMs = 3000): Promise<T> {
@@ -112,7 +115,7 @@ describe("stage 7 Ink TUI integration", () => {
     const closeAction = signals.action();
     app.stdin.write("x");
     await closeAction;
-    expect(app.lastFrame()).toContain("标签 / 提醒");
+    expect(app.lastFrame()).toContain("ANOTHER TODO");
     expect(app.lastFrame()).not.toContain("atd 帮助");
   });
 
@@ -168,7 +171,7 @@ describe("stage 7 Ink TUI integration", () => {
     const dir = await mkdtemp(join(tmpdir(), "atd-ink-"));
     const store = new Store(dir);
     const signals = createSignals();
-    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={40} />);
+    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={44} />);
     await signals.ready();
     await signals.data();
     const helpAction = signals.action();
@@ -176,7 +179,7 @@ describe("stage 7 Ink TUI integration", () => {
     await helpAction;
     const frame = app.lastFrame() ?? "";
     expect(frame).toContain("清单区（默认焦点，光标在任务列表）");
-    expect(frame.split("\n").length).toBeLessThanOrEqual(40);
+    expect(frame.split("\n").length).toBeLessThanOrEqual(44);
   });
 
   it("keeps the footer on the last line while help is open", async () => {
@@ -193,7 +196,7 @@ describe("stage 7 Ink TUI integration", () => {
     const lines = (app.lastFrame() ?? "").split("\n");
     expect(lines.length).toBe(24); // 整帧严格等于终端行数，不溢出
     const last = lines[lines.length - 1] ?? "";
-    for (const label of ["帮助", "输入", "完成", "退出"]) expect(last).toContain(label);
+    for (const label of ["帮助", "输入", "完成", "设置", "退出"]) expect(last).toContain(label);
   });
 });
 
@@ -216,6 +219,25 @@ describe("footer mouse interaction", () => {
     expect(app.lastFrame()).toContain("atd 帮助");
   });
 
+  it("footer buttons still work while a modal is open (help → click 输入 goes to input)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atd-ink-"));
+    const store = new Store(dir);
+    const signals = createSignals();
+    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={24} />);
+    await signals.ready();
+    await signals.data();
+    const helpAction = signals.action();
+    app.stdin.write("?");
+    await helpAction;
+    expect(app.lastFrame()).toContain("atd 帮助");
+    const inputAction = signals.action();
+    emitMouse({ kind: "press", button: 0, x: 15, y: 24 }); // i 输入 按钮
+    await inputAction;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(app.lastFrame()).not.toContain("atd 帮助");
+    expect(app.lastFrame()).toContain("输入区：Enter 提交");
+  });
+
   it("clicking d on the footer completes the selected task", async () => {
     const dir = await mkdtemp(join(tmpdir(), "atd-ink-"));
     const store = new Store(dir);
@@ -232,7 +254,7 @@ describe("footer mouse interaction", () => {
   });
 
   it("clicking a task row hits that exact row (mapping regression)", async () => {
-    // 布局（rows=30，宽横幅）：y=9 组标题，y=10 首个任务。点击首任务行
+    // cards 布局：y=1 顶栏，y=2 组标题，y=3 首个任务。点击首任务行
     // 应直接切换完成（该行默认已选中）；若映射偏移一行则会点到组标题无效果。
     const dir = await mkdtemp(join(tmpdir(), "atd-ink-"));
     const store = new Store(dir);
@@ -242,7 +264,7 @@ describe("footer mouse interaction", () => {
     await signals.ready();
     await signals.data();
     const mutation = signals.mutation();
-    emitMouse({ kind: "press", button: 0, x: 20, y: 10 });
+    emitMouse({ kind: "press", button: 0, x: 20, y: 5 });
     const result = await mutation;
     expect(result.kind).toBe("success");
     expect((await store.get("00000043"))?.status).toBe("done");
@@ -268,7 +290,7 @@ describe("footer mouse interaction", () => {
     const closeAction = signals.action();
     app.stdin.write("\u001b");
     await closeAction;
-    expect(app.lastFrame()).toContain("标签 / 提醒");
+    expect(app.lastFrame()).toContain("ANOTHER TODO");
   });
 
   it("asks before deleting and does nothing when the answer is not yes", async () => {
@@ -314,7 +336,7 @@ describe("footer mouse interaction", () => {
       app.stdin.write(" ");
       await markAction;
     }
-    expect(app.lastFrame()).toContain("◉2");
+    expect(app.lastFrame()).toContain("已选 2");
     const mutation = signals.mutation();
     app.stdin.write("d");
     expect((await mutation).kind).toBe("success");
@@ -360,42 +382,323 @@ describe("footer mouse interaction", () => {
     }
     const signals = createSignals();
     const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={30} />);
-    await signals.ready();
-    await signals.data();
-    // 悬浮到第二个任务行（y=11：首任务行 10 + 1）
-    emitMouse({ kind: "move", button: 0, x: 20, y: 11 });
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    // 悬浮纯视觉：不动选中、不产生任何数据变更。
-    // 不断言帧字符串——悬浮只改颜色，无色环境下帧是一样的，那样断言会假过。
-    expect((await store.get("00000091"))?.status).toBe("todo");
-    expect((await store.get("00000092"))?.status).toBe("todo");
-    // 光标仍在第一行：悬浮不该抢选中
-    const doneFirst = signals.mutation();
-    app.stdin.write("d");
-    await doneFirst;
-    expect((await store.get("00000091"))?.status).toBe("done");
-    expect((await store.get("00000092"))?.status).toBe("todo");
+    await signals.ready(); await signals.data();
+    emitMouse({ kind: 'move', button: 0, x: 20, y: 6 });
+    await new Promise(resolve => setTimeout(resolve, 60));
+    expect((await store.get('00000091'))?.status).toBe('todo');
+    expect((await store.get('00000092'))?.status).toBe('todo');
+    const mutation = signals.mutation(); app.stdin.write('d'); await mutation;
+    expect((await store.get('00000091'))?.status).toBe('done');
+    expect((await store.get('00000092'))?.status).toBe('todo');
   });
 
-  it("clicking the footer d button completes the task (hover then press)", async () => {
+  it('completes a task through the footer after pointer movement', async () => {
+    const store = new Store(await mkdtemp(join(tmpdir(), 'atd-ink-')));
+    await store.save(parseTask({ id: '00000093', title: '按下反馈', status: 'todo' }));
+    const signals = createSignals(); const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={24} />);
+    await signals.ready(); await signals.data();
+    const range = footerKeyRanges().find(range => range.name === 'done')!;
+    emitMouse({ kind: 'move', button: 0, x: range.start, y: 24 });
+    await new Promise(resolve => setTimeout(resolve, 40));
+    expect((await store.get('00000093'))?.status).toBe('todo');
+    const mutation = signals.mutation(); emitMouse({ kind: 'press', button: 0, x: range.start, y: 24 });
+    expect((await mutation).kind).toBe('success');
+    emitMouse({ kind: 'release', button: 0, x: range.start, y: 24 });
+    expect((await store.get('00000093'))?.status).toBe('done');
+  });
+
+  it("picks follow-up tasks with a, space and Enter", async () => {
     const dir = await mkdtemp(join(tmpdir(), "atd-ink-"));
     const store = new Store(dir);
-    await store.save(parseTask({ id: "00000093", title: "按下反馈", status: "todo", tags: [], reminders: [], entry: "2026-08-20T10:00:00Z", modified: "2026-08-20T10:00:00Z" }));
+    await store.save(parseTask({ id: "00000061", title: "申请身份证", status: "todo", tags: [], reminders: [], entry: "2026-08-20T10:00:00Z", modified: "2026-08-20T10:00:00Z" }));
+    await store.save(parseTask({ id: "00000062", title: "领取身份证", status: "todo", tags: [], reminders: [], entry: "2026-08-20T11:00:00Z", modified: "2026-08-20T11:00:00Z" }));
     const signals = createSignals();
-    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={24} />);
+    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={30} />);
     await signals.ready();
     await signals.data();
-    // 先悬浮再按下，模拟真实鼠标轨迹；移动本身不该触发任何动作
-    emitMouse({ kind: "move", button: 0, x: 24, y: 24 });
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    expect((await store.get("00000093"))?.status).toBe("todo");
+    const open = signals.action();
+    app.stdin.write("a");
+    await open;
+    expect(app.lastFrame()).toContain("领取身份证");
+    const toggle = signals.action();
+    app.stdin.write(" ");
+    await toggle;
     const mutation = signals.mutation();
-    emitMouse({ kind: "press", button: 0, x: 24, y: 24 });
+    app.stdin.write("\r");
     expect((await mutation).kind).toBe("success");
-    expect((await store.get("00000093"))?.status).toBe("done");
-    // 松手不该再触发第二次动作
-    emitMouse({ kind: "release", button: 0, x: 24, y: 24 });
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    expect((await store.get("00000093"))?.status).toBe("done");
+    expect((await store.get("00000062"))?.deps).toEqual(["00000061"]);
+  });
+
+  it("cycles project views with Tab", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atd-ink-"));
+    const store = new Store(dir);
+    await store.save(parseTask({ id: "00000071", title: "买菜", project: "家", status: "todo", tags: [], reminders: [], entry: "2026-08-20T10:00:00Z", modified: "2026-08-20T10:00:00Z" }));
+    await store.save(parseTask({ id: "00000072", title: "写周报", project: "工作", status: "todo", tags: [], reminders: [], entry: "2026-08-20T10:00:00Z", modified: "2026-08-20T10:00:00Z" }));
+    const signals = createSignals();
+    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={30} />);
+    await signals.ready();
+    await signals.data();
+    expect(app.lastFrame()).toContain("买菜");
+    expect(app.lastFrame()).toContain("写周报");
+    const tab = signals.action();
+    app.stdin.write("\t");
+    await tab;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const frame = app.lastFrame() ?? "";
+    // 只剩一个项目的任务
+    expect(frame.includes("买菜") !== frame.includes("写周报")).toBe(true);
+  });
+
+  it("opens the history modal with :history and rolls back the chosen step", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atd-ink-"));
+    const store = new Store(dir);
+    const signals = createSignals();
+    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={30} />);
+    await signals.ready();
+    await signals.data();
+    for (const title of ["第一件", "第二件"]) {
+      const add = signals.action();
+      app.stdin.write("i");
+      await add;
+      const text = signals.action();
+      app.stdin.write(title);
+      await text;
+      const mutation = signals.mutation();
+      app.stdin.write("\r");
+      await mutation;
+    }
+    const command = signals.action();
+    app.stdin.write(":history");
+    await command;
+    const mutationOpen = signals.action();
+    app.stdin.write("\r");
+    await mutationOpen;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(app.lastFrame()).toContain("第二件");
+    const down = signals.action();
+    app.stdin.write("j");
+    await down;
+    const undo = signals.mutation();
+    app.stdin.write("\r");
+    expect((await undo).kind).toBe("success");
+    expect((await store.tasks()).length).toBe(0);
+  });
+});
+
+describe("focus views with isolated task stores", () => {
+  afterEach(() => cleanup());
+  const boot = async (store: Store) => {
+    const signals = createSignals();
+    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={30} />);
+    await signals.ready(); await signals.data();
+    const press = async (text: string) => { const action = signals.action(); app.stdin.write(text); await action; };
+    return { app, signals, press };
+  };
+  it("shows a focused current task, keeps unscheduled explicit, and restores selection across views", async () => {
+    const store = new Store(await mkdtemp(join(tmpdir(), "atd-focus-")));
+    await store.save(parseTask({ id: "00000101", title: "学习上下文", status: "doing" }));
+    await store.save(parseTask({ id: "00000102", title: "未排期事项", status: "todo" }));
+    const { app, press } = await boot(store);
+    await press("j"); await press("5");
+    expect(app.lastFrame()).toContain("学习上下文");
+    expect(app.lastFrame()).toContain("未安排 1 项 · b 展开");
+    expect(app.lastFrame()).not.toContain("未排期事项");
+    await press("3"); await press("l");
+    expect(app.lastFrame()).toContain("未排期事项");
+    await press("\x1b"); await press("5"); await press("b");
+    expect(app.lastFrame()).toContain("未排期事项");
+  });
+  it("keeps edit target and draft when view changes, adds in focus, and persists on restart", async () => {
+    const store = new Store(await mkdtemp(join(tmpdir(), "atd-focus-")));
+    await store.save(parseTask({ id: "00000201", title: "编辑目标", status: "todo" }));
+    await store.save(parseTask({ id: "00000202", title: "另一条", status: "doing" }));
+    const { app, signals, press } = await boot(store);
+    await press("j"); await press("e"); await press("补充"); await press("\x16"); await press("\x16");
+    expect(app.lastFrame()).toContain("编辑中"); expect(app.lastFrame()).toContain("补充");
+    let mutation = signals.mutation(); app.stdin.write("\n"); expect((await mutation).kind).toBe("success");
+    expect((await store.get("00000201"))?.title).toBe("编辑目标补充");
+    expect((await store.get("00000202"))?.title).toBe("另一条");
+    await expect.poll(async () => (await loadConfig(store.paths.dir)).agenda.view).toBe("hour");
+    cleanup(); const restarted = await boot(store);
+    expect(restarted.app.lastFrame()).toContain("未安排 1 项 · b 展开");
+    await restarted.press("i"); await restarted.press("新建未安排");
+    mutation = restarted.signals.mutation(); restarted.app.stdin.write("\n"); expect((await mutation).kind).toBe("success");
+    expect(restarted.app.lastFrame()).toContain("未安排 2 项");
+    await restarted.press("b"); expect(restarted.app.lastFrame()).toContain("新建未安排");
+  });
+  it("explains the empty view and maps spaced rows to the correct mouse task", async () => {
+    const store = new Store(await mkdtemp(join(tmpdir(), "atd-focus-")));
+    await store.save(parseTask({ id: "00000301", title: "第一条", status: "todo" }));
+    await store.save(parseTask({ id: "00000302", title: "第二条", status: "todo" }));
+    await setConfigValue("ui.line_spacing", "1", store.paths.dir);
+    const { app, signals, press } = await boot(store);
+    await press("5"); expect(app.lastFrame()).toContain("这个范围暂无已安排事项");
+    expect(app.lastFrame()).toContain("未安排 2 项"); await press("b");
+    emitMouse({ kind: "press", button: 0, x: 15, y: 6 }); // 空白不选择也不完成
+    expect((await store.get("00000301"))?.status).toBe("todo");
+    const action = signals.action(); emitMouse({ kind: "press", button: 0, x: 15, y: 7 });
+    // 鼠标行选择不发 action signal，等 React 完成渲染再按完成键
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const mutation = signals.mutation(); app.stdin.write("d");
+    await action;
+    expect((await mutation).kind).toBe("success");
+    expect((await store.get("00000301"))?.status).toBe("todo");
+    expect((await store.get("00000302"))?.status).toBe("done");
+  });
+});
+
+
+describe("focus chrome and responsive ASCII", () => {
+  afterEach(() => cleanup());
+  it("preserves an edit draft when clicking view tabs", async () => {
+    const store = new Store(await mkdtemp(join(tmpdir(), "atd-focus-")));
+    await store.save(parseTask({ id: "00000401", title: "原任务", status: "todo" }));
+    const signals = createSignals();
+    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={30} />);
+    await signals.ready(); await signals.data();
+    let action = signals.action(); app.stdin.write("e"); await action;
+    action = signals.action(); app.stdin.write("补充"); await action;
+    action = signals.action(); emitMouse({ kind: "press", button: 0, x: 12, y: 2 }); await action;
+    expect(app.lastFrame()).toContain("编辑中"); expect(app.lastFrame()).toContain("原任务补充");
+    const mutation = signals.mutation(); app.stdin.write("\n"); await mutation;
+    expect((await store.get("00000401"))?.title).toBe("原任务补充");
+  });
+  it.each([30, 18, 14])("keeps focused tasks and footer inside a %i-row terminal with the original ASCII", async (rows) => {
+    const store = new Store(await mkdtemp(join(tmpdir(), "atd-focus-")));
+    await store.save(parseTask({ id: "00000501", title: "当前学习", status: "doing" }));
+    await setConfigValue("ui.banner", "full", store.paths.dir);
+    await setConfigValue("agenda.view", "hour", store.paths.dir);
+    const signals = createSignals();
+    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={rows} />);
+    await signals.ready(); await signals.data();
+    expect(app.lastFrame()).toContain("当前学习");
+    expect(app.lastFrame()).toContain("退出");
+    expect((app.lastFrame() ?? "").split("\n").length).toBeLessThanOrEqual(rows);
+  });
+});
+
+
+describe("completion feedback in the real TUI", () => {
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+  const boot = async (store: Store) => {
+    const signals = createSignals();
+    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={30} />);
+    await signals.ready(); await signals.data();
+    const press = async (key: string) => { const action = signals.action(); app.stdin.write(key); await action; };
+    return { app, signals, press };
+  };
+  const fixture = async () => {
+    const store = new Store(await mkdtemp(join(tmpdir(), "atd-completion-")));
+    await store.save(parseTask({ id: "00000601", title: "本次阅读", status: "doing" }));
+    await store.save(parseTask({ id: "00000602", title: "下一件", status: "todo" }));
+    await store.save(parseTask({ id: "00000603", title: "以前完成", status: "done" }));
+    return store;
+  };
+  it("checks the successful original row, accepts input during feedback, then moves it below active tasks", async () => {
+    const store = await fixture(); const { app, signals, press } = await boot(store);
+    expect(app.lastFrame()).not.toContain("以前完成");
+    const mutation = signals.mutation(); app.stdin.write("d"); await mutation;
+    let frame = app.lastFrame() ?? "";
+    expect(frame.indexOf("本次阅读")).toBeLessThan(frame.indexOf("下一件"));
+    expect(frame).toContain("✓ 本次阅读");
+    await press("i"); await press("动画中输入");
+    expect(app.lastFrame()).toContain("动画中输入");
+    await expect.poll(() => (app.lastFrame() ?? "").indexOf("本次阅读") > (app.lastFrame() ?? "").indexOf("下一件"), { timeout: 2000 }).toBe(true);
+    await press("\x1b"); await press("6");
+    expect(app.lastFrame()).toContain("以前完成");
+    frame = app.lastFrame() ?? "";
+    expect(frame.indexOf("已完成 · 6 收起")).toBeGreaterThan(frame.indexOf("下一件"));
+  });
+  it("guards an in-flight repeat and never reopens on a second completion click", async () => {
+    const store = await fixture();
+    const complete = ApplicationService.prototype.complete;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const spy = vi.spyOn(ApplicationService.prototype, "complete").mockImplementation(async function(this: ApplicationService, ...args) { await gate; return complete.apply(this, args); });
+    const { app, signals, press } = await boot(store);
+    const mutation = signals.mutation(); await press("d"); await press("d");
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(app.lastFrame()).not.toContain("✓ 本次阅读");
+    release(); await mutation;
+    await expect.poll(() => (app.lastFrame() ?? "").indexOf("本次阅读") > (app.lastFrame() ?? "").indexOf("下一件")).toBe(true);
+    await press("G"); // newest completion is the last selectable row while history is collapsed
+    const history = await readFile(store.paths.undo, "utf8");
+    await press("d"); await press("\r");
+    expect((await store.get("00000601"))?.status).toBe("done");
+    expect(await readFile(store.paths.undo, "utf8")).toBe(history);
+  });
+  it("keeps a failed task in place without success animation", async () => {
+    const store = await fixture();
+    vi.spyOn(ApplicationService.prototype, "complete").mockRejectedValue(new Error("写入被拒绝"));
+    const { app, signals } = await boot(store);
+    const mutation = signals.mutation(); app.stdin.write("d"); expect((await mutation).kind).toBe("error");
+    expect((await store.get("00000601"))?.status).toBe("doing");
+    expect(app.lastFrame()).toContain("写入被拒绝");
+    expect(app.lastFrame()).not.toContain("✓ 本次阅读");
+  });
+  it("undo cancels feedback, and view switches do not leak a ghost into another range", async () => {
+    const store = await fixture(); const { app, signals, press } = await boot(store);
+    let mutation = signals.mutation(); app.stdin.write("d"); await mutation;
+    await press("5");
+    expect((app.lastFrame() ?? "").indexOf("✓ 本次阅读")).toBeGreaterThan((app.lastFrame() ?? "").indexOf("已完成 · 6 展开"));
+    mutation = signals.mutation(); app.stdin.write("u"); await mutation;
+    expect((await store.get("00000601"))?.status).toBe("doing");
+    expect(app.lastFrame()).toContain("本次阅读"); expect(app.lastFrame()).not.toContain("✓ 本次阅读");
+    await press("3"); expect(app.lastFrame()).not.toContain("✓ 本次阅读");
+  });
+  it("observes an external completion once, leaves old history collapsed, and does not replay on restart", async () => {
+    const store = await fixture(); const { app, signals, press } = await boot(store);
+    await new ApplicationService(new Store(store.paths.dir)).complete("00000601");
+    // The file watcher drives this; no UI mutation or explicit refresh is sent.
+    await expect.poll(() => app.lastFrame(), { timeout: 3500, interval: 50 }).toContain("✓ 本次阅读");
+    expect(app.lastFrame()).not.toContain("以前完成");
+    await expect.poll(() => (app.lastFrame() ?? "").indexOf("本次阅读") > (app.lastFrame() ?? "").indexOf("下一件")).toBe(true);
+    const mutation = signals.mutation(); app.stdin.write("r"); await mutation;
+    expect((app.lastFrame() ?? "").indexOf("本次阅读")).toBeGreaterThan((app.lastFrame() ?? "").indexOf("下一件"));
+    await press("6"); expect(app.lastFrame()).toContain("以前完成");
+    cleanup(); const restarted = await boot(store);
+    expect(restarted.app.lastFrame()).not.toContain("本次阅读");
+    expect(restarted.app.lastFrame()).toContain("已完成 · 6 展开");
+    await restarted.press("6"); expect(restarted.app.lastFrame()).toContain("本次阅读");
+  });
+  it("animates only successful items in a partially failed batch", async () => {
+    const store = await fixture();
+    const complete = ApplicationService.prototype.complete;
+    vi.spyOn(ApplicationService.prototype, "complete").mockImplementation(async function(this: ApplicationService, id, ...rest) {
+      if (id === "00000602") throw new Error("第二项拒绝");
+      return complete.call(this, id, ...rest);
+    });
+    const { app, signals, press } = await boot(store);
+    await press(" "); await press(" ");
+    const mutation = signals.mutation(); app.stdin.write("d"); await mutation;
+    expect((await store.get("00000601"))?.status).toBe("done");
+    expect((await store.get("00000602"))?.status).toBe("todo");
+    expect(app.lastFrame()).toContain("✓ 本次阅读");
+    expect(app.lastFrame()).not.toContain("✓ 下一件");
+    expect(app.lastFrame()).toContain("1 条没成功");
+  });
+  it("uses the completed section immediately with animations disabled and supports table/query filtering", async () => {
+    const store = await fixture();
+    await setConfigValue("ui.animations", "false", store.paths.dir);
+    await setConfigValue("ui.layout", "table", store.paths.dir);
+    const { app, signals, press } = await boot(store);
+    const mutation = signals.mutation(); app.stdin.write("d"); await mutation;
+    expect((app.lastFrame() ?? "").indexOf("本次阅读")).toBeGreaterThan((app.lastFrame() ?? "").indexOf("已完成 · 6 展开"));
+    await press("/"); await press("下一件"); await press("\r");
+    expect(app.lastFrame()).not.toContain("✓ 本次阅读");
+    expect(app.lastFrame()).not.toContain("以前完成");
+    await press("6"); expect(app.lastFrame()).not.toContain("以前完成");
+  });
+  it("ignores clicks on the temporary row and maps clicks after it to the live task", async () => {
+    const store = await fixture(); await setConfigValue("ui.line_spacing", "1", store.paths.dir);
+    const { app, signals } = await boot(store);
+    const mutation = signals.mutation(); app.stdin.write("d"); await mutation;
+    emitMouse({ kind: "press", button: 0, x: 15, y: 5 }); // checked temporary row
+    expect((await store.get("00000601"))?.status).toBe("done");
+    expect((await store.get("00000602"))?.status).toBe("todo");
+    await expect.poll(() => (app.lastFrame() ?? "").indexOf("本次阅读") > (app.lastFrame() ?? "").indexOf("下一件")).toBe(true);
+    // bottom heading is now row 7 (group heading / row / gap / completed heading)
+    emitMouse({ kind: "press", button: 0, x: 15, y: 7 });
+    await expect.poll(() => app.lastFrame()).toContain("以前完成");
   });
 });

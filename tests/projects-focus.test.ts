@@ -7,6 +7,8 @@ import { loadConfig } from '../src/core/config.js';
 import { executableTasks, projectAgenda } from '../src/core/projects.js';
 import { groups } from '../src/core/agenda.js';
 import { recommend } from '../src/app/recommendation.js';
+import { parseTask } from '../src/core/task.js';
+import { dependencyMap } from '../src/core/dependency-map.js';
 
 const fresh = async (): Promise<ApplicationService> => {
   await mkdir(resolve('work/tests'), { recursive: true });
@@ -14,6 +16,35 @@ const fresh = async (): Promise<ApplicationService> => {
 };
 
 describe('project and focus workflows', () => {
+  it('keeps project completion atomic when an external prerequisite is open', async () => {
+    const service = await fresh();
+    const prerequisite = await service.add('取得参考资料 @none');
+    const project = await service.addProject('学习参考资料', ['阅读章节一', '阅读章节二']);
+    await service.setDeps(project.id, [prerequisite.id]);
+    const before = await service.tasks();
+    await expect(service.complete(project.id)).rejects.toThrow('依赖');
+    expect(await service.tasks()).toEqual(before);
+    expect(await recommend(before, before, await service.config())).toEqual([prerequisite]);
+    await service.complete(prerequisite.id);
+    await service.complete(project.id);
+    await service.undo();
+    expect((await service.store.find(project.id))?.status).toBe('todo');
+    await service.redo();
+    expect((await service.store.find(project.id))?.status).toBe('done');
+  });
+
+  it('uses the same dependency fields for focus and the map, including archived prerequisites', async () => {
+    const service = await fresh();
+    const prerequisite = await service.add('准备材料 @none');
+    const next = await service.add(`使用材料 after:${prerequisite.id} @none`);
+    const paused = parseTask({ id: 'paused', title: '暂停事项', status: 'paused' });
+    expect(executableTasks([next, paused], [prerequisite, next, paused])).toEqual([]);
+    expect(dependencyMap([prerequisite, next], '2026-10-28').nodes.get(next.id)?.state).toBe('locked');
+    await service.complete(prerequisite.id); await service.archive(0);
+    const catalog = await service.dependencyTasks();
+    expect(executableTasks(await service.tasks(), catalog).map(task => task.id)).toEqual([next.id]);
+    expect(dependencyMap(catalog, '2026-10-28').nodes.get(next.id)?.state).toBe('ready');
+  });
   it('advances five real chapters, completes the project and undoes atomically', async () => {
     const service = await fresh();
     const project = await service.addProject('学习测试书', Array.from({ length: 5 }, (_, i) => `学习测试书的第${i + 1}章`));

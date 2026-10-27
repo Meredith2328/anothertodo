@@ -4,18 +4,25 @@ import { extractDependencies, type DependencyRequest } from './dependencies.js';
 
 export type ParsedReminder = Omit<Reminder, "dead"> & { dead?: boolean; relative: boolean };
 /** edit 时可以显式清空的字段名 */
-export type ParsedClear = "due" | "priority" | "project" | "parent" | "wait" | "tags" | "notes" | "recur" | "reminders" | "dependencies";
+export type ParsedClear = "due" | "priority" | "project" | "parent" | "deps" | "wait" | "tags" | "notes" | "recur" | "reminders" | "dependencies";
+/** `in:在做` 这类写法能直接落到的状态分组 */
+export type ParsedStatus = "todo" | "doing" | "waiting" | "paused";
 export type Parsed = {
   title: string;
   dependencies: DependencyRequest[];
   due?: string;
   dueHasTime: boolean;
+  /** 时间段的结束时刻，如 `14:00-15:00` / `下午两点到三点` 里的后一个时间 */
+  until?: string;
   priority?: string;
   tags: string[];
   /** `-#标签` 只摘掉指定标签，区别于 `-tags` 全清 */
   removeTags: string[];
   project?: string;
   parent?: string;
+  /** `after:id1,id2` 写的前置任务（还是用户输入的前缀，service 负责解析成全长 id） */
+  deps?: string[];
+  status?: ParsedStatus;
   wait?: string;
   notes?: string;
   recur?: Recur;
@@ -31,7 +38,8 @@ export type Parsed = {
 };
 
 type DateScan = { start: number; end: number; date: string; time?: string };
-type TimeScan = { start: number; end: number; time: string };
+type TimeScan = { start: number; end: number; time: string; /** 没写上午下午、也没写 am/pm 的裸小时，时间段里第二个时间要靠它判断该不该加 12 小时 */ bare: boolean };
+type TimeRangeScan = { start: number; end: number; from: string; to: string };
 
 const WEEKDAY: Record<string, number> = { 一: 0, 二: 1, 三: 2, 四: 3, 五: 4, 六: 5, 日: 6, 天: 6 };
 const HOLIDAYS: Record<string, [number, number]> = { 元旦: [1, 1], 五一: [5, 1], 十一: [10, 1], 国庆: [10, 1] };
@@ -85,7 +93,24 @@ const addMinutes = (value: string, minutes: number): string => {
 const EN_WEEKDAY: Record<string, number> = { mon: 0, tue: 1, tues: 1, wed: 2, wednes: 2, thu: 3, thur: 3, thurs: 3, fri: 4, sat: 5, satur: 5, sun: 6 };
 
 const DATE_RE = /(?<iso>\d{4}-\d{1,2}-\d{1,2}(?:[T ]\d{1,2}:\d{2})?)|(?<rel>大后天|后天|明天|今晚|明晚|今天)|(?<en>\bday\s+after\s+tomorrow\b|\bthis\s+weekend\b|\bnext\s+(?:mon|tues?|wed(?:nes)?|thu(?:rs)?|fri|sat(?:ur)?|sun)(?:day)?\b|\btoday\b|\btonight\b|\btomorrow\b)|(?<week>(?<wkpre>下|本)?(?:周|星期|礼拜)(?<wd>[一二三四五六日天]))|(?<weekend>周末)|(?<monthend>(?<mendpre>下)?月底)|(?<monthstart>(?<mstartpre>下)?月初)|(?<holiday>元旦|五一|十一|国庆)|(?<num4>\d{4}[./]\d{1,2}[./]\d{1,2})|(?<num2>(?<![\d.])(?<n2m>\d{1,2})[./-](?<n2d>\d{1,2})(?![\d.]))|(?<numcn>(?<n3m>\d{1,2})月(?<n3d>\d{1,2})日?)/giu;
-const TIME_RE = /(?<h12>\d{1,2})(?:[:：](?<m12>\d{1,2}))?\s*(?<apm>a\.?m\.?|p\.?m\.?)|(?<pre>凌晨|清晨|早上|上午|中午|下午|傍晚|晚上|夜里)(?<h1>\d{1,2})(?:[:：](?<m1>\d{1,2})|点(?<q1>半|一刻|三刻)?)?|(?<h2>\d{1,2})[:：](?<m2>\d{2})|(?<h3>\d{1,2})点(?<q3>半|一刻|三刻)?/giu;
+// 中文数字小时：两点、十一点。只到十二，再大没人这么说
+const CN_HOUR = "(?:十[一二]?|两|[一二三四五六七八九])";
+const cnHour = (raw: string): number => {
+  if (/^\d+$/u.test(raw)) return Number(raw);
+  if (raw === "两") return 2;
+  if (raw.startsWith("十")) return 10 + ("一二".indexOf(raw.slice(1)) + 1);
+  return "一二三四五六七八九".indexOf(raw) + 1;
+};
+const TIME_RE = new RegExp(
+  "(?<h12>\\d{1,2})(?:[:：](?<m12>\\d{1,2}))?\\s*(?<apm>a\\.?m\\.?|p\\.?m\\.?)"
+  + `|(?<pre>凌晨|清晨|早上|上午|中午|下午|傍晚|晚上|夜里)(?<h1>\\d{1,2}|${CN_HOUR})(?:[:：](?<m1>\\d{1,2})|点(?<q1>半|一刻|三刻|整)?)?`
+  + "|(?<h2>\\d{1,2})[:：](?<m2>\\d{2})"
+  // 「一点点心」不是一点钟：点后面再跟一个点就不算
+  + `|(?<h3>\\d{1,2}|${CN_HOUR})点(?<q3>半|一刻|三刻|整)?(?!点)`,
+  "giu",
+);
+// 时间段的连接词：14:00-15:00 / 两点到三点 / 2pm to 3pm
+const RANGE_JOIN_RE = /^\s*(?:-|–|—|~|～|到|至|to)\s*/iu;
 
 const group = (match: RegExpExecArray, key: string): string | undefined => match.groups?.[key];
 
@@ -186,7 +211,7 @@ export const scanDate = (text: string, today: string): DateScan | undefined => {
   return undefined;
 };
 
-export const scanTime = (text: string): TimeScan | undefined => {
+export const scanTime = (text: string, options: { allowCnBare?: boolean } = {}): TimeScan | undefined => {
   TIME_RE.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = TIME_RE.exec(text)) !== null) {
@@ -201,18 +226,59 @@ export const scanTime = (text: string): TimeScan | undefined => {
       if (hour === 12) hour = isPm ? 12 : 0;
       else if (isPm) hour += 12;
     } else if (pre) {
-      hour = Number(group(match, "h1"));
+      hour = cnHour(group(match, "h1")!);
       minute = group(match, "m1") ? Number(group(match, "m1")) : QUARTER[group(match, "q1") ?? ""] ?? 0;
       if (["中午", "下午", "傍晚", "晚上", "夜里"].includes(pre) && hour < 12) hour += 12;
     } else if (group(match, "h2")) {
       hour = Number(group(match, "h2"));
       minute = Number(group(match, "m2"));
     } else {
-      hour = Number(group(match, "h3"));
+      // 没写上午下午的「三点」可能是「第三点」，只有写成时间段（两点到三点）才当钟点
+      if (!/^\d/u.test(group(match, "h3")!) && !options.allowCnBare) continue;
+      hour = cnHour(group(match, "h3")!);
       minute = QUARTER[group(match, "q3") ?? ""] ?? 0;
     }
     if (hour > 23 || minute > 59) continue;
-    return { start: match.index, end: match.index + match[0].length, time: `${pad(hour)}:${pad(minute)}` };
+    return { start: match.index, end: match.index + match[0].length, time: `${pad(hour)}:${pad(minute)}`, bare: !apm && !pre };
+  }
+  return undefined;
+};
+
+const timeMinutes = (time: string): number => Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
+const minutesTime = (minutes: number): string => `${pad(Math.floor(minutes / 60) % 24)}:${pad(minutes % 60)}`;
+
+/**
+ * 时间段：`14:00-15:00`、`下午两点到三点`、`2-3pm`、`10点到11点半`。
+ * 第二个时间没写上午下午时跟着第一个走：下午两点到三点，三点自然是 15:00。
+ * 结束比开始早（晚上十一点到一点）就算跨到第二天，由调用方按日期处理。
+ */
+export const scanTimeRange = (text: string): TimeRangeScan | undefined => {
+  const first = scanTime(text, { allowCnBare: true });
+  if (!first) return undefined;
+  const join = RANGE_JOIN_RE.exec(text.slice(first.end));
+  if (join) {
+    const rest = text.slice(first.end + join[0].length);
+    const second = scanTime(rest, { allowCnBare: true });
+    if (second && second.start === 0) {
+      let to = timeMinutes(second.time);
+      const from = timeMinutes(first.time);
+      // 「下午两点到三点」：后一个裸小时比前一个小、加 12 小时后又落在前一个之后，说明也是下午；
+      // 「晚上十一点到一点」加 12 小时还是在前面，就是真的跨到了第二天
+      if (second.bare && !first.bare && to < from && to + 12 * 60 > from && to + 12 * 60 < 24 * 60) to += 12 * 60;
+      return { start: first.start, end: first.end + join[0].length + second.end, from: first.time, to: minutesTime(to) };
+    }
+  }
+  // `2-3pm` / `9-10点`：前一个只有数字，借后一个的上下午
+  const before = /(?<![\d:：])(?<h>\d{1,2})(?:[:：](?<m>\d{2}))?\s*(?:-|–|—|~|～|到|至)\s*$/u.exec(text.slice(0, first.start));
+  if (before?.groups) {
+    const hour = Number(before.groups.h);
+    const minute = before.groups.m ? Number(before.groups.m) : 0;
+    if (hour <= 23 && minute <= 59) {
+      let from = hour * 60 + minute;
+      const to = timeMinutes(first.time);
+      if (!first.bare && to >= 12 * 60 && from < 12 * 60 && from + 12 * 60 <= to) from += 12 * 60;
+      return { start: first.start - before[0].length, end: first.end, from: minutesTime(from), to: first.time };
+    }
   }
   return undefined;
 };
@@ -231,18 +297,27 @@ const CLEAR_ALIASES: Record<string, ParsedClear> = {
   priority: "priority", prio: "priority", 优先级: "priority", 档位: "priority",
   project: "project", proj: "project", 项目: "project",
   parent: "parent", 父: "parent", 父任务: "parent",
+  after: "deps", deps: "deps", 依赖: "deps", 前置: "deps",
   wait: "wait", 等待: "wait",
   tag: "tags", tags: "tags", 标签: "tags",
   note: "notes", notes: "notes", 备注: "notes",
   recur: "recur", repeat: "recur", 重复: "recur",
   reminder: "reminders", reminders: "reminders", 提醒: "reminders",
-  dependencies: 'dependencies', depends: 'dependencies', 依赖: 'dependencies',
+  dependencies: 'dependencies', depends: 'dependencies',
 };
+
+const STATUS_ALIASES: Record<string, ParsedStatus> = {
+  todo: "todo", 待办: "todo",
+  doing: "doing", 在做: "doing", 进行中: "doing",
+  waiting: "waiting", wait: "waiting", 等待: "waiting",
+  paused: "paused", pause: "paused", 暂停: "paused",
+};
+export const STATUS_INPUT: Record<ParsedStatus, string> = { todo: "待办", doing: "在做", waiting: "等待", paused: "暂停" };
 
 const RECUR_CN_WEEKDAY: Record<string, number> = { 一: 0, 二: 1, 三: 2, 四: 3, 五: 4, 六: 5, 日: 6, 天: 6 };
 
 const CLEAR_LABELS: Record<ParsedClear, string> = {
-  due: "日期", priority: "优先级", project: "项目", parent: "父任务",
+  due: "日期", priority: "优先级", project: "项目", parent: "父任务", deps: "前置",
   wait: "等待", tags: "标签", notes: "备注", recur: "重复", reminders: "提醒",
   dependencies: '依赖',
 };
@@ -372,6 +447,18 @@ export const parse = (text: string, now = localNow(), levels = ["低", "中", "�
   if (project && project[1]) { parsed.project = project[1]; source = `${source.slice(0, project.index!)} ${source.slice(project.index! + project[0].length)}`; }
   const parent = source.match(/(?<![\w])\^([0-9a-zA-Z]{3,})/u);
   if (parent && parent[1]) { parsed.parent = parent[1]; source = `${source.slice(0, parent.index!)} ${source.slice(parent.index! + parent[0].length)}`; }
+  // `after:ab12,cd34`：前置任务，可以写多次、也可以逗号隔开
+  source = source.replace(/(?:^|\s)(?:after|依赖|前置)[:：]([0-9a-zA-Z]{3,}(?:[,，][0-9a-zA-Z]{3,})*)(?=\s|$)/gu, (_whole, ids: string) => {
+    parsed.deps = [...new Set([...(parsed.deps ?? []), ...ids.split(/[,，]/u)])];
+    return " ";
+  }).trim();
+  // `in:在做` / `in:等待` / `in:暂停`：直接放进对应分组；不认识的词留在标题里
+  source = source.replace(/(?:^|\s)in[:：](\S+)(?=\s|$)/giu, (whole, name: string) => {
+    const status = STATUS_ALIASES[name.toLowerCase()];
+    if (!status) return whole;
+    parsed.status = status;
+    return " ";
+  }).trim();
   const wait = source.match(/~([^\s~]*)/u);
   if (wait) {
     // 最长前缀匹配：在 ~ 之后尝试扫描日期，允许 ~next monday 这类多词英文日期。
@@ -428,18 +515,30 @@ export const parse = (text: string, now = localNow(), levels = ["低", "中", "�
     const found = scanDate(reference, today); return !!found && found.start === 0 && found.end === reference.length;
   });
   source = extracted.source; parsed.dependencies = extracted.dependencies;
+  // 时间段先于日期剥离：`1:05-2:10` 里的 `05-2` 会被日期规则误认成 5 月 2 日
+  const rangeFound = scanTimeRange(source);
+  let untilTime: string | undefined;
+  if (rangeFound) { untilTime = rangeFound.to; source = cut(source, rangeFound.start, rangeFound.end); }
   const dateFound = scanDate(source, today);
   let date: string | undefined;
   let time: string | undefined;
   if (dateFound) { date = dateFound.date; time = dateFound.time; source = cut(source, dateFound.start, dateFound.end); }
-  const timeFound = scanTime(source);
-  if (timeFound) { time = timeFound.time; source = cut(source, timeFound.start, timeFound.end); }
+  if (rangeFound) time = rangeFound.from;
+  else {
+    const timeFound = scanTime(source);
+    if (timeFound) { time = timeFound.time; source = cut(source, timeFound.start, timeFound.end); }
+  }
   if (date || time) {
     date ??= today;
     const due = localDateTime(date, time);
     const dueWithSeconds = localDateTimeWithSeconds(date, time);
     parsed.due = time && !dateFound && compareLocal(due, now) <= 0 ? localDateTimeWithSeconds(addDays(date, 1), time) : dueWithSeconds;
     parsed.dueHasTime = time !== undefined;
+    if (untilTime && time) {
+      // 结束不晚于开始就是跨天：晚上十一点到一点
+      const dueDate = parsed.due.slice(0, 10);
+      parsed.until = localDateTimeWithSeconds(timeMinutes(untilTime) <= timeMinutes(time) ? addDays(dueDate, 1) : dueDate, untilTime);
+    }
   }
   for (const reminder of parsed.reminders) if (!reminder.relative) {
     if (date && date !== today) reminder.at = localDateTime(date, reminder.at.slice(11));
@@ -465,7 +564,7 @@ export const preview = (text: string, now = localNow(), levels = ["低", "中", 
   const p = parse(text, now, levels);
   if (!text.trim()) return "";
   const parts: string[] = [];
-  if (p.due) parts.push(`${p.due.slice(0, 10)}${p.dueHasTime ? ` ${p.due.slice(11, 16)}` : ""}`);
+  if (p.due) parts.push(`${p.due.slice(0, 10)}${p.dueHasTime ? ` ${p.due.slice(11, 16)}` : ""}${p.until ? `-${p.until.slice(11, 16)}` : ""}`);
   if (p.priority) parts.push(`[${p.priority}]`);
   if (p.project) parts.push(`proj:${p.project}`);
   if (p.tags.length) parts.push(p.tags.map((tag) => `#${tag}`).join(" "));
@@ -474,6 +573,8 @@ export const preview = (text: string, now = localNow(), levels = ["低", "中", 
   for (const reminder of p.reminders) parts.push(`⏰${reminder.at.replace("T", " ")}(${reminder.hooks.join(",")})`);
   if (p.parent) parts.push(`父:${p.parent}`);
   for (const dependency of p.dependencies) parts.push(`${dependency.direction === 'after' ? '依赖' : '先于'}:${dependency.reference}`);
+  if (p.deps) parts.push(`前置:${p.deps.join(",")}`);
+  if (p.status) parts.push(`→${STATUS_INPUT[p.status]}`);
   if (p.notes) parts.push(`备注:${p.notes.length > 20 ? `${p.notes.slice(0, 20)}…` : p.notes}`);
   for (const tag of p.removeTags) parts.push(`去#${tag}`);
   for (const field of p.clears) {

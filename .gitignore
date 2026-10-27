@@ -44,3 +44,6 @@ atd*.exe
 apps/android/build/
 apps/android/.local/
 apps/android/test-results/
+release/
+AnotherTodo-macos-arm64.zip
+atd-macos

@@ -39,7 +39,9 @@ d done · x delete (asks first) · c cancel · o reopen · e edit · w wait unti
 l / → detail overlay (notes, reminders, parent/child; j/k moves, e edits inside)
 space marks · Ctrl+A marks all on screen · with marks d x c w o s run in batch · Esc clears marks, then arms exit
 : list/undo/sync/mode/archive/cancel/meeting/todo/wait <date>/snooze <min>
-/ search · ? help · u undo · 1/2 switch sorting · t cycle date column · q or double-Esc quits
+/ search · ? help · u undo · U redo · 1/2 switch sorting · t cycle date column · q or double-Esc quits
+a pick follow-up tasks (space toggles, Enter saves, n creates) · D dependency graph · Tab cycles projects · , settings
+:history lists recent steps and rolls back several at once
 ```
 
 Sub-tasks recorded with `^parent-id` appear indented under their parent in lists and the TUI (multiple levels supported). Completing a parent names its still-open children, and deleting a parent warns which children become orphans.
@@ -62,6 +64,7 @@ atd preview "day after tomorrow 2:30pm review"           # preview the parse bef
 | `today` `tomorrow` `tonight` `next fri` `this weekend` | relative dates (tomorrow defaults to 10:00, next means next week) |
 | `8.20` `2026-08-20` | numeric dates (past numeric dates keep their literal value) |
 | `14:30` `2:30pm` `9am` `12pm` | 24-hour and 12-hour times (am/pm supported) |
+| `14:00-15:00` `2-3pm` `10am to 11:30am` | Time ranges (the end borrows am/pm from the start; an end before the start wraps to the next day) |
 | `高` `中` `低` `urgent` `no rush` | priority level names (default `低/中/高`; set your own in `config.toml`; English phrases like `urgent`/`very urgent`/`asap` map to the top level, `no rush`/`not urgent`/`someday` to the bottom) |
 | `#tag` `proj:project` `^parent-id` `~next monday` | tag / project / subtask / wait (multi-word English dates work) |
 | `@18:30` `@9:00:toast,email` `@30m` | reminders (anchored to task date, multiple hooks) |

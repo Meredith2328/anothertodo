@@ -25,7 +25,7 @@ export const runRecommendation = async (source: string, tasks: Task[], catalog: 
   using vm = quickjs.newContext();
   vm.runtime.setMemoryLimit(32 * 1024 * 1024);
   vm.runtime.setMaxStackSize(512 * 1024);
-  const deadline = Date.now() + 100;
+  const deadline = Date.now() + 1000;
   vm.runtime.setInterruptHandler(() => Date.now() > deadline);
   const payload = vm.newString(JSON.stringify(input));
   vm.setProp(vm.global, '__atd_input', payload); payload.dispose();

@@ -59,10 +59,10 @@ export const dependencyCandidates = (reference: string, tasks: readonly Task[]):
   return index.search(key, { limit: 6 }).map(item => ({ task: item.item.task, score: item.score ?? 1, exact: false }));
 };
 export const blockedDependencies = (task: Task, catalog: readonly Task[]): string[] => {
-  if (!task.dependsOn?.length) return [];
   const states = new Map(catalog.map(item => [item.id, item.status]));
-  return (task.dependsOn ?? []).filter(id => states.get(id) !== 'done');
+  return dependencyIds(task).filter(id => states.get(id) !== 'done');
 };
+export const dependencyIds = (task: Task): string[] => [...new Set([...(task.deps ?? []), ...(task.dependsOn ?? [])])];
 export const validateDependencies = (catalog: readonly Task[]): void => { dependencyOrder(catalog); };
 export const planDependencies = (drafts: readonly Task[], requests: readonly DependencyRequest[][], catalog: readonly Task[], selections: readonly (string | undefined)[][] = []): Task[] => {
   const all = new Map(catalog.map(task => [task.id, cloneTask(task)]));
@@ -85,7 +85,7 @@ export const dependencyOrder = (tasks: readonly Task[]): Task[] => {
   const followers = new Map<string, string[]>();
   for (const task of byId.values()) {
     let count = 0;
-    for (const id of new Set(task.dependsOn ?? [])) {
+    for (const id of dependencyIds(task)) {
       if (id === task.id) throw new Error('任务不能依赖自身');
       if (!byId.has(id)) continue;
       count++; followers.set(id, [...followers.get(id) ?? [], task.id]);

@@ -2,6 +2,7 @@ import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 const adb = (...args) => execFileSync('adb', args, { encoding: 'utf8' }).trim();
 const packageId = 'io.anothertodo.mobile';
@@ -9,6 +10,7 @@ const output = new URL('../test-results/', import.meta.url);
 await mkdir(output, { recursive: true });
 let browser;
 const connect = async () => {
+  await sleep(2500);
   const pid = adb('shell', 'pidof', packageId);
   const port = 12000 + Number(pid) % 40000;
   adb('forward', `tcp:${port}`, `localabstract:webview_devtools_remote_${pid}`);
@@ -37,10 +39,12 @@ await page.getByLabel('任务标题').fill('手机验收已编辑');
 await page.getByLabel('备注', { exact: true }).fill('支持多行备注\n第二行');
 await page.getByRole('button', { name: '关闭', exact: true }).click();
 await page.getByRole('button', { name: '完成 手机验收已编辑', exact: true }).click();
+await page.waitForFunction(() => !document.body.classList.contains('busy'));
 await page.getByRole('button', { name: '撤销操作', exact: true }).click();
 await page.getByText('手机验收已编辑', { exact: true }).waitFor();
 await add('今天 每日验收 *每天 @none');
 await page.getByRole('button', { name: '完成 每日验收', exact: true }).click();
+await page.waitForFunction(() => !document.body.classList.contains('busy'));
 await page.getByText('每日验收', { exact: true }).waitFor();
 await page.getByRole('button', { name: '更多', exact: true }).click();
 await page.getByRole('button', { name: '全部任务', exact: true }).click();

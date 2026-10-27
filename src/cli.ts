@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import packageInfo from "../package.json" with { type: "json" };
 import { Command } from "commander";
 import { pathToFileURL } from "node:url";
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
@@ -8,7 +9,11 @@ import { recommendationTemplates } from './core/recommendation.js';
 import { taskAgenda } from './app/task-view.js';
 
 import { ApplicationService } from "./app/service.js";
-import { groups, nestTasks, renderLine } from "./core/agenda.js";
+import { viewGroups, viewCounts, viewWindow, wallNow, type AgendaView } from "./core/views.js";
+import { OperationError, operationError } from "./core/errors.js";
+import { nestTasks, renderLine } from "./core/agenda.js";
+import { blockedIds, dependencyGraph, renderGraphLine } from "./core/deps.js";
+import { listSkins, resolveSkin, writeSkinTemplate } from "./tui/skins.js";
 import { configPath, dataDir, getConfigValue, loadConfig, setConfigValue } from "./core/config.js";
 import { t } from "./core/i18n.js";
 import { describeRecur, parse, preview, scanDate } from "./core/parse.js";
@@ -33,9 +38,20 @@ const nowLocal = (): string => {
   const pad = (value: number): string => String(value).padStart(2, "0");
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
 };
+type WriteOptions = { json?: boolean; ifModified?: string };
+const jsonItems = async <T>(command: string, inputs: string[], run: (input: string) => Promise<T>): Promise<void> => {
+  const items = [];
+  for (const input of inputs) {
+    try { items.push({ input, ok: true, data: await run(input) }); }
+    catch (error) { items.push({ input, ok: false, error: operationError(error) }); }
+  }
+  const ok = items.every((item) => item.ok);
+  console.log(JSON.stringify({ schemaVersion: 1, command, ok, items }));
+  if (!ok) throw new SilentFailure();
+};
 export const buildProgram = (): Command => {
   const program = new Command();
-  program.name("atd").description("anothertodo：一行输入的命令行待办工具。不带参数直接运行会打开 TUI。")
+  program.name("atd").version(packageInfo.version).description("anothertodo：一行输入的命令行待办工具。不带参数直接运行会打开 TUI。")
     .addHelpText("after", `
 一行输入语法（add / edit / preview 都认）：
   日期      明天 后天 下周三 8月20日 2026-09-01 tomorrow next friday
@@ -44,9 +60,10 @@ export const buildProgram = (): Command => {
   标签      #标签      项目  proj:项目名
   提醒      @30m @2h @明天 @9:00，@名字 指定 hook；@none 关掉默认提醒
   等待      ~下周一    子任务  ^父任务id
+  前置      after:id1,id2（这些做完它才露出来）   分组  in:在做 in:等待 in:暂停
   重复      *每天 *每2周 *每周三 *每月 *工作日 *weekly:mon
   备注      >>之后到行尾整段算备注
-  清空      -due -proj -标签 -备注 -重复 -提醒，-#标签 只摘一个标签
+  清空      -due -proj -标签 -备注 -重复 -提醒 -after，-#标签 只摘一个标签
 
 查询语法（list）：
   due:today due:tomorrow due:week due:before:2026-09-01 due:none
@@ -59,6 +76,9 @@ export const buildProgram = (): Command => {
   atd add "倒垃圾 *每天 晚上8点"
   atd list due:week -低
   atd edit a1b2 "-due -#临时"
+  atd add "申请身份证 in:在做"
+  atd add "领取身份证 in:等待 after:<申请身份证的id>"   # 申请 done 掉后它才出现
+  atd graph                                             # 看依赖图
 `);
   program.showHelpAfterError();
 
@@ -91,9 +111,12 @@ export const buildProgram = (): Command => {
 
   // 三个吃「一行输入」的命令都要放过未知选项：输入里可能以 `-due` 这类
   // 清空指令开头，commander 默认会把它当命令行选项拒掉
-  program.command("add").description("新增任务，可一次给多条输入").argument("<inputs...>", "一行输入，例如「明天 下午3点 写周报 高 #工作」").allowUnknownOption().action(async (inputs: string[]) => {
+  program.command("add").description("新增任务，可一次给多条输入").argument("<inputs...>", "一行输入，例如「明天 下午3点 写周报 高 #工作」").option("--json", "输出逐项结构化结果").option("--request-id <id>", "单条新增请求的重试去重键").allowUnknownOption().action(async (inputs: string[], options: WriteOptions & { requestId?: string }) => {
     const application = service();
-    for (const task of await application.addBatch(inputs.flatMap(input => input.split(/\r?\n/).filter(line => line.trim())), nowLocal())) {
+    if (options.requestId !== undefined && inputs.length !== 1) throw new OperationError("INVALID_ARGUMENT", "request-id 只用于单条新增，请给每条输入独立 request-id");
+    if (options.json) { await jsonItems("add", inputs, (input) => application.add(input, nowLocal(), options)); return; }
+    for (const input of inputs) {
+      const task = await application.add(input, nowLocal(), options);
       console.log(`已添加 ${task.id}  ${task.title}`);
     }
   });
@@ -101,17 +124,26 @@ export const buildProgram = (): Command => {
   // allowUnknownOption：让 `-低` `-#标签` 这类负向查询 token 落到 query 里，
   // 而不是被 commander 当成未知选项直接报错（commander 会把它们追加到操作数后面，
   // 查询谓词之间是 AND 关系，顺序被打乱不影响结果）
-  program.command("list").description("按查询条件列出任务议程").argument("[query...]", "查询条件，如 due:today +高 -#临时 /关键字").option("-m, --mode <mode>", "排序口径：levels 或 urgency").allowUnknownOption().action(async (query: string[], options: { mode?: "levels" | "urgency" }) => {
+  program.command("list").description("按查询条件列出任务议程").argument("[query...]", "查询条件，如 due:today +高 -#临时 /关键字").option("-m, --mode <mode>", "排序口径：levels 或 urgency").option("--json", "输出与 TUI 同一选择器的结构化议程").option("--view <view>", "all / recent / hour；JSON 缺省沿用当前视图").option("--include-unscheduled", "在聚焦视图中展开未安排任务").allowUnknownOption().action(async (query: string[], options: { mode?: "levels" | "urgency"; json?: boolean; view?: AgendaView; includeUnscheduled?: boolean }) => {
     const cfg = await loadConfig();
-    const now = nowLocal();
+    const clock = new Date();
+    const now = wallNow(clock, cfg.agenda.timezone);
     const selectedMode = options.mode ?? cfg.priority.mode;
-    const agenda = await taskAgenda(await store().tasks(), await service().dependencyTasks(), cfg, query.join(" "), selectedMode, now);
+    const view = options.view ?? (options.json ? cfg.agenda.view : "all");
+    if (!["all", "recent", "hour"].includes(view) || !["levels", "urgency"].includes(selectedMode)) throw new OperationError("INVALID_ARGUMENT", "view 用 all/recent/hour，mode 用 levels/urgency");
+    const all = await store().tasks();
+    const blocked = blockedIds(all);
+    const agenda = view === 'all' ? await taskAgenda(all, await service().dependencyTasks(), cfg, query.join(' '), selectedMode, now) : viewGroups(all, cfg, selectedMode, clock, query.join(" "), view, options.includeUnscheduled);
+    if (options.json) {
+      console.log(JSON.stringify({ schemaVersion: 1, command: "list", ok: true, view, window: viewWindow(cfg, clock), counts: viewCounts(all, cfg, clock, query.join(" "), view), groups: agenda.map((group) => ({ ...group, tasks: nestTasks(group.tasks).map((item) => item.task) })) }));
+      return;
+    }
     const visible = agenda.filter((group) => group.tasks.length > 0);
     if (!visible.length) { console.log("（没有匹配的任务）"); return; }
     for (const group of agenda) {
-      if (!group.tasks.length) { if (group.key === "hidden") console.log(group.name); continue; }
+      if (!group.tasks.length) { console.log(group.name); continue; }
       console.log(`== ${group.name} ==`);
-      for (const { task, depth } of nestTasks(group.tasks)) console.log(`  ${task.id.padEnd(8)} ${renderLine(task, cfg, now.slice(0, 10), selectedMode, now, depth)}`);
+      for (const { task, depth } of nestTasks(group.tasks)) console.log(`  ${task.id.padEnd(8)} ${renderLine(task, cfg, now.slice(0, 10), selectedMode, now, depth, blocked.has(task.id))}`);
     }
   });
 
@@ -125,66 +157,77 @@ export const buildProgram = (): Command => {
     if (failed) throw new SilentFailure();
   };
 
-  program.command("done").description("完成任务；重复任务会自动派生下一次").argument("<ids...>").option("--with-subtasks", "连同还开着的子任务一起完成").action(async (ids: string[], options: { withSubtasks?: boolean }) => {
+  program.command("done").description("完成任务；重复任务会自动派生下一次").argument("<ids...>").option("--with-subtasks", "连同还开着的子任务一起完成").option("--json", "输出逐项结构化结果").option("--if-modified <version>", "仅在 modified 与先前读取一致时执行").action(async (ids: string[], options: WriteOptions & { withSubtasks?: boolean }) => {
     const application = service();
+    if (options.json) { await jsonItems("done", ids, (id) => application.complete(id, { cascade: options.withSubtasks === true, ...(options.ifModified !== undefined ? { ifModified: options.ifModified } : {}) })); return; }
     await forEachId(ids, async (id) => {
-      const result = await application.complete(id, { cascade: options.withSubtasks === true });
+      const result = await application.complete(id, { cascade: options.withSubtasks === true, ...(options.ifModified !== undefined ? { ifModified: options.ifModified } : {}) });
       console.log(`✓ 完成 ${result.task.title}`);
       for (const child of result.cascaded) console.log(`  ↳ 顺带完成子任务 ${child.title}`);
       if (result.next) console.log(`  ↻ 下一次：${result.next.id} ${result.next.due ? result.next.due.slice(0, 10) : "无日期"}`);
+      for (const next of result.unblocked) console.log(`  → 解锁后续：${next.id} ${next.title}${next.status === "todo" ? "" : `（${next.status}）`}`);
       if (result.openChildren.length) console.log(`  ⚠ 还有 ${result.openChildren.length} 个子任务没完成：${result.openChildren.map((child) => child.title).join("、")}（加 --with-subtasks 一起完成）`);
     });
   });
 
-  const statusCommand = (name: string, status: "cancelled" | "meeting" | "todo", description: string, label: string): void => {
-    program.command(name).description(description).argument("<ids...>").action(async (ids: string[]) => {
+  const statusCommand = (name: string, status: "cancelled" | "meeting" | "todo" | "doing" | "paused", description: string, label: string): void => {
+    program.command(name).description(description).argument("<ids...>").option("--json", "输出逐项结构化结果").option("--if-modified <version>", "仅在 modified 与先前读取一致时执行").action(async (ids: string[], options: WriteOptions) => {
       const application = service();
-      await forEachId(ids, async (id) => { const current = await application.setStatus(id, status); console.log(`${label} ${current.title}`); });
+      if (options.json) { await jsonItems(name, ids, (id) => application.setStatus(id, status, options)); return; }
+      await forEachId(ids, async (id) => { const current = await application.setStatus(id, status, options); console.log(`${label} ${current.title}`); });
     });
   };
   statusCommand("cancel", "cancelled", "取消任务（保留记录，不同于删除）", "✗ 已取消");
   statusCommand("meeting", "meeting", "标记为会议，过了时间同样计入逾期", "已标记为会议");
   statusCommand("todo", "todo", "退回待办状态，并清掉等待日期", "↩ 已退回待办");
+  statusCommand("doing", "doing", "放进「在做」分组", "▸ 在做");
+  statusCommand("pause", "paused", "放进「暂停」分组；暂停期间不发提醒", "‖ 已暂停");
 
-  program.command("wait").description("设为等待；--until 指定等到哪天，缺省是明天").argument("<ids...>").option("-u, --until <date>", "等到哪天，支持 2026-09-01 / 下周一 / next monday").action(async (ids: string[], options: { until?: string }) => {
+  program.command("wait").description("设为等待；--until 指定等到哪天，缺省是明天").argument("<ids...>").option("-u, --until <date>", "等到哪天，支持 2026-09-01 / 下周一 / next monday").option("--json", "输出逐项结构化结果").option("--if-modified <version>", "仅在 modified 与先前读取一致时执行").action(async (ids: string[], options: WriteOptions & { until?: string }) => {
     const application = service();
     let date: string | undefined;
     if (options.until !== undefined) {
       const scanned = scanDate(options.until, nowLocal().slice(0, 10));
-      if (!scanned) throw new Error(`看不懂这个日期：${options.until}`);
+      if (!scanned) throw new OperationError("INVALID_INPUT", `看不懂这个日期：${options.until}`);
       date = scanned.date;
     }
+    const run = (id: string) => date === undefined ? application.setStatus(id, "waiting", options) : application.deferUntil(id, date, options);
+    if (options.json) { await jsonItems("wait", ids, run); return; }
     await forEachId(ids, async (id) => {
-      const current = date === undefined ? await application.setStatus(id, "waiting") : await application.deferUntil(id, date);
+      const current = await run(id);
       console.log(`已设为等待 ${current.title}${current.wait ? `（等到 ${current.wait}）` : ""}`);
     });
   });
 
-  program.command("rm").alias("delete").description("彻底删除任务（想留记录请用 cancel）").argument("<ids...>").action(async (ids: string[]) => {
+  program.command("rm").alias("delete").description("彻底删除任务（想留记录请用 cancel）").argument("<ids...>").option("--json", "输出逐项结构化结果").option("--if-modified <version>", "仅在 modified 与先前读取一致时执行").action(async (ids: string[], options: WriteOptions) => {
     const application = service();
+    if (options.json) { await jsonItems("rm", ids, async (id) => { const current = await application.store.find(id); if (!current) throw new OperationError("NOT_FOUND", `找不到任务：${id}`); await application.remove(current.id, options); return { id: current.id, deleted: true }; }); return; }
     await forEachId(ids, async (id) => {
       const current = await application.store.find(id);
-      if (!current) throw new Error(`找不到任务：${id}`);
+      if (!current) throw new OperationError("NOT_FOUND", `找不到任务：${id}`);
       const children = await application.children(current.id);
-      await application.remove(id);
+      await application.remove(id, options);
       console.log(`已删除 ${current.title}`);
       if (children.length) console.log(`  ⚠ 它还有 ${children.length} 个子任务，现在成了没有父任务的孤儿：${children.map((child) => child.title).join("、")}`);
     });
   });
 
-  program.command("edit").description("按一行输入改任务；没写的字段保持原样，要清空用 -due 这类指令").argument("<id>").argument("<input...>", "一行输入，可含 -due / -proj 等清空指令").allowUnknownOption().action(async (id: string, input: string[]) => {
-    const current = await service().edit(id, input.join(" "), nowLocal());
+  program.command("edit").description("按一行输入改任务；没写的字段保持原样，要清空用 -due 这类指令").argument("<id>").argument("<input...>", "一行输入，可含 -due / -proj 等清空指令").option("--json", "输出结构化结果").option("--if-modified <version>", "仅在 modified 与先前读取一致时执行").allowUnknownOption().action(async (id: string, input: string[], options: WriteOptions) => {
+    const run = () => service().edit(id, input.join(" "), nowLocal(), options);
+    if (options.json) { await jsonItems("edit", [id], run); return; }
+    const current = await run();
     console.log(`已更新 ${current.title}`);
   });
 
   program.command("show").description("看一条任务的全部字段").argument("<id>").option("--json", "输出原始 JSON").action(async (id: string, options: { json?: boolean }) => {
     const current = await store().find(id);
-    if (!current) throw new Error(`找不到任务：${id}`);
+    if (!current) throw new OperationError("NOT_FOUND", `找不到任务：${id}`);
     if (options.json === true) { console.log(JSON.stringify(current, null, 2)); return; }
     const application = service();
     const children = await application.children(current.id);
     const catalog = await application.dependencyTasks();
     const parent = current.parent === undefined ? undefined : await store().find(current.parent);
+    const all = await store().tasks();
     const rows: Array<[string, string]> = [
       [t("field.id"), current.id], [t("field.title"), current.title], [t("field.status"), current.status],
       [t("field.due"), current.due ? current.due.replace("T", " ").slice(0, 16) : t("value.none")],
@@ -193,6 +236,8 @@ export const buildProgram = (): Command => {
       [t("field.wait"), current.wait ?? t("value.none")],
       [t("field.recur"), current.recur ? describeRecur(current.recur) : t("value.none")],
       [t("field.parent"), current.parent === undefined ? t("value.none") : `${current.parent}${parent ? ` ${parent.title}` : t("value.missing")}`],
+      [t("field.deps"), current.deps?.length ? current.deps.map((depId) => { const dep = all.find((item) => item.id === depId); return `${depId}${dep ? ` ${dep.title}${dep.status === "done" || dep.status === "cancelled" ? " ✓" : ""}` : t("value.missing")}`; }).join("、") : t("value.none")],
+      [t("field.dependents"), (() => { const next = all.filter((item) => item.deps?.includes(current.id)); return next.length ? next.map((item) => `${item.id} ${item.title}`).join("、") : t("value.none"); })()],
       [t("field.subtasks"), children.length ? children.map((child) => `${child.id} ${child.title}`).join("、") : t("value.none")],
       [t('field.dependencies'), (current.dependsOn ?? []).map(id => `${id} ${catalog.find(task => task.id === id)?.title ?? t('value.missing')}`).join('、') || t('value.none')],
       [t("field.entry"), current.entry.replace("T", " ").slice(0, 16)],
@@ -209,7 +254,25 @@ export const buildProgram = (): Command => {
     }
     if (current.notes.trim()) { console.log(`${t("field.notes")}${t("punct.colon")}`); for (const line of current.notes.split(/\r?\n/)) console.log(`  ${line}`); }
   });
+  program.command("skin").description("界面皮肤：list 看全部，use <名字> 切换，template <新名字> [--from 基础皮肤] 生成可改的模板").argument("[action]", "list / use / template").argument("[name]").option("--from <skin>", "template 以哪个皮肤为底", "classic").action(async (action: string | undefined, name: string | undefined, options: { from: string }) => {
+    const dir = dataDir();
+    const current = (await loadConfig(dir)).ui.skin;
+    if (!action || action === "list" || action === "ls") {
+      for (const skin of await listSkins(dir)) console.log(`${skin.name === current ? "▶" : " "} ${skin.name.padEnd(12)} ${skin.custom ? "[自定义] " : ""}${skin.description}`);
+      console.log("\natd skin use <名字> 切换；atd skin template <新名字> --from <皮肤> 生成模板到 ~/.atd/skins/");
+      return;
+    }
+    if (action === "use" && name) { await resolveSkin(name, dir); await setConfigValue("ui.skin", name, dir); console.log(`已换成皮肤 ${name}，下次打开 TUI 生效（开着的 TUI 按 r 刷新）`); return; }
+    if (action === "template" && name) { const path = await writeSkinTemplate(name, dir, options.from); console.log(`已生成 ${path}\n改好后：atd skin use ${name}`); return; }
+    throw new Error("用法：atd skin list | atd skin use <名字> | atd skin template <新名字> [--from nord]");
+  });
   program.command("undo").description("撤销上一次改动").action(async () => console.log(await service().undo()));
+  program.command("redo").description("重做刚撤销的改动；撤销之后又做了新改动就不能再重做").action(async () => console.log(await service().redo()));
+  program.command("graph").description("画出任务之间的前置依赖（DAG）").action(async () => {
+    const lines = dependencyGraph(await store().tasks());
+    if (!lines.length) { console.log("（还没有任务设置前置；用 after:<id> 添加）"); return; }
+    for (const line of lines) console.log(`${line.task.id.padEnd(8)} ${renderGraphLine(line)}`);
+  });
   program.command("archive").description("把久已完成的任务搬进归档；也可 archive list / archive restore <id>").argument("[action]", "天数（缺省 14）、list、restore").argument("[id]").action(async (action?: string, id?: string) => {
     if (action === "list" || action === "ls") { for (const item of await store().archived()) console.log(`${String(item.id).padEnd(8)} ${String(item.title ?? item.status ?? "已删除")}`); return; }
     if ((action === "restore" || action === "unarchive") && id) { console.log(`已恢复 ${String((await service().restore(id)).title ?? "")}`); return; }
@@ -219,9 +282,10 @@ export const buildProgram = (): Command => {
   });
   program.command("archive-list").description("列出归档里的任务").action(async () => { for (const item of await store().archived()) console.log(`${String(item.id).padEnd(8)} ${String(item.title ?? item.status ?? "已删除")}`); });
   program.command("restore").description("把归档里的任务恢复回来").argument("<id>").action(async (id: string) => console.log(`已恢复 ${String((await service().restore(id)).title ?? "")}`));
-  program.command("reopen").description("把 done / cancelled 的任务重新打开").argument("<ids...>").action(async (ids: string[]) => {
+  program.command("reopen").description("把 done / cancelled 的任务重新打开").argument("<ids...>").option("--json", "输出逐项结构化结果").option("--if-modified <version>", "仅在 modified 与先前读取一致时执行").action(async (ids: string[], options: WriteOptions) => {
     const application = service();
-    await forEachId(ids, async (id) => { const current = await application.reopen(id); console.log(`↩ 重新打开 ${current.title}`); });
+    if (options.json) { await jsonItems("reopen", ids, (id) => application.reopen(id, options)); return; }
+    await forEachId(ids, async (id) => { const current = await application.reopen(id, options); console.log(`↩ 重新打开 ${current.title}`); });
   });
   program.command("preview").description("只解析不保存，看看一行输入会被理解成什么").argument("<input...>").allowUnknownOption().action(async (input: string[]) => { const cfg = await loadConfig(); console.log(preview(input.join(" "), nowLocal(), [...cfg.priority.levels])); });
 
@@ -286,9 +350,10 @@ export const main = async (argv = process.argv.slice(2)): Promise<number> => {
   if (!argv.length) {
     const [{ render }, React, { TuiApp }, { createMouseBridge }] = await Promise.all([import("ink"), import("react"), import("./tui/app.js"), import("./tui/mouse.js")]);
     const interactive = process.stdin.isTTY === true;
-    // 鼠标档位来自 config.ui.mouse；配置坏了不该让 TUI 起不来，退回默认
+    // 读取鼠标上报方式，布尔配置通过设置页面控制开关。
     let tracking: "hover" | "drag" | "click" = "hover";
-    try { tracking = (await loadConfig()).ui.mouse; } catch { tracking = "hover"; }
+    const mouseSetting = (await loadConfig()).ui.mouse;
+    tracking = typeof mouseSetting === 'string' ? mouseSetting : 'hover';
     const bridge = interactive ? createMouseBridge(process.stdin as NodeJS.ReadStream & { fd: number }, process.stdout, tracking) : undefined;
     // 备用屏幕：TUI 独占整屏，退出后恢复终端原内容；鼠标坐标也与
     // 渲染行号精确对齐（每帧从 1,1 重绘）
@@ -309,7 +374,8 @@ export const main = async (argv = process.argv.slice(2)): Promise<number> => {
   try { await program.parseAsync(["node", "atd", ...argv]); return 0; }
   catch (error) {
     if (error instanceof SilentFailure) return 1;
-    console.error(error instanceof Error ? error.message : String(error));
+    if (argv.includes("--json")) console.log(JSON.stringify({ schemaVersion: 1, command: argv[0], ok: false, items: [], error: operationError(error) }));
+    else console.error(error instanceof Error ? error.message : String(error));
     return 1;
   }
 };

@@ -16,7 +16,6 @@ const cli = (...args) => execFileSync(process.execPath, ['dist-node/cli.js', ...
 cli('project', '学习信息物理系统', ...Array.from({ length: 5 }, (_, i) => `学习信息物理系统的第${i + 1}章`));
 await writeFile(resolve(dir, '.welcome_shown'), '1');
 const processTerminal = pty.spawn(process.execPath, ['dist-node/cli.js'], { name: 'xterm-256color', cols: 132, rows: 32, cwd: root, env: { ...process.env, ATD_HOME: dir, ATD_LANG: 'zh', FORCE_COLOR: '1' } });
-const terminalExit = new Promise(resolve => processTerminal.onExit(resolve));
 let backlog = '';
 let stream;
 processTerminal.onData(data => { if (stream) stream.write(`data: ${JSON.stringify(data)}\n\n`); else backlog += data; });
@@ -33,32 +32,43 @@ const browser = await chromium.launch({ channel: 'msedge', headless: true });
 const page = await browser.newPage({ viewport: { width: 1250, height: 720 }, deviceScaleFactor: 1 });
 const frame = () => page.evaluate(() => Array.from({ length: window.term.rows }, (_, i) => window.term.buffer.active.getLine(i)?.translateToString(true) ?? '').join('\n'));
 const wait = text => page.waitForFunction(text => Array.from({ length: window.term.rows }, (_, i) => window.term.buffer.active.getLine(i)?.translateToString(true) ?? '').join('\n').includes(text), text);
-const command = async text => { processTerminal.write(':'); await sleep(100); processTerminal.write(text); await sleep(100); processTerminal.write('\r'); };
+const command = async text => { processTerminal.write(`:${text}`); await wait(`:${text}`); processTerminal.write('\r'); await wait('＋ 添加任务'); };
 const shot = name => page.screenshot({ path: `work/tui-review/${name}.png` });
 try {
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   await wait('第1章'); await shot('tui-project');
   processTerminal.write('j'); await sleep(120); processTerminal.write('d');
   await sleep(300); await shot('tui-project-animation');
-  await wait('完成：学习信息物理系统的第1章'); await sleep(160);
+  await wait('完成：学习信息物理系统的第1章'); await sleep(800);
   assert.ok((await frame()).includes('第2章'));
   await shot('tui-project-next');
   cli('add', '缴纳学费 今天 高 @none', '整理读书笔记 中 @none', '散步 @none', '提交报告 after:整理读书笔记 @none', '等待快递 ~2099-01-01 @none');
   processTerminal.write('r'); await sleep(350);
-  await command('gtd'); await wait('最多 2 件'); await sleep(200);
+  await command('gtd'); await wait('最多 2 件'); await sleep(1000);
   await shot('tui-gtd');
   let contents = await frame(); assert.ok(contents.includes('缴纳学费')); assert.ok(!contents.includes('提交报告')); assert.ok(!contents.includes('等待快递'));
-  processTerminal.write('g'); await sleep(100); processTerminal.write('d'); await wait('完成：缴纳学费'); await sleep(300);
+  processTerminal.write('d'); await wait('完成：缴纳学费'); await sleep(800);
   await shot('tui-gtd-next');
   contents = await frame(); assert.ok(!contents.includes('缴纳学费 今天')); assert.ok(contents.includes('第2章') || contents.includes('整理读书笔记'));
   await writeFile(resolve(dir, 'reading.js'), 'function recommend(tasks) { return tasks.filter(task => task.title.includes("章") || task.title.includes("笔记")).map(task => task.id); }');
   await command('script reading.js'); await sleep(350);
   await shot('tui-script'); contents = await frame(); assert.ok(!contents.includes('散步')); assert.ok(contents.includes('第2章'));
   await writeFile(resolve(dir, 'reading.js'), 'function recommend(tasks) { return tasks.filter(task => task.title.includes("笔记")).map(task => task.id); }');
-  processTerminal.write('r'); await sleep(400); contents = await frame(); assert.ok(contents.includes('整理读书笔记')); assert.ok(!contents.includes('第2章'));
-  await command('list'); await sleep(350); await command('script-list on'); await sleep(350);
+  processTerminal.write('r');
+  await page.waitForFunction(() => {
+    const text = Array.from({ length: window.term.rows }, (_, i) => window.term.buffer.active.getLine(i)?.translateToString(true) ?? '').join('\n');
+    return text.includes('整理读书笔记') && !text.includes('第2章');
+  });
+  contents = await frame(); assert.ok(contents.includes('整理读书笔记')); assert.ok(!contents.includes('第2章'));
+  await command('list'); await command('script-list on');
+  await page.waitForFunction(() => {
+    const text = Array.from({ length: window.term.rows }, (_, i) => window.term.buffer.active.getLine(i)?.translateToString(true) ?? '').join('\n');
+    return text.includes('整理读书笔记') && !text.includes('学习信息物理系统');
+  });
   contents = await frame(); assert.ok(contents.includes('整理读书笔记')); assert.ok(!contents.includes('学习信息物理系统'));
   await shot('tui-script-list');
   await writeFile('work/tui-review/report.json', JSON.stringify({ checks: ['real Windows PTY', 'project list', 'strike and replacement', 'gtd', 'stream replenishment', 'dependency gating', 'external script file', 'reload edited script without source changes', 'script list ordering'] }, null, 2));
   console.log('TUI 项目、GTD 与独立脚本文件验收通过');
-} finally { processTerminal.write('\x11'); await terminalExit; await browser.close(); stream?.end(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+} catch (error) {
+  await writeFile('work/tui-review/failure.txt', await frame()); await shot('failure'); throw error;
+} finally { processTerminal.kill(); await browser.close(); stream?.end(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

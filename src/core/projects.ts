@@ -6,7 +6,7 @@ import { ACTIVE_STATES, hiddenByWait, localNow } from './task.js';
 export const executableTasks = (tasks: readonly Task[], catalog: readonly Task[], now = localNow()): Task[] => {
   const byId = new Map(catalog.map(task => [task.id, task]));
   return tasks.filter(task => {
-    if (!ACTIVE_STATES.has(task.status) || hiddenByWait(task, now.slice(0, 10)) || blockedDependencies(task, catalog).length) return false;
+    if (!ACTIVE_STATES.has(task.status) || task.status === 'paused' || hiddenByWait(task, now.slice(0, 10)) || blockedDependencies(task, catalog).length) return false;
     if (task.kind === 'project' && catalog.some(child => child.parent === task.id)) return false;
     const seen = new Set([task.id]);
     let parent = task.parent;

@@ -22,7 +22,7 @@ export const ensureRepo = async (dir: string, runner: GitRunner = gitRunner): Pr
   await mkdir(join(dir, ".git", "info"), { recursive: true });
   const tasks = join(dir, "tasks.jsonl");
   if (!(await exists(tasks))) await writeFile(tasks, "", "utf8");
-  const required = [".lock", ".archive.txn.json", "undo.jsonl", "archive.jsonl", "config.toml", "hooks/", ""]; 
+  const required = [".lock", ".archive.txn.json", "undo.jsonl", "redo.jsonl", "archive.jsonl", "config.toml", "hooks/", ""]; 
   let current = "";
   if (await exists(ignore)) current = await readFile(ignore, "utf8");
   const lines = new Set(current.split(/\r?\n/));
@@ -43,7 +43,7 @@ const ensureGitIdentity = async (dir: string, runner: GitRunner): Promise<void> 
   if ((!name.stdout.trim() && !envName) || (!email.stdout.trim() && !envEmail)) throw gitIdentityError();
 };
 
-const sensitiveTracked = ["config.toml", "archive.jsonl", "undo.jsonl", ".archive.txn.json", "hooks"];
+const sensitiveTracked = ["config.toml", "archive.jsonl", "undo.jsonl", "redo.jsonl", ".archive.txn.json", "hooks"];
 const assertSensitiveUntracked = async (dir: string, runner: GitRunner): Promise<void> => {
   const tracked = await gitOrThrow(runner, ["ls-files", "--", ...sensitiveTracked], dir);
   if (tracked.stdout.trim()) throw new Error(`为保护隐私，sync 拒绝提交已被 Git 跟踪的敏感路径：${tracked.stdout.trim()}\n请先备份并执行 git rm --cached <path>，再重试。`);
