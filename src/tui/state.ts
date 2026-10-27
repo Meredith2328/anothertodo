@@ -7,15 +7,29 @@ export type UiMode =
   | { kind: "help" }
   | { kind: "welcome" }
   | { kind: "detail"; taskId: string }
+  /** 依赖图页：整屏画出任务之间的前置关系 */
+  | { kind: "graph" }
+  /** 设置页：上下选一项，左右 / 回车改值，改完立即写回 config.toml */
+  | { kind: "settings" }
   /** 不可撤销的操作先问一句；prompt 是问句，pending 是待执行动作的名字 */
-  | { kind: "confirm"; prompt: string; pending: "delete" };
+  | { kind: "confirm"; prompt: string; pending: "delete" }
+  /** 后续任务选择列表：给 taskId 勾选「它做完之后才露出来」的任务 */
+  | { kind: "deps"; taskId: string }
+  /** 操作历史：列出最近几步，选一步回退到那之前 */
+  | { kind: "history" };
+
+import type { AgendaView } from "../core/views.js";
 
 export type TuiState = {
+  view: AgendaView;
+  showUnscheduled: boolean;
   mode: UiMode;
   input: string;
   /** 输入框光标位置（字符索引，0..input.length） */
   inputCursor: number;
   query: string;
+  /** Tab 切出来的项目页；undefined 是「全部」 */
+  project?: string;
   selectedIndex: number;
   /** 多选打勾的任务 id；有勾时批量操作作用于它们，没有则作用于光标所在那条 */
   marked: string[];
@@ -47,13 +61,15 @@ export type HoverTarget =
   | { kind: "footer"; name: string }
   | { kind: "task"; index: number };
 
-export const initialTuiState = (sortMode: "levels" | "urgency" = "levels"): TuiState => ({ mode: { kind: "list" }, input: "", inputCursor: 0, query: "", selectedIndex: 0, marked: [], sortMode, dateFormat: "auto", mutation: { kind: "idle" }, hover: { kind: "none" } });
+export const initialTuiState = (sortMode: "levels" | "urgency" = "levels"): TuiState => ({ view: "all", showUnscheduled: false, mode: { kind: "list" }, input: "", inputCursor: 0, query: "", selectedIndex: 0, marked: [], sortMode, dateFormat: "auto", mutation: { kind: "idle" }, hover: { kind: "none" } });
 
 export type TuiAction =
+  | { type: "view"; view: AgendaView; showUnscheduled?: boolean }
   | { type: "mode"; mode: UiMode }
   | { type: "input"; value: string; cursor?: number }
   | { type: "cursorMove"; delta: number }
   | { type: "query"; value: string }
+  | { type: "project"; value: string | undefined }
   | { type: "select"; index: number }
   | { type: "toggleMark"; id: string }
   | { type: "setMarks"; ids: string[] }
@@ -69,6 +85,7 @@ export type TuiAction =
 
 export const tuiReducer = (state: TuiState, action: TuiAction): TuiState => {
   switch (action.type) {
+    case "view": return { ...state, view: action.view, showUnscheduled: action.showUnscheduled ?? state.showUnscheduled };
     case "mode": {
       // detail/confirm 是覆盖在清单之上的浮层，进出时不该清掉正在编辑的输入
       const keepsInput = action.mode.kind !== "list";
@@ -85,6 +102,7 @@ export const tuiReducer = (state: TuiState, action: TuiAction): TuiState => {
       return { ...state, inputCursor: Math.max(0, Math.min(length, state.inputCursor + action.delta)) };
     }
     case "query": return { ...state, query: action.value };
+    case "project": { const next = { ...state, selectedIndex: 0 }; if (action.value === undefined) delete next.project; else next.project = action.value; return next; }
     case "select": return { ...state, selectedIndex: Math.max(0, action.index) };
     case "toggleMark": return { ...state, marked: state.marked.includes(action.id) ? state.marked.filter((id) => id !== action.id) : [...state.marked, action.id] };
     case "setMarks": return { ...state, marked: [...action.ids] };

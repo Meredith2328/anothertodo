@@ -15,6 +15,6 @@ export default [
   },
   {
     files: ["tools/**/*.mjs", "bin/**/*.mjs", "apps/android/tools/**/*.mjs"],
-    languageOptions: { globals: { process: "readonly", console: "readonly", Native: "readonly", visualViewport: "readonly", innerWidth: "readonly", innerHeight: "readonly", document: "readonly" } },
+    languageOptions: { globals: { process: "readonly", console: "readonly", Native: "readonly", window: "readonly", visualViewport: "readonly", innerWidth: "readonly", innerHeight: "readonly", document: "readonly" } },
   },
 ];

@@ -114,3 +114,32 @@ describe("subtasks", () => {
     expect((await service.tasks()).every((task) => task.status === "done")).toBe(true);
   });
 });
+
+describe("dependents and history", () => {
+  it("sets dependents in one undoable step", async () => {
+    const service = await freshService("dependents");
+    const apply = await service.add("申请身份证", "2026-08-20T10:00");
+    const fetch = await service.add("领取身份证", "2026-08-20T10:00");
+    const other = await service.add("办银行卡", "2026-08-20T10:00");
+    expect(await service.setDependents(apply.id, [fetch.id, other.id])).toBe(2);
+    expect((await service.store.find(fetch.id))?.deps).toEqual([apply.id]);
+    expect(await service.setDependents(apply.id, [fetch.id])).toBe(1);
+    expect((await service.store.find(other.id))?.deps).toBeUndefined();
+    // 整次勾选算一步：撤销一次就回到两条都等它的状态
+    await service.undo();
+    expect((await service.store.find(other.id))?.deps).toEqual([apply.id]);
+  });
+
+  it("lists history newest first and rolls back several steps at once", async () => {
+    const service = await freshService("history");
+    const first = await service.add("第一件", "2026-08-20T10:00");
+    await service.add("第二件", "2026-08-20T10:00");
+    await service.add("第三件", "2026-08-20T10:00");
+    const history = await service.history(5);
+    expect(history.length).toBeGreaterThanOrEqual(3);
+    expect(history[0]?.summary).toContain("第三件");
+    await service.undoSteps(2);
+    const titles = (await service.store.tasks()).map((task) => task.title);
+    expect(titles).toEqual([first.title]);
+  });
+});

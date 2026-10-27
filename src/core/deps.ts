@@ -1,0 +1,103 @@
+import type { Task } from "../contracts.js";
+import { ACTIVE_STATES } from "./task.js";
+import { blockedDependencies, dependencyIds } from './dependencies.js';
+
+/**
+ * 任务之间的前置依赖（DAG）。边存在后续任务的 `deps` 字段里：
+ * 「领取身份证.deps = [申请身份证.id]」读作「申请身份证做完才能领取身份证」。
+ * 全部前置完成后才可以执行后续任务。目录包含归档中的完成记录，
+ * 缺失的前置记录保留阻塞状态。
+ */
+const FINISHED = new Set(["done", "cancelled"]);
+
+export const openDeps = (task: Task, byId: Map<string, Task>): Task[] =>
+  blockedDependencies(task, [...byId.values()]).flatMap(id => { const dep = byId.get(id); return dep ? [dep] : []; });
+
+/** 还开着、但有前置没做完的任务 */
+export const blockedIds = (tasks: Task[]): Set<string> => {
+  const byId = new Map(tasks.map((task) => [task.id, task]));
+  return new Set(tasks.filter((task) => ACTIVE_STATES.has(task.status) && blockedDependencies(task, tasks).length > 0).map((task) => task.id));
+};
+
+/** 给 id 设上这些前置后会不会成环：顺着前置往上走，走回 id 就是环 */
+export const wouldCycle = (tasks: Task[], id: string, deps: string[]): boolean => {
+  const byId = new Map(tasks.map((task) => [task.id, task]));
+  const seen = new Set<string>();
+  const stack = [...deps];
+  while (stack.length) {
+    const current = stack.pop()!;
+    if (current === id) return true;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    const task = byId.get(current); if (task) stack.push(...dependencyIds(task));
+  }
+  return false;
+};
+
+/** done 掉 id 之后，因此不再被挡住的后续任务 */
+export const unblockedBy = (tasks: Task[], id: string): Task[] => {
+  const byId = new Map(tasks.map((task) => [task.id, task]));
+  return tasks.filter((task) => ACTIVE_STATES.has(task.status) && dependencyIds(task).includes(id) && blockedDependencies(task, tasks).length === 0);
+};
+
+export type GraphMark = "done" | "ready" | "blocked";
+export type GraphLine = {
+  task: Task;
+  /** 树形前缀，如 `│   └─▸ ` */
+  prefix: string;
+  mark: GraphMark;
+  /** 这个节点在上面已经展开过，这里只放一个引用，免得多前置的节点把整棵子树重复画一遍 */
+  ref: boolean;
+  /** 除了当前这条父边以外的其他前置，画在行尾提示「另需」 */
+  otherDeps: Task[];
+  /** 这一行是顺着哪条前置画下来的；根节点没有。删边就是把它从 task.deps 里拿掉 */
+  via?: Task;
+};
+
+/** 一句话说清任务在等什么：等日期，或等哪些前置。没在等就是空串 */
+export const waitLabel = (task: Task, tasks: Task[], today: string): string => {
+  const byId = new Map(tasks.map((item) => [item.id, item]));
+  const open = openDeps(task, byId);
+  if (open.length) return `等 ${open.map((dep) => dep.title).join("、")}`;
+  if (task.wait !== undefined && task.wait > today) return `等到 ${Number(task.wait.slice(5, 7))}/${Number(task.wait.slice(8, 10))}`;
+  return "";
+};
+
+/**
+ * 把依赖图摊成终端里能画的森林：从没有前置的任务出发往后续展开。
+ * 有多个前置的节点只在第一次遇到时展开，之后遇到画成引用行。
+ * 只收参与了依赖的任务，普通任务不进图。
+ */
+export const dependencyGraph = (tasks: Task[]): GraphLine[] => {
+  const byId = new Map(tasks.map((task) => [task.id, task]));
+  const depsOf = (task: Task): Task[] => dependencyIds(task).flatMap((id) => { const dep = byId.get(id); return dep && dep.id !== task.id ? [dep] : []; });
+  const dependents = new Map<string, Task[]>();
+  for (const task of tasks) for (const dep of depsOf(task)) dependents.set(dep.id, [...(dependents.get(dep.id) ?? []), task]);
+  const inGraph = tasks.filter((task) => depsOf(task).length > 0 || dependents.has(task.id));
+  const byEntry = (a: Task, b: Task): number => a.entry.localeCompare(b.entry) || a.id.localeCompare(b.id);
+  const mark = (task: Task): GraphMark => FINISHED.has(task.status) ? "done" : openDeps(task, byId).length ? "blocked" : "ready";
+  const lines: GraphLine[] = [];
+  const expanded = new Set<string>();
+  const visit = (task: Task, via: Task | undefined, lead: string, branch: string): void => {
+    const ref = expanded.has(task.id);
+    lines.push({ task, prefix: `${lead}${branch}`, mark: mark(task), ref, otherDeps: depsOf(task).filter((dep) => dep.id !== via?.id), ...(via ? { via } : {}) });
+    if (ref) return;
+    expanded.add(task.id);
+    const children = [...(dependents.get(task.id) ?? [])].sort(byEntry);
+    const childLead = lead + (branch === "" ? "" : branch.startsWith("└") ? "    " : "│   ");
+    children.forEach((child, index) => visit(child, task, childLead, index === children.length - 1 ? "└─▸ " : "├─▸ "));
+  };
+  for (const root of inGraph.filter((task) => depsOf(task).length === 0).sort(byEntry)) visit(root, undefined, "", "");
+  // 手改文件或同步后可能出现环，环上没有起点；剩下的挑一个当起点，保证每条都画出来
+  for (const task of [...inGraph].sort(byEntry)) if (!expanded.has(task.id)) visit(task, undefined, "", "");
+  return lines;
+};
+
+export const GRAPH_MARK: Record<GraphMark, string> = { done: "✓", ready: "●", blocked: "○" };
+
+export const renderGraphLine = (line: GraphLine, withStatus = true): string => {
+  const status = !withStatus || line.task.status === "todo" ? "" : `  [${line.task.status}]`;
+  if (line.ref) return `${line.prefix}⤷ ${line.task.title}（见上）`;
+  const others = line.otherDeps.length ? `  （另需：${line.otherDeps.map((dep) => dep.title).join("、")}）` : "";
+  return `${line.prefix}${GRAPH_MARK[line.mark]} ${line.task.title}${status}${others}`;
+};

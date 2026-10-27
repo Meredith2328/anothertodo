@@ -1,6 +1,7 @@
 // Ink 没有鼠标支持（上游 issue 多年未做）。这里给 Ink 套一层 stdin 代理：
-// 启用终端 SGR 鼠标跟踪（\x1b[?1000h\x1b[?1006h），把鼠标转义序列从数据流里
+// 启用终端 SGR 鼠标跟踪（\x1b[?1002h\x1b[?1006h），把鼠标转义序列从数据流里
 // 剥出来分发给应用，其余数据按原 chunk 边界转发给 Ink，按键解析不受影响。
+// 1002 除了点击和滚轮，还会在按住鼠标拖动时上报位置（move），用来做按钮悬停。
 import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
 import type { ReadableOptions } from "node:stream";
@@ -142,6 +143,8 @@ export type MouseBridge = {
   subscribe(listener: (event: MouseEvent) => void): () => void;
   enable(): void;
   disable(): void;
+  /** 只开关终端的鼠标上报；按键转发不受影响，所以可以随时切 */
+  setTracking(on: boolean): void;
 };
 
 // 模块级总线：TuiApp 直接订阅，createMouseBridge 把事件转发进来（测试环境
@@ -153,16 +156,26 @@ export const subscribeMouse = (listener: (event: MouseEvent) => void): (() => vo
   return () => { bus.removeListener("mouse", listener); };
 };
 
+let activeBridge: MouseBridge | undefined;
+export const setMouseTracking = (on: boolean): void => { activeBridge?.setTracking(on); };
+
 export const createMouseBridge = (
   stdin: NodeJS.ReadStream & { fd: number },
   stdout: NodeJS.WriteStream,
-  tracking: MouseTracking = "hover",
+  trackingMode: MouseTracking = "hover",
 ): MouseBridge => {
   const stream = new ProxyStdin(stdin);
   const events = new EventEmitter();
-  const mode = TRACKING_MODE[tracking] ?? TRACKING_MODE.hover;
+  const mode = TRACKING_MODE[trackingMode];
   let pending = "";
   let enabled = false;
+  let tracking = false;
+  const setTracking = (on: boolean): void => {
+    if (on === tracking) return;
+    tracking = on;
+    // 1002 = 点击/释放 + 滚轮 + 按住时的移动；1006 = SGR 扩展编码（Windows Terminal / xterm 通用）
+    stdout.write(on ? `\x1b[?${mode}h\x1b[?1006h` : `\x1b[?${mode}l\x1b[?1006l`);
+  };
 
   const onReadable = (): void => {
     let chunk: string | null;
@@ -188,19 +201,17 @@ export const createMouseBridge = (
     stdin.pause();
     stdin.addListener("readable", onReadable);
     stdin.resume();
-    // 档位由 config.ui.mouse 决定（见 TRACKING_MODE）；1006 = SGR 扩展编码，
-    // Windows Terminal / xterm 通用，坐标不受 223 列限制，三档都要开
-    stdout.write(`\x1b[?${mode}h\x1b[?1006h`);
+    setTracking(true);
   };
 
   const disable = (): void => {
     if (!enabled) return;
     enabled = false;
-    stdout.write(`\x1b[?${mode}l\x1b[?1006l`);
+    setTracking(false);
     stdin.removeListener("readable", onReadable);
   };
 
-  return {
+  activeBridge = {
     stream,
     subscribe(listener) {
       events.on("mouse", listener);
@@ -208,5 +219,7 @@ export const createMouseBridge = (
     },
     enable,
     disable,
+    setTracking,
   };
+  return activeBridge;
 };

@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { nextOccurrence, parse, preview } from "../src/core/parse.js";
+import { parseTask } from "../src/core/task.js";
+import { applyParsedUpdate, taskToInput } from "../src/core/task-ops.js";
 
 type ParseCase = {
   input: string;
@@ -265,5 +267,32 @@ describe("recurrence date math", () => {
     expect(nextOccurrence("2026-08-20", { kind: "weekdays", interval: 1 })).toBe("2026-08-21");
     // 周五的下一次是周一
     expect(nextOccurrence("2026-08-21", { kind: "weekdays", interval: 1 })).toBe("2026-08-24");
+  });
+});
+
+describe("time ranges", () => {
+  const NOW = "2026-08-20T10:00";
+  const LEVELS = ["低", "中", "高"];
+  it("parses 24-hour ranges into due + until and strips them from the title", () => {
+    expect(parse("明天 14:00-15:00 周会", NOW, LEVELS)).toMatchObject({ title: "周会", due: "2026-08-21T14:00:00", until: "2026-08-21T15:00:00", dueHasTime: true });
+    expect(parse("1:05-2:10 午休", NOW, LEVELS)).toMatchObject({ title: "午休", due: "2026-08-21T01:05:00", until: "2026-08-21T02:10:00" });
+  });
+  it("carries the afternoon over to the second Chinese hour", () => {
+    expect(parse("下午两点到三点 面试", NOW, LEVELS)).toMatchObject({ title: "面试", due: "2026-08-20T14:00:00", until: "2026-08-20T15:00:00" });
+    expect(parse("后天 上午10点到11点半 复盘", NOW, LEVELS)).toMatchObject({ title: "复盘", due: "2026-08-22T10:00:00", until: "2026-08-22T11:30:00" });
+    expect(parse("晚上十一点到一点 值班", NOW, LEVELS)).toMatchObject({ due: "2026-08-20T23:00:00", until: "2026-08-21T01:00:00" });
+  });
+  it("borrows am/pm from the second half and still refuses lone Chinese hours", () => {
+    expect(parse("tomorrow 2-3pm sync", NOW, LEVELS)).toMatchObject({ title: "sync", due: "2026-08-21T14:00:00", until: "2026-08-21T15:00:00" });
+    expect(parse("第三点要改", NOW, LEVELS)).toMatchObject({ title: "第三点要改" });
+    expect(parse("第三点要改", NOW, LEVELS).due).toBeUndefined();
+  });
+  it("shows the range in the preview and round-trips through taskToInput", () => {
+    expect(preview("明天 14:00-15:00 周会", NOW, LEVELS)).toContain("2026-08-21 14:00-15:00");
+    const parsed = parse("明天 14:00-15:00 周会", NOW, LEVELS);
+    const task = parseTask({ id: "deadbeef", title: parsed.title, status: "todo", due: parsed.due, until: parsed.until, tags: [], reminders: [], entry: "", modified: "" });
+    expect(taskToInput(task)).toContain("14:00-15:00");
+    const edited = applyParsedUpdate(task, parse("周会 15:00", NOW, LEVELS));
+    expect(edited.until).toBeUndefined();
   });
 });

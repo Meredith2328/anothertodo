@@ -2,6 +2,7 @@ import { chromium } from 'playwright';
 import { execFileSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 const adb = (...args) => execFileSync('adb', args, { encoding: 'utf8' }).trim();
 const pkg = 'io.anothertodo.mobile';
@@ -9,6 +10,7 @@ adb('shell', 'pm', 'clear', pkg);
 adb('shell', 'pm', 'grant', pkg, 'android.permission.POST_NOTIFICATIONS');
 adb('shell', 'appops', 'set', pkg, 'SCHEDULE_EXACT_ALARM', 'allow');
 adb('shell', 'am', 'start', '-W', '-n', `${pkg}/.MainActivity`);
+await sleep(2500);
 const pid = adb('shell', 'pidof', pkg), port = 12000 + Number(pid) % 40000;
 adb('forward', `tcp:${port}`, `localabstract:webview_devtools_remote_${pid}`);
 const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);

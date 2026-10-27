@@ -9,7 +9,7 @@ import { validateDependencies } from '../../../src/core/dependencies.js';
 type Frame = { tasks: SyncRecord[]; archive: SyncRecord[]; config: string };
 type Change = { id: string; before: SyncRecord | null; after: SyncRecord | null };
 type Undo = { tasks: Change[]; archive: Change[]; config?: { before: string; after: string }; group?: string };
-export type State = Frame & { undo: Undo[]; preferences?: { activity: boolean; activityRange: number } };
+export type State = Frame & { undo: Undo[]; redo?: Undo[]; preferences?: { activity: boolean; activityRange: number } };
 export const records = (text: string): SyncRecord[] => {
   const raw = text.trim().startsWith('[') ? JSON.parse(text) as unknown[] : text.split(/\r?\n/).filter(line => line.trim()).map(line => JSON.parse(line) as unknown);
   if (!Array.isArray(raw)) throw new Error('任务数据需要 JSON 数组或 JSONL');
@@ -31,7 +31,7 @@ const changes = (before: SyncRecord[], after: SyncRecord[]): Change[] => {
 };
 
 export class MobileStore {
-  readonly paths = { dir: '/repo', tasks: '/repo/tasks.jsonl', archive: '/repo/archive.jsonl', undo: '/repo/undo.jsonl', archiveJournal: '/repo/.archive.txn.json', lock: '/repo/.lock' };
+  readonly paths = { dir: '/repo', tasks: '/repo/tasks.jsonl', archive: '/repo/archive.jsonl', undo: '/repo/undo.jsonl', redo: '/repo/redo.jsonl', inbox: '/repo/inbox.jsonl', archiveJournal: '/repo/.archive.txn.json', lock: '/repo/.lock' };
   readonly events = new DomainEventBus(error => { throw error; });
   state!: State;
   private version = 0;
@@ -58,6 +58,7 @@ export class MobileStore {
       if (undo) {
         const change: Undo = { tasks: changes(before.tasks, after.tasks), archive: changes(before.archive, after.archive), ...(before.config !== after.config ? { config: { before: before.config, after: after.config } } : {}) };
         if (change.tasks.length || change.archive.length || change.config) {
+          this.state.redo = [];
           const previous = this.state.undo.at(-1);
           if (group && previous?.group === group) {
             for (const kind of ['tasks', 'archive'] as const) for (const delta of change[kind]) {
@@ -90,13 +91,20 @@ export class MobileStore {
     return found[0] ? parseTask(found[0]) : undefined;
   }
   async archived(): Promise<Record<string, unknown>[]> { return latest(this.state.archive); }
+  async get(id: string): Promise<Task | undefined> { return (await this.tasks()).find(task => task.id === id); }
+  async batch<T>(operation: () => Promise<T>): Promise<T> { return operation(); }
+  async history(limit = 10): Promise<Array<{ ts: string; summary: string }>> {
+    return this.state.undo.slice(-limit).reverse().map(change => ({ ts: '', summary: `${change.tasks.length + change.archive.length} 个任务${change.config ? '与配置' : ''}` }));
+  }
   async dependencyTasks(): Promise<Task[]> { return latest([...this.state.archive, ...this.state.tasks]).filter(record => !record.deleted).map(parseTask); }
   async saveMany(entries: Array<{ task: Task; before?: Task }>): Promise<Task[]> {
     const saved: Task[] = [];
     for (const entry of entries) saved.push(await this.save(entry.task, entry.before));
     return saved;
   }
-  async save(input: Task, before?: Task): Promise<Task> {
+  async save(value: Task | (() => Promise<Task>), before?: Task, _recordUndo = true, receipt?: { id: string; payloadHash: string }): Promise<Task> {
+    if (receipt) throw new Error('手机任务操作通过本地事务提交');
+    const input = typeof value === 'function' ? await value() : value;
     if (!this.editing) throw new Error('写入需要处于事务之中');
     const current = await this.find(input.id);
     if (before && current?.modified !== before.modified) throw new Error('任务已经发生变化，请重新打开');
@@ -124,6 +132,7 @@ export class MobileStore {
     this.state.tasks = [...this.state.tasks.filter(item => item.id !== id), tombstone(id) as SyncRecord];
   }
   async undo(): Promise<string> {
+    const previousFrame = frame(this.state);
     const change = this.state.undo.at(-1);
     if (!change) throw new Error('没有可撤销的操作');
     const restore = (list: SyncRecord[], deltas: Change[], deletedRecords: boolean): SyncRecord[] => {
@@ -153,6 +162,8 @@ export class MobileStore {
       this.state.config = change.config.before;
     }
     this.state.undo.pop();
+    const reverse: Undo = { tasks: changes(this.state.tasks, previousFrame.tasks), archive: changes(this.state.archive, previousFrame.archive), ...(change.config ? { config: { before: this.state.config, after: previousFrame.config } } : {}) };
+    (this.state.redo ??= []).push(reverse);
     for (const [kind, deltas] of [['tasks', change.tasks], ['archive', change.archive]] as const) {
       for (const delta of deltas) {
         for (let index = this.state.undo.length - 1; index >= 0; index--) {
@@ -162,6 +173,21 @@ export class MobileStore {
       }
     }
     return '已撤销操作';
+  }
+  async redo(): Promise<string> {
+    const change = this.state.redo?.at(-1);
+    if (!change) throw new Error('没有可以重做的操作');
+    const previous = frame(this.state);
+    for (const kind of ['tasks', 'archive'] as const) for (const delta of change[kind]) {
+      const current = this.state[kind].find(item => item.id === delta.id);
+      if (current?.modified !== delta.before?.modified) throw new Error('任务已经更新，无法重做');
+      this.state[kind] = this.state[kind].filter(item => item.id !== delta.id);
+      if (delta.after) this.state[kind].push({ ...delta.after, modified: utcNow() });
+    }
+    if (change.config) { if (this.state.config !== change.config.before) throw new Error('配置已经更新，无法重做'); this.state.config = change.config.after; }
+    this.state.redo!.pop();
+    this.state.undo.push({ tasks: changes(previous.tasks, this.state.tasks), archive: changes(previous.archive, this.state.archive), ...(change.config ? { config: { before: previous.config, after: this.state.config } } : {}) });
+    return '已经重做操作';
   }
   async archive(days = 14): Promise<number> {
     const moved = latest(this.state.tasks).filter(item => {

@@ -10,7 +10,7 @@ import { native, request } from './bridge.js';
 import { MobileStore, records, jsonl } from './store.js';
 import { loadConfig, readConfig, configText } from './config.js';
 import { configureSync, syncDirectory, syncStatus, type SyncSettings } from './sync.js';
-import { dependencyCandidates, planDependencies, blockedDependencies, dependencyOrder, extractDependencies, type DependencyRequest } from '../../../src/core/dependencies.js';
+import { dependencyCandidates, planDependencies, blockedDependencies, dependencyOrder, dependencyIds, extractDependencies, type DependencyRequest } from '../../../src/core/dependencies.js';
 import { dateKey, weekDays, monthDays, completedByDate, quadrant } from '../../../src/core/calendar.js';
 import { AutoSave } from './autosave.js';
 import type { MapViewState } from './dependency-map.js';
@@ -266,7 +266,7 @@ const complete = async (ids: string[]): Promise<void> => {
 };
 const deleteTasks = (ids: string[]): void => {
   const content = open('删除任务'); const children = tasks.filter(task => task.parent && ids.includes(task.parent) && !ids.includes(task.id));
-  const dependent = tasks.filter(task => !ids.includes(task.id) && task.dependsOn?.some(id => ids.includes(id)));
+  const dependent = tasks.filter(task => !ids.includes(task.id) && dependencyIds(task).some(id => ids.includes(id)));
   content.append(el('p', `删除 ${ids.length} 个任务。${children.length ? ` ${children.length} 个子任务会保留。` : ''}${dependent.length ? ` ${dependent.length} 个任务将需要重新选择依赖。` : ''}`, 'helper'), button('确认删除', () => act(async () => { for (const id of ids) await service.remove(id); }, '已删除任务'), 'primary danger'));
 };
 const editDialog = (task: Task): void => {
@@ -306,9 +306,9 @@ const editDialog = (task: Task): void => {
   const recur = field(scheduling, '重复规则', task.recur ? recurToInput(task.recur).replace(/^\*/, '') : ''); recur.placeholder = '每天 / 每2周 / 每月 / 工作日';
   const wait = field(scheduling, '等待日期', task.wait ?? '', 'date');
   const status = selectField(scheduling, '状态', ['todo', 'waiting', 'meeting', 'done', 'cancelled', ...(!['todo', 'waiting', 'meeting', 'done', 'cancelled'].includes(task.status) ? [task.status] : [])].map(value => [value, statusName(value)]), task.status);
-  const relations = section(`执行顺序 · ${task.dependsOn?.length ?? 0}`);
+  const relations = section(`执行顺序 · ${dependencyIds(task).length}`);
   const parent = selectField(relations, '父任务', [['', tr('未设置')], ...tasks.filter(item => item.id !== task.id).map(item => [item.id, item.title] as [string, string]), ...(task.parent && !tasks.some(item => item.id === task.parent) ? [[task.parent, `${task.parent}（父任务已归档或删除）`] as [string, string]] : [])], task.parent ?? '', false);
-  let dependencies = [...task.dependsOn ?? []];
+  let dependencies = dependencyIds(task);
   const dependencyRows = el('div'); relations.append(dependencyRows);
   const search = field(relations, '查找依赖任务'); search.autocomplete = 'off'; const candidates = el('div'); relations.append(candidates);
   const renderDependencies = (): void => {
@@ -319,7 +319,7 @@ const editDialog = (task: Task): void => {
       const row = el('div', undefined, 'dependency-row'); row.append(rawEl('span', prerequisite?.title ?? `任务 ${id} 已移除`), el('small', prerequisite ? tr(statusName(prerequisite.status)) : '需要重新选择'));
       row.append(button('移除依赖', () => { dependencies = dependencies.filter(value => value !== id); renderDependencies(); autosave.changed(); })); dependencyRows.append(row);
     }
-    for (const follower of tasks.filter(item => item.dependsOn?.includes(task.id))) dependencyRows.append(button(`后续任务：${follower.title}`, async () => { try { await autosave.flush(); activeEditor = undefined; editDialog(follower); } catch (error) { showError(error); } }, 'dependency-option'));
+    for (const follower of tasks.filter(item => dependencyIds(item).includes(task.id))) dependencyRows.append(button(`后续任务：${follower.title}`, async () => { try { await autosave.flush(); activeEditor = undefined; editDialog(follower); } catch (error) { showError(error); } }, 'dependency-option'));
   };
   search.oninput = () => {
     candidates.replaceChildren();
@@ -360,6 +360,7 @@ const editDialog = (task: Task): void => {
         return !changed && runtime ? runtime : { ...item.reminder, at: item.at.value, hooks: item.hooks.value.split(',').map(value => value.trim()).filter(Boolean), fired: false, dead: false, attempts: 0, leaseOwner: undefined, leaseUntil: undefined };
       }), end: status.value === 'cancelled' ? (base.end ?? utcNow()) : status.value === 'done' ? base.end : undefined });
       if (!updated.title) throw new Error('请保留任务标题');
+      delete updated.deps;
       if (parsedTitle.dependencies.length) {
         const existing = await store.tasks(); const changed = planDependencies([updated], [parsedTitle.dependencies], await service.dependencyTasks(), [choices]);
         if (changed.some(item => !existing.some(before => before.id === item.id))) throw new Error('归档中的任务不能新增依赖，请先恢复任务');
@@ -374,7 +375,7 @@ const editDialog = (task: Task): void => {
     }
     await refresh();
     if (title.value === originalTitle && parsedTitle.dependencies.length) { title.value = base.title; renderTitleRelations(); }
-    if (JSON.stringify(dependencies) === originalDependencies) dependencies = [...base.dependsOn ?? []];
+    if (JSON.stringify(dependencies) === originalDependencies) dependencies = dependencyIds(base);
     renderDependencies();
   }, (state, error) => {
     savedStatus.textContent = tr({ pending: '等待保存', saving: '正在保存', saved: '已经保存', error: '保存未完成' }[state]); savedStatus.dataset.state = state;

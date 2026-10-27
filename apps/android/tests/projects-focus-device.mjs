@@ -7,6 +7,10 @@ import { setTimeout as sleep } from 'node:timers/promises';
 
 const adb = (...args) => execFileSync('adb', args, { encoding: 'utf8' }).trim();
 const pkg = 'io.anothertodo.mobile';
+const stayOn = adb('shell', 'settings', 'get', 'global', 'stay_on_while_plugged_in');
+adb('shell', 'svc', 'power', 'stayon', 'true');
+adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP');
+adb('shell', 'wm', 'dismiss-keyguard');
 const output = 'test-results/projects-focus';
 await mkdir(output, { recursive: true });
 const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '' });
@@ -17,7 +21,8 @@ const nodes = value => {
 };
 const tap = async predicate => {
   for (let attempt = 0; attempt < 15; attempt++) {
-    adb('shell', 'uiautomator', 'dump', '/sdcard/atd-projects.xml');
+    const dump = adb('shell', 'uiautomator', 'dump', '--compressed', '/sdcard/atd-projects.xml');
+    if (!dump.includes('dumped to:')) { await sleep(250); continue; }
     const node = nodes(parser.parse(adb('shell', 'cat', '/sdcard/atd-projects.xml'))).find(predicate);
     if (node) {
       const [left, top, right, bottom] = node.bounds.match(/\d+/g).map(Number);
@@ -31,6 +36,7 @@ adb('shell', 'pm', 'clear', pkg);
 adb('shell', 'pm', 'grant', pkg, 'android.permission.POST_NOTIFICATIONS');
 adb('shell', 'appops', 'set', pkg, 'SCHEDULE_EXACT_ALARM', 'allow');
 adb('shell', 'am', 'start', '-W', '-n', `${pkg}/.MainActivity`);
+await sleep(1500);
 const pid = adb('shell', 'pidof', pkg);
 adb('forward', 'tcp:9234', `localabstract:webview_devtools_remote_${pid}`);
 const browser = await chromium.connectOverCDP('http://127.0.0.1:9234');
@@ -115,4 +121,4 @@ try {
   assert.equal(errors.length, 0, errors.join('\n'));
   await writeFile(`${output}/report.json`, JSON.stringify({ checks: ['project creation', 'sequential dependency', 'completion animation', 'chapter advance', 'focus limit', 'blocked and waiting exclusion', 'stream replenishment', 'configurable count', 'stable random cards', 'native script file import', 'custom recommendation', 'project completion', 'atomic undo'], errors }, null, 2));
   console.log('Android 项目、GTD 与脚本文件验收通过');
-} finally { await browser.close(); }
+} finally { await browser.close(); adb('shell', 'settings', 'put', 'global', 'stay_on_while_plugged_in', stayOn); }

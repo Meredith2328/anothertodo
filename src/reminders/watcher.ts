@@ -1,5 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
+import { appendFile } from "node:fs/promises";
 
 import type { Task } from "../contracts.js";
 import { loadConfig } from "../core/config.js";
@@ -8,7 +9,8 @@ import { addLocalMinutes, parseCompatibleDateTime } from "../core/time.js";
 import { Store } from "../storage/store.js";
 import { fireHook } from "./hooks.js";
 
-const activeStatuses = new Set(["todo", "waiting", "meeting"]);
+// 暂停的任务不打扰人；恢复后没发出去的提醒会补上
+const activeStatuses = new Set(["todo", "doing", "waiting", "meeting"]);
 const MAX_HOOK_ATTEMPTS = 3;
 const localNow = (): string => {
   const now = new Date();
@@ -23,6 +25,12 @@ const lateMinutes = (at: string, now: string): number => {
 };
 export const isMissedReminder = (at: string, now: string): boolean => lateMinutes(at, now) > 5;
 export type ReminderCheckSummary = { processed: number; sent: number; retried: number; dead: number };
+
+/** 提醒入屏：发出去的提醒同时写进 inbox.jsonl，TUI 盯着这个文件把提醒显示在屏幕上 */
+export type InboxEntry = { ts: string; taskId: string; message: string };
+const appendInbox = async (store: Store, entry: InboxEntry): Promise<void> => {
+  await appendFile(store.paths.inbox, `${JSON.stringify(entry)}\n`, "utf8").catch(() => {});
+};
 
 export const checkOnceDetailed = async (store: Store, quiet = false, now = localNow(), dir = store.paths.dir): Promise<ReminderCheckSummary> => {
   const summary: ReminderCheckSummary = { processed: 0, sent: 0, retried: 0, dead: 0 };
@@ -50,7 +58,10 @@ export const checkOnceDetailed = async (store: Store, quiet = false, now = local
       try {
         const result = await store.completeReminder(claimed.id, reminderId, owner, now, allFailed, MAX_HOOK_ATTEMPTS);
         if (!result) continue;
-        if (result.fired) store.events.emit("reminder.fired", { taskId: claimed.id, reminderIndex, });
+        if (result.fired) {
+          store.events.emit("reminder.fired", { taskId: claimed.id, reminderIndex, });
+          await appendInbox(store, { ts: now, taskId: claimed.id, message: messageFor(claimed, claimedReminder, missed) });
+        }
         summary.processed += 1;
         if (result.fired) summary.sent += 1;
         else if (result.dead) summary.dead += 1;

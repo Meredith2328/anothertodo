@@ -1,5 +1,5 @@
 import type { Task } from "../contracts.js";
-import { recurToInput, type Parsed } from "./parse.js";
+import { recurToInput, STATUS_INPUT, type Parsed } from "./parse.js";
 
 /**
  * 把一行输入的解析结果套到已有任务上。
@@ -8,27 +8,39 @@ import { recurToInput, type Parsed } from "./parse.js";
  */
 export const applyParsedUpdate = (task: Task, parsed: Parsed): Task => {
   if (parsed.title) task.title = parsed.title;
-  if (parsed.due !== undefined) task.due = parsed.due;
+  if (parsed.due !== undefined) {
+    task.due = parsed.due;
+    // 改了时间却没再写时间段，旧的结束时刻就作废了
+    if (parsed.until !== undefined) task.until = parsed.until; else delete task.until;
+  }
   if (parsed.priority) task.priority = parsed.priority;
   if (parsed.tags.length) task.tags = [...parsed.tags];
   if (parsed.removeTags.length) task.tags = task.tags.filter((tag) => !parsed.removeTags.includes(tag));
   if (parsed.project !== undefined) task.project = parsed.project;
   if (parsed.parent !== undefined) task.parent = parsed.parent;
+  if (parsed.deps !== undefined) { task.deps = [...parsed.deps]; delete task.dependsOn; }
+  if (parsed.status !== undefined && parsed.status !== task.status) {
+    task.status = parsed.status;
+    delete task.end;
+    // 只有等待才看 wait 日期；换去别的分组还留着它，任务会被折叠成「等待未到」
+    if (parsed.status !== "waiting") delete task.wait;
+  }
   if (parsed.wait !== undefined) task.wait = parsed.wait;
   if (parsed.notes !== undefined) task.notes = parsed.notes;
   if (parsed.recur !== undefined) task.recur = parsed.recur;
   if (parsed.reminders.length) task.reminders = parsed.reminders.map(({ relative: _relative, dead, ...reminder }) => ({ ...reminder, dead: dead ?? false }));
   for (const field of parsed.clears) {
-    if (field === "due") delete task.due;
+    if (field === "due") { delete task.due; delete task.until; }
     else if (field === "priority") delete task.priority;
     else if (field === "project") delete task.project;
     else if (field === "parent") delete task.parent;
+    else if (field === "deps") { delete task.deps; delete task.dependsOn; }
     else if (field === "wait") delete task.wait;
     else if (field === "tags") task.tags = [];
     else if (field === "notes") task.notes = "";
     else if (field === "recur") delete task.recur;
     else if (field === "reminders") task.reminders = [];
-    else if (field === 'dependencies') task.dependsOn = [];
+    else if (field === 'dependencies') { delete task.deps; task.dependsOn = []; }
   }
   return task;
 };
@@ -41,11 +53,15 @@ export const taskToInput = (task: Task): string => {
   parts.push(...task.tags.map((tag) => `#${tag}`));
   if (task.parent) parts.push(`^${task.parent}`);
   for (const dependency of task.dependsOn ?? []) parts.push(`after:${dependency}`);
+  if (task.deps?.length) parts.push(`after:${task.deps.join(",")}`);
+  // 等待带日期时由 `~日期` 表达；其余分组状态要写出来，否则编辑一次就回到待办
+  if (task.status === "doing" || task.status === "paused" || (task.status === "waiting" && !task.wait)) parts.push(`in:${STATUS_INPUT[task.status]}`);
   if (task.wait) parts.push(`~${task.wait}`);
   if (task.recur) parts.push(recurToInput(task.recur));
   if (task.due) {
     parts.push(task.due.slice(0, 10));
-    if (task.due.slice(11, 16) !== "00:00") parts.push(task.due.slice(11, 16));
+    if (task.until) parts.push(`${task.due.slice(11, 16)}-${task.until.slice(11, 16)}`);
+    else if (task.due.slice(11, 16) !== "00:00") parts.push(task.due.slice(11, 16));
   }
   for (const reminder of task.reminders) parts.push(`@${reminder.at.replace("T", " ")}:${reminder.hooks.join(",")}`);
   // 备注放最后：`>>` 之后的内容整段算备注，前面还有字段就会被吞掉

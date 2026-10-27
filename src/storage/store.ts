@@ -1,6 +1,8 @@
-import { appendFile, mkdir, open, readFile, unlink } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { appendFile, mkdir, open, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { OperationError } from "../core/errors.js";
 import { TaskSchema, TombstoneSchema, type Task } from "../contracts.js";
 import { DomainEventBus, type DomainEvents } from "../core/events.js";
 import { cloneTask, newId, parseTask, tombstone, utcNow } from "../core/task.js";
@@ -11,7 +13,11 @@ import { atomicWriteText, withDataLock } from "./lock.js";
 import { validateDependencies, blockedDependencies } from '../core/dependencies.js';
 
 type JsonObject = Record<string, unknown>;
-type UndoRecord = { before: JsonObject | null; after: JsonObject | null; ts: string; changes?: Array<{ before: JsonObject | null; after: JsonObject }> };
+/** batch 相同的相邻记录是同一次操作（比如完成任务顺带派生了下一次），撤销 / 重做时一起走 */
+type UndoRecord = { before: JsonObject | null; after: JsonObject | null; ts: string; batch?: string; changes?: Array<{ before: JsonObject | null; after: JsonObject }> };
+type AddRequest = { id: string; payloadHash: string };
+type RequestReceipt = { requestId: string; payloadHash: string; task: Task; committed: boolean; beforeHash: string };
+const objectsHash = (objects: JsonObject[]): string => createHash("sha256").update(JSON.stringify(objects)).digest("hex");
 type ArchiveTransaction = { tasks: string[]; archive: string[] };
 
 export class ConcurrentModificationError extends Error {
@@ -67,6 +73,7 @@ export class Store {
   private readonly idGenerator: () => string;
   private taskReadProblems: string[] = [];
   private archiveReadProblems: string[] = [];
+  private currentBatch: string | undefined;
 
   constructor(dir?: string, events = new DomainEventBus((error) => console.error("atd: domain subscriber failed", error)), idGenerator = newId) {
     this.paths = pathsFor(dir);
@@ -76,7 +83,7 @@ export class Store {
 
   async init(): Promise<void> {
     await mkdir(this.paths.dir, { recursive: true });
-    for (const path of [this.paths.tasks, this.paths.undo]) {
+    for (const path of [this.paths.tasks, this.paths.undo, this.paths.redo]) {
       const handle = await open(path, "a");
       await handle.close();
     }
@@ -150,34 +157,83 @@ export class Store {
 
   async find(prefix: string): Promise<Task | undefined> {
     const matches = (await this.tasks()).filter((task) => task.id.startsWith(prefix));
-    if (matches.length > 1) throw new Error(`id 前缀 ${JSON.stringify(prefix)} 匹配到多个任务：${matches.map((task) => task.id).join(", ")}`);
+    if (matches.length > 1) throw new OperationError("AMBIGUOUS_ID", `id 前缀 ${JSON.stringify(prefix)} 匹配到多个任务：${matches.map((task) => task.id).join(", ")}`);
     return matches[0];
   }
 
-  private async appendUndo(before: JsonObject | null, after: JsonObject | null): Promise<void> {
-    const record: UndoRecord = { before, after, ts: utcNow() };
-    await appendFile(this.paths.undo, `${jsonLine(record)}\n`, "utf8");
+  /** fn 里的所有写入算一次操作：撤销一下全部回滚，重做一下全部重来 */
+  async batch<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.currentBatch !== undefined) return fn();
+    this.currentBatch = randomUUID();
+    try { return await fn(); }
+    finally { this.currentBatch = undefined; }
   }
 
-  async save(input: Task, before?: Task, recordUndo = true): Promise<Task> {
+  /** 新的改动会让「撤销掉的那些」失去前提，所以顺手清空重做栈 */
+  private async appendUndo(before: JsonObject | null, after: JsonObject | null): Promise<void> {
+    const record: UndoRecord = { before, after, ts: utcNow(), ...(this.currentBatch ? { batch: this.currentBatch } : {}) };
+    await appendFile(this.paths.undo, `${jsonLine(record)}\n`, "utf8");
+    await writeFile(this.paths.redo, "", "utf8");
+  }
+
+  async save(input: Task | (() => Promise<Task>), before?: Task, recordUndo = true, request?: AddRequest): Promise<Task> {
     return this.withLock(async (emit) => {
       const originalObjects = await this.rawObjects();
       this.assertTasksWritable();
-      const existingObject = originalObjects.filter((obj) => obj.id === input.id && obj.deleted !== true).at(-1);
+      const requestPath = join(this.paths.dir, "requests.json");
+      let receipts: RequestReceipt[] = [];
+      if (request) {
+        if (!request.id.trim() || request.id.length > 128) throw new OperationError("INVALID_REQUEST_ID", "request-id 必须是 1–128 个字符");
+        try {
+          const raw: unknown = JSON.parse(await readFile(requestPath, "utf8"));
+          if (!Array.isArray(raw)) throw new Error("expected array");
+          receipts = raw.map((item: RequestReceipt) => {
+            if (typeof item.requestId !== "string" || typeof item.payloadHash !== "string" || typeof item.committed !== "boolean" || typeof item.beforeHash !== "string") throw new Error("invalid receipt");
+            return { ...item, task: parseTask(item.task) };
+          });
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new OperationError("REQUEST_STORE_INVALID", "requests.json 无法读取，已阻止新增；请检查该文件");
+        }
+        const receipt = receipts.find((item) => item.requestId === request.id);
+        if (receipt) {
+          if (receipt.payloadHash !== request.payloadHash) throw new OperationError("REQUEST_CONFLICT", "这个 request-id 已用于不同输入，请使用新的 request-id");
+          const current = originalObjects.find((obj) => obj.id === receipt.task.id && obj.deleted !== true);
+          if (current) {
+            if (!receipt.committed) { receipt.committed = true; await atomicWriteText(requestPath, JSON.stringify(receipts) + "\n"); }
+            return parseTask(current);
+          }
+          if (receipt.committed || originalObjects.some((obj) => obj.id === receipt.task.id)) throw new OperationError("REQUEST_RESULT_UNAVAILABLE", `原请求任务 ${receipt.task.id} 已被删除或归档，不会重新新增`);
+          // 落盘 intent 后崩溃：只有任务库仍与此前完全一致时才恢复，不覆盖其他 writer。
+          if (objectsHash(originalObjects) !== receipt.beforeHash) throw new OperationError("REQUEST_INCOMPLETE", "原请求尚未完成且任务库已变化；请先检查结果，不能盲重试新增");
+          await atomicWrite(this.paths.tasks, [...originalObjects, TaskSchema.parse(receipt.task)].map(jsonLine));
+          await this.appendUndo(null, TaskSchema.parse(receipt.task));
+          receipt.committed = true;
+          await atomicWriteText(requestPath, JSON.stringify(receipts) + "\n");
+          emit("task.created", { task: cloneTask(receipt.task) });
+          return receipt.task;
+        }
+      }
+      const draft = typeof input === "function" ? await input() : input;
+      const existingObject = originalObjects.filter((obj) => obj.id === draft.id && obj.deleted !== true).at(-1);
       const existing = existingObject ? parseTask(existingObject) : undefined;
-      if (before && (!existing || existing.modified !== before.modified)) throw new ConcurrentModificationError(input.id);
-      let id = input.id || this.idGenerator();
+      if (before && (!existing || existing.modified !== before.modified)) throw new ConcurrentModificationError(draft.id);
+      let id = draft.id || this.idGenerator();
       if (!before && recordUndo) {
         const occupied = new Set(originalObjects.map((obj) => String(obj.id)));
         let attempts = 0;
         while (occupied.has(id) && attempts < 1000) { id = this.idGenerator(); attempts += 1; }
         if (occupied.has(id)) throw new Error("无法生成未占用的任务 ID；请重试或检查随机源");
       }
-      const task = parseTask({ ...input, id, entry: input.entry || utcNow(), modified: utcNow() });
+      const task = parseTask({ ...draft, id, entry: draft.entry || utcNow(), modified: existing && Date.parse(existing.modified) >= Date.now() ? new Date(Date.parse(existing.modified) + 1).toISOString() : utcNow() });
       const objects = originalObjects.filter((obj) => obj.id !== task.id);
       objects.push(TaskSchema.parse(task));
       validateDependencies(objects.filter(obj => obj.deleted !== true).map(parseTask));
+      if (request) {
+        receipts.push({ requestId: request.id, payloadHash: request.payloadHash, task, committed: false, beforeHash: objectsHash(originalObjects) });
+        await atomicWriteText(requestPath, JSON.stringify(receipts) + "\n");
+      }
       await atomicWrite(this.paths.tasks, objects.map(jsonLine));
+      if (request) { receipts[receipts.length - 1]!.committed = true; await atomicWriteText(requestPath, JSON.stringify(receipts) + "\n"); }
       if (recordUndo) await this.appendUndo(before ? TaskSchema.parse(cloneTask(before)) : null, TaskSchema.parse(task));
       if (existing) emit("task.updated", { before: cloneTask(before ?? existing), after: cloneTask(task) });
       else emit("task.created", { task: cloneTask(task) });
@@ -201,7 +257,9 @@ export class Store {
       }
       validateDependencies([...latest.values()].filter(obj => obj.deleted !== true).map(parseTask));
       await atomicWrite(this.paths.tasks, [...latest.values()].map(jsonLine));
-      await appendFile(this.paths.undo, `${JSON.stringify({ before: null, after: null, ts: utcNow(), changes } satisfies UndoRecord)}\n`, 'utf8');
+      const batch = this.currentBatch ?? randomUUID();
+      await appendFile(this.paths.undo, changes.map(change => JSON.stringify({ ...change, ts: utcNow(), batch } satisfies UndoRecord) + '\n').join(''), 'utf8');
+      await atomicWriteText(this.paths.redo, '');
       for (const change of changes) {
         if (change.before) emit('task.updated', { before: parseTask(change.before), after: parseTask(change.after) });
         else emit('task.created', { task: parseTask(change.after) });
@@ -233,7 +291,7 @@ export class Store {
       const current = objects.filter((obj) => obj.id === taskId && obj.deleted !== true).at(-1);
       if (!current) return undefined;
       const task = parseTask(current);
-      if (task.status !== "todo" && task.status !== "waiting" && task.status !== "meeting") return undefined;
+      if (task.status !== "todo" && task.status !== "doing" && task.status !== "waiting" && task.status !== "meeting") return undefined;
       if (blockedDependencies(task, [...objects.filter(obj => obj.deleted !== true), ...(await this.archived()).filter(obj => obj.deleted !== true)].map(parseTask)).length) return undefined;
       const reminder = task.reminders.find((item) => item.id === reminderId);
       if (!reminder || reminder.fired || reminder.dead) return undefined;
@@ -283,73 +341,105 @@ export class Store {
     });
   }
 
+  /** 撤销栈里最近的几步，每个 batch 算一步；给 :history 看 */
+  async history(limit = 10): Promise<Array<{ ts: string; summary: string }>> {
+    const lines = (await readFile(this.paths.undo, "utf8").catch(() => "")).split(/\r?\n/).filter(Boolean);
+    const steps: Array<{ ts: string; summary: string }> = [];
+    let index = lines.length - 1;
+    while (index >= 0 && steps.length < limit) {
+      const record = JSON.parse(lines[index]!) as UndoRecord;
+      const members = [record];
+      if (record.batch !== undefined) while (index > 0 && (JSON.parse(lines[index - 1]!) as UndoRecord).batch === record.batch) { index -= 1; members.unshift(JSON.parse(lines[index]!) as UndoRecord); }
+      const describe = (item: UndoRecord): string => {
+        const title = String((item.after?.deleted === true ? item.before : item.after)?.title ?? "");
+        if (!item.before || item.before.deleted === true) return `新增：${title}`;
+        if (item.after?.deleted === true) return `删除：${title}`;
+        const status = String(item.after?.status ?? "");
+        if (status !== String(item.before.status ?? "")) return `${status === "done" ? "完成" : status === "cancelled" ? "取消" : `改为 ${status}`}：${title}`;
+        return `修改：${title}`;
+      };
+      const main = describe(members[0]!);
+      steps.push({ ts: record.ts, summary: members.length === 1 ? main : `${main}（连同另外 ${members.length - 1} 条）` });
+      index -= 1;
+    }
+    return steps;
+  }
+
   async undo(): Promise<string> {
+    return this.replay(this.paths.undo, this.paths.redo, "没有可撤销的操作", "撤销");
+  }
+
+  async redo(): Promise<string> {
+    return this.replay(this.paths.redo, this.paths.undo, "没有可重做的操作", "重做");
+  }
+
+  /**
+   * 撤销和重做是同一件事：从一个栈顶弹出一次操作，把每条记录从 after 退回 before，
+   * 再把「这次退回」本身记成新记录压进另一个栈。这样重做就是「撤销那次撤销」，
+   * 两边的乐观并发校验也是同一套：磁盘上的现状必须还是记录里的 after。
+   */
+  private async replay(fromPath: string, toPath: string, emptyMessage: string, verb: string): Promise<string> {
     return this.withLock(async (emit) => {
-      const lines = (await readFile(this.paths.undo, "utf8")).split(/\r?\n/).filter(Boolean);
-      if (lines.length === 0) throw new Error("没有可撤销的操作");
-      const record = JSON.parse(lines.at(-1) ?? "") as UndoRecord;
-      const objects = await this.rawObjects();
+      const lines = (await readFile(fromPath, "utf8")).split(/\r?\n/).filter(Boolean);
+      if (lines.length === 0) throw new Error(emptyMessage);
+      // 重做栈里存的是「撤销」写下的反向记录，新增和删除的说法要对调回用户原本的操作
+      const redo = fromPath === this.paths.redo;
+      const last = JSON.parse(lines.at(-1) ?? "") as UndoRecord;
+      let count = 1;
+      if (last.batch !== undefined) while (count < lines.length && (JSON.parse(lines[lines.length - 1 - count]!) as UndoRecord).batch === last.batch) count += 1;
+      const records = lines.slice(-count).map((line) => JSON.parse(line) as UndoRecord).flatMap(record => record.changes ? record.changes.map(change => ({ ...change, ts: record.ts, batch: record.batch ?? last.batch ?? 'batch' })) : [record]).reverse();
+      let objects = await this.rawObjects();
       this.assertTasksWritable();
-      if (record.changes) {
-        const latest = new Map(objects.map(obj => [String(obj.id), obj]));
-        for (const change of record.changes) {
-          const id = String(change.after.id), current = latest.get(id);
-          if (!current || current.modified !== change.after.modified) throw new ConcurrentModificationError(id);
-          if (change.before) {
-            const restored = mergeReminderRuntime(parseTask(change.before), parseTask(current)); restored.modified = utcNow(); latest.set(id, restored);
-          } else latest.set(id, tombstone(id));
-        }
-        validateDependencies([...latest.values()].filter(obj => obj.deleted !== true).map(parseTask));
-        const history = lines.slice(0, -1).map(line => JSON.parse(line) as UndoRecord);
-        for (const change of record.changes) {
-          const id = String(change.after.id), restored = latest.get(id)!;
-          for (let index = history.length - 1; index >= 0; index--) {
-            const previous = history[index]!;
-            const entry = previous.changes?.find(item => item.after.id === id);
-            const after = entry?.after ?? (previous.after?.id === id ? previous.after : undefined);
-            if (after) { if (after.modified === change.before?.modified) after.modified = restored.modified; break; }
-          }
-          if (change.before) emit('task.updated', { before: parseTask(change.after), after: parseTask(restored) });
-          else emit('task.deleted', { task: parseTask(change.after), tombstone: tombstone(id, String(restored.modified)) });
-        }
-        await atomicWrite(this.paths.tasks, [...latest.values()].map(jsonLine));
-        await atomicWrite(this.paths.undo, history.map(item => JSON.stringify(item)));
-        if (record.changes.length === 1) { const change = record.changes[0]!; return `${change.before ? '撤销修改' : '撤销新增'}：${String(change.after.title)}`; }
-        return `撤销批量操作：${record.changes.length} 个任务`;
-      }
-      if (record.after) {
+      const produced: UndoRecord[] = [];
+      const events: Array<() => void> = [];
+      const summaries: string[] = [];
+      for (const record of records) {
+        if (!record.after) throw new Error("旧版 undo 记录缺少版本信息，已拒绝回滚；请先在 Python 兼容实现中完成该 undo");
         const id = String(record.after.id);
+        const current = objects.filter((obj) => obj.id === id).at(-1);
+        if (!current || current.deleted !== record.after.deleted || current.modified !== record.after.modified) throw new ConcurrentModificationError(id);
+        const gone = !record.before || record.before.deleted === true;
+        let written: JsonObject;
         if (record.after.deleted === true) {
-          const current = objects.filter((obj) => obj.id === id).at(-1);
-          if (!current || current.deleted !== true || current.modified !== record.after.modified) throw new ConcurrentModificationError(id);
-          if (!record.before) throw new Error("删除 undo 记录缺少 before");
-          const restored: JsonObject = { ...record.before, modified: utcNow() };
-          await atomicWrite(this.paths.tasks, [...objects.filter((obj) => obj.id !== id).map(jsonLine), jsonLine(restored)]);
-          await atomicWrite(this.paths.undo, lines.slice(0, -1));
-          emit("task.restored", { task: cloneTask(parseTask(restored)) });
-          return `撤销删除：${String(restored.title ?? "")}`;
-        }
-        if (!record.before) {
-          const current = objects.filter((obj) => obj.id === id && obj.deleted !== true).at(-1);
-          if (!current || current.modified !== record.after.modified) throw new ConcurrentModificationError(id);
+          if (gone) throw new Error("删除 undo 记录缺少 before");
+          written = { ...record.before!, modified: utcNow() };
+          const task = parseTask(written);
+          events.push(() => emit("task.restored", { task: cloneTask(task) }));
+          summaries.push(`${verb}${redo ? "新增" : "删除"}：${String(written.title ?? "")}`);
+        } else if (gone) {
           const deleted = tombstone(id);
-          await atomicWrite(this.paths.tasks, [...objects.filter((obj) => obj.id !== id).map(jsonLine), jsonLine(deleted)]);
-          await atomicWrite(this.paths.undo, lines.slice(0, -1));
-          emit("task.deleted", { task: cloneTask(parseTask(record.after)), tombstone: deleted });
-          return `撤销新增：${String(record.after.title ?? "")}`;
+          written = deleted;
+          const task = parseTask(current);
+          events.push(() => emit("task.deleted", { task: cloneTask(task), tombstone: deleted }));
+          summaries.push(`${verb}${redo ? "删除" : "新增"}：${String(record.after.title ?? "")}`);
+        } else {
+          const restoredTask = mergeReminderRuntime(parseTask(record.before!), parseTask(current));
+          restoredTask.modified = utcNow();
+          written = TaskSchema.parse(restoredTask);
+          const beforeTask = parseTask(current);
+          const afterTask = parseTask(written);
+          events.push(() => emit("task.updated", { before: cloneTask(beforeTask), after: cloneTask(afterTask) }));
+          summaries.push(`${verb}修改：${String(written.title ?? "")}`);
         }
-        const current = objects.filter((obj) => obj.id === id && obj.deleted !== true).at(-1);
-        if (!current || current.modified !== record.after.modified) throw new ConcurrentModificationError(id);
-        let restoredTask = parseTask(record.before);
-        if (current) restoredTask = mergeReminderRuntime(restoredTask, parseTask(current));
-        restoredTask.modified = utcNow();
-        const restored: JsonObject = TaskSchema.parse(restoredTask);
-        await atomicWrite(this.paths.tasks, objects.map((obj) => jsonLine(obj.id === id ? restored : obj)));
-        await atomicWrite(this.paths.undo, lines.slice(0, -1));
-        if (current) emit("task.updated", { before: cloneTask(parseTask(current)), after: cloneTask(parseTask(restored)) });
-        return `撤销修改：${String(restored.title ?? "")}`;
+        objects = [...objects.filter((obj) => obj.id !== id), written];
+        produced.push({ before: current, after: written, ts: utcNow(), ...(last.batch ? { batch: last.batch } : {}) });
       }
-      throw new Error("旧版 undo 记录缺少版本信息，已拒绝回滚；请先在 Python 兼容实现中完成该 undo");
+      await atomicWrite(this.paths.tasks, objects.map(jsonLine));
+      const history = lines.slice(0, -count).map(line => JSON.parse(line) as UndoRecord);
+      for (const record of records) {
+        if (!record.before || !record.after) continue;
+        const restored = objects.find(object => object.id === record.after!.id);
+        for (let index = history.length - 1; index >= 0; index--) {
+          const previous = history[index]!;
+          const after = previous.changes?.find(change => change.after.id === record.after!.id)?.after ?? (previous.after?.id === record.after.id ? previous.after : undefined);
+          if (after) { if (after.modified === record.before.modified) after.modified = restored!.modified; break; }
+        }
+      }
+      await atomicWrite(fromPath, history.map(jsonLine));
+      await appendFile(toPath, produced.map((record) => `${jsonLine(record)}\n`).join(""), "utf8");
+      for (const publish of events) publish();
+      // 一次操作可能带出好几条（完成 + 派生下一次），以用户直接操作的那条为主，其余合成计数
+      return summaries.length === 1 ? summaries[0]! : `${summaries.at(-1)!}（连同另外 ${summaries.length - 1} 条）`;
     });
   }
 

@@ -20,6 +20,8 @@ npm link
 
 **独立可执行文件（推荐，无需安装任何东西）**：从 GitHub Releases（`node-v*` tag）下载对应平台的单文件程序——Windows 直接双击 `atd-windows.exe` 进入 TUI；macOS/Linux `chmod +x` 后运行。数据仍存 `~/.atd`，纯文本 JSONL、格式稳定，两种安装方式共用同一份数据；数据目录首次运行自动创建。
 
+Apple Silicon Mac 推荐下载 `AnotherTodo-macos-arm64.dmg`：双击打开，把 AnotherTodo 拖到旁边的「应用程序」即可，之后在 Finder、Launchpad、Spotlight 里都能找到，双击会在 Terminal 里打开 TUI。第一次打开时 macOS 会提示「无法验证开发者」，在 Finder 里右键 AnotherTodo →「打开」→ 再点「打开」一次，之后正常双击即可。同样内容也提供 `AnotherTodo-macos-arm64.zip`。
+
 ## 快速上手
 
 **命令行**：
@@ -39,7 +41,9 @@ d 完成 · x 删除（先确认）· c 取消 · o 重新打开 · e 编辑 · 
 l / → 详情浮层（备注、提醒、父子任务；浮层里 j/k 翻、e 编辑）
 空格 打勾多选 · Ctrl+A 全选本屏 · 有勾选时 d x c w o s 批量执行 · Esc 先清多选再预备退出
 : list/undo/sync/mode/archive/cancel/meeting/todo/wait <日期>/snooze <分钟>
-/ 搜索 · ? 帮助 · u 撤销 · 1/2 切排序 · t 切日期列 · q/双击 Esc 退出
+/ 搜索 · ? 帮助 · u 撤销 · U 重做 · 1/2 切排序 · t 切日期列 · q/双击 Esc 退出
+a 给选中任务选后续（空格勾选、回车保存、n 新建）· D 依赖图 · Tab 按项目切换 · , 设置
+:history 查看最近操作并一次回退多步
 ```
 
 用 `^父id` 记的子任务会在列表和 TUI 里缩进排在父任务下面（支持多层）；完成父任务时会点名报出还没完成的子任务，删除父任务时会提示哪些子任务变成了孤儿。
@@ -62,6 +66,7 @@ atd preview "后天 下午2点半 复盘 特急"           # 先看解析结果�
 | `明天` `后天` `周五` `下周一` `月底` `8.20` | 各种日期（数字过期保持字面） |
 | `today` `tomorrow` `tonight` `next fri` `this weekend` | 英文日期（tomorrow 默认上午 10 点，next 指下一周） |
 | `晚上8点` `下午3点半` `14:30` `2:30pm` `9am` | 时间（无日期则顺延明天；支持 12 小时制） |
+| `14:00-15:00` `下午两点到三点` `2-3pm` `10点到11点半` | 时间段（后一个时间没写上下午就跟着前一个；结束早于开始算跨到第二天） |
 | `很急` `特急` `urgent` `very urgent` → 高；`一般` `normal` → 中；`不急` `no rush` → 低 | 紧急度短语（`Sol` 等档位名也行；英文短语带词边界） |
 | `#标签` `proj:项目` `^父id` `~周五` `~next monday` | 标签 / 项目 / 子任务 / wait（含多词英文日期） |
 | `@18:30` `@9:00:toast,email` `@30m` | 提醒（锚定任务日期，可多 hook） |
@@ -96,6 +101,14 @@ atd preview "后天 下午2点半 复盘 特急"           # 先看解析结果�
 | `-提醒` / `@none` | 清掉提醒 |
 
 不写提醒时，有截止时间的任务会自动补一个 toast：距截止超过 24 小时提前 1 天，否则提前 15 分钟；写 `@none`、`@off` 或 `no reminders` 可关闭。
+
+## 项目待办与 GTD
+
+使用 `atd project "学习一本书" "学习第1章" "学习第2章"` 创建顺序项目，列表展示项目和当前可执行步骤。完成步骤后展示下一步骤，完成项目会同时完成剩余步骤。TUI 输入 `:gtd` 进入最多显示两件事项的信息流，`:gtd 3` 修改数量，`:list` 返回清单；安卓点击任务页的 GTD。
+
+推荐支持现有排序、紧急度、随机以及用户新增的 JavaScript 配置脚本文件。使用 `atd script template urgency recommendations/reading.js` 创建模板，编辑后通过 `atd script use recommendations/reading.js --list` 同时用于 GTD 与普通列表。安卓可以导入同一脚本文件。
+
+接口说明、配置、共享实现与实际效果截图见 [项目待办与 GTD](docs/projects-gtd.md)。
 
 ## 任务依赖
 

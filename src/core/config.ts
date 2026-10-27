@@ -26,6 +26,11 @@ waiting_penalty = 3.0
 [agenda]
 week_days = 7
 date_format = "auto"
+# 日期、优先级都相同时怎么排：entry 先加的在前 / entry_desc 后加的在前 / title 按标题（中文按拼音）
+tie_break = "entry"
+# 聚焦视图：all 全部 / recent 近期 / hour 接下来一小时；只改变显示
+view = "all"
+timezone = "Asia/Shanghai"
 
 [focus]
 count = 2
@@ -40,12 +45,25 @@ interval_seconds = 30
 # auto 跟随系统语言（认不出来按中文）；可写成 "zh" 或 "en" 固定界面语言。
 # 只影响界面文案，一行输入语法和查询语法两种语言下都一样。
 lang = "auto"
-# 鼠标跟踪档位：
-#   hover = 上报所有移动，悬浮到任务行和底部按钮上会高亮（默认）
-#   drag  = 只在按住时上报移动，没有纯悬浮高亮，事件量小很多
-#   click = 只上报按下/释放，点击和滚轮照常可用
-# 鼠标在终端里划动时 hover 档会持续产生事件；嫌费 CPU 就往下降一档。
+# 皮肤：classic（默认）/ raised（立体按钮）/ dracula / nord / gruvbox / catppuccin / paper（浅色终端）/ mono。
+# atd skin list 看全部，atd skin template 我的皮肤 生成可改的模板
+skin = "classic"
+# 鼠标点击：false 时不接管鼠标，终端里可以直接拖选复制文字
 mouse = "hover"
+# 完成任务时的划线小动画
+animations = true
+# 清单样式：cards 卡片式（分组靠留白分隔，默认）/ table 带边框表头的表格
+layout = "cards"
+# 密度：comfortable 分组之间留空行 / compact 挤紧一点，给小终端
+density = "comfortable"
+# 每两条任务之间的空白行数：0 / 1 / 2
+line_spacing = 0
+# 顶部横幅：line 一行标题 / small 两行小字 / full 六行像素字
+banner = "line"
+
+[deps]
+# 前置任务没做完的后续任务怎么显示：dim 主屏淡字显示，hide 不上主屏（按 D 看依赖图）
+blocked = "dim"
 
 [email]
 host = ""
@@ -59,9 +77,10 @@ to = ""
 
 const defaultConfig = (): Config => ConfigSchema.parse({
   priority: { mode: "levels", levels: ["低", "中", "高"], urgency: { overdue: 12, due_today: 8, due_week_decay: 8, per_level: 3, age_per_day: 0.05, age_cap: 2, waiting_penalty: 3 } },
-  agenda: { week_days: 7, date_format: "auto" },
+  agenda: { week_days: 7, date_format: "auto", tie_break: "entry" },
   watch: { interval_seconds: 30 },
-  ui: { lang: "auto" },
+  ui: { lang: "auto", skin: "classic", mouse: 'hover', animations: true, layout: "cards", density: "comfortable", banner: "line" },
+  deps: { blocked: "dim" },
   email: { host: "", port: 465, ssl: true, user: "", password: "", from: "", to: "" },
 });
 
