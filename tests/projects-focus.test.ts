@@ -16,6 +16,14 @@ const fresh = async (): Promise<ApplicationService> => {
 };
 
 describe('project and focus workflows', () => {
+  it('shows the current step through nested project parents', async () => {
+    const service = await fresh();
+    const catalog = [parseTask({ id: 'outer', title: '学习计划', kind: 'project' }), parseTask({ id: 'book', title: '阅读书籍', kind: 'project', parent: 'outer' }), parseTask({ id: 'chapter1', title: '学习第一章', parent: 'book' }), parseTask({ id: 'chapter2', title: '学习第二章', parent: 'book', dependsOn: ['chapter1'] })];
+    await service.store.saveMany(catalog.map(task => ({ task })));
+    const config = await service.config();
+    expect(projectAgenda(groups(catalog, config), catalog).flatMap(group => group.tasks).map(task => task.id)).toEqual(['outer', 'book', 'chapter1']);
+    expect(executableTasks(catalog, catalog).map(task => task.id)).toEqual(['chapter1']);
+  });
   it('keeps project completion atomic when an external prerequisite is open', async () => {
     const service = await fresh();
     const prerequisite = await service.add('取得参考资料 @none');
@@ -85,6 +93,8 @@ describe('project and focus workflows', () => {
     await writeFile(scriptPath, 'function recommend(tasks) { return tasks.sort((a, b) => a.title < b.title ? 1 : -1).map(t => t.id); }');
     const custom = await recommend(tasks, tasks, config, {}, service.store.paths.dir);
     expect(custom.map(task => task.title)).toEqual([...executableTasks(tasks, tasks)].sort((a, b) => b.title > a.title ? 1 : -1).slice(0, 2).map(task => task.title));
+    await writeFile(scriptPath, 'const input = "reading"; const output = []; function recommend(tasks) { return tasks.map(task => task.id); }');
+    expect(await recommend(tasks, tasks, config, {}, service.store.paths.dir)).toHaveLength(2);
     await writeFile(scriptPath, 'function recommend() { return ["missing"]; }');
     await expect(recommend(tasks, tasks, config, {}, service.store.paths.dir)).rejects.toThrow('未知');
     await writeFile(scriptPath, 'function recommend(tasks) { return [tasks[0].id, tasks[0].id]; }');

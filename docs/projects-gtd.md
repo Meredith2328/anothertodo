@@ -96,6 +96,8 @@ list = true
 
 ## 验证与截图
 
+[安卓章节连续替换录像](images/projects-gtd/android-project-transition.mp4) 展示实际 APK 中的划线、下一章节出现与上移过程。
+
 `tests/projects-focus.test.ts` 使用真实存储和真实解释器，检查五章项目、推进、自动完成、项目完成、撤销、脚本文件读取、执行错误和候选校验。
 
 `node tools/test-projects-focus-tui.mjs` 启动真实 Windows PTY，通过 xterm 显示终端输出并保存截图；检查项目推进、GTD 补充事项、独立脚本修改与重新加载、普通清单复用脚本。
@@ -106,5 +108,6 @@ list = true
 | --- | --- | --- |
 | 项目与当前章节 | [截图](images/projects-gtd/tui-project.png) | [截图](images/projects-gtd/android-project.png) |
 | 章节完成与替换 | [动画过程](images/projects-gtd/tui-project-animation.png)、[下一章节](images/projects-gtd/tui-project-next.png) | [动画过程](images/projects-gtd/android-project-animation.png)、[下一章节](images/projects-gtd/android-project-next.png) |
+| 完成整个项目 | 共享服务验证完成与撤销 | [五个章节全部完成](images/projects-gtd/android-project-completed.png) |
 | GTD 信息流 | [截图](images/projects-gtd/tui-gtd.png) | [截图](images/projects-gtd/android-gtd.png) |
 | 用户脚本 | [推荐结果](images/projects-gtd/tui-script.png)、[普通清单](images/projects-gtd/tui-script-list.png) | [脚本设置](images/projects-gtd/android-script-settings.png)、[推荐结果](images/projects-gtd/android-script-result.png) |
