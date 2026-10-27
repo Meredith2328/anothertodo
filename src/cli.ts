@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { pathToFileURL } from "node:url";
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { resolve, dirname } from 'node:path';
+import { recommend } from './app/recommendation.js';
+import { recommendationTemplates } from './core/recommendation.js';
+import { taskAgenda } from './app/task-view.js';
 
 import { ApplicationService } from "./app/service.js";
 import { groups, nestTasks, renderLine } from "./core/agenda.js";
@@ -57,6 +62,33 @@ export const buildProgram = (): Command => {
 `);
   program.showHelpAfterError();
 
+  program.command('project').description('创建按顺序推进的项目待办').argument('<title>').argument('<steps...>', '每个参数对应一个步骤').action(async (title: string, steps: string[]) => {
+    const task = await service().addProject(title, steps);
+    console.log(`项目 ${task.id} ${task.title}（${steps.length} 个步骤）`);
+  });
+  program.command('gtd').alias('flashcard').description('查看当前可执行事项的信息流；TUI 中使用 :gtd').option('-n, --count <number>', '显示数量').action(async (options: { count?: string }) => {
+    const cfg = await loadConfig();
+    if (options.count) { await setConfigValue('focus.count', options.count); cfg.focus.count = Number(options.count); }
+    const cards = await recommend(await service().tasks(), await service().dependencyTasks(), cfg);
+    for (const task of cards) console.log(`${task.id} ${task.title}`);
+    if (!cards.length) console.log('当前没有可执行事项');
+  });
+  const scripts = program.command('script').description('管理独立推荐脚本文件');
+  scripts.command('template').argument('<name>', 'current / levels / urgency / random').argument('<file>', '输出文件，路径相对于数据目录').action(async (name: string, file: string) => {
+    if (!(name in recommendationTemplates)) throw new Error('模板名称需要是 current、levels、urgency 或 random');
+    const path = resolve(dataDir(), file); await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, recommendationTemplates[name as keyof typeof recommendationTemplates], { flag: 'wx' });
+    console.log(path);
+  });
+  scripts.command('use').argument('<file>', '路径相对于数据目录').option('--list', '同时应用于普通列表').action(async (file: string, options: { list?: boolean }) => {
+    const cfg = await loadConfig(); cfg.focus.template = 'custom'; cfg.focus.script = file;
+    await readFile(resolve(dataDir(), file), 'utf8');
+    await recommend(await service().tasks(), await service().dependencyTasks(), cfg);
+    await setConfigValue('focus.script', file); await setConfigValue('focus.template', 'custom');
+    if (options.list) await setConfigValue('focus.list', 'true');
+    console.log(`已经启用推荐脚本：${file}`);
+  });
+
   // 三个吃「一行输入」的命令都要放过未知选项：输入里可能以 `-due` 这类
   // 清空指令开头，commander 默认会把它当命令行选项拒掉
   program.command("add").description("新增任务，可一次给多条输入").argument("<inputs...>", "一行输入，例如「明天 下午3点 写周报 高 #工作」").allowUnknownOption().action(async (inputs: string[]) => {
@@ -73,7 +105,7 @@ export const buildProgram = (): Command => {
     const cfg = await loadConfig();
     const now = nowLocal();
     const selectedMode = options.mode ?? cfg.priority.mode;
-    const agenda = groups(await store().tasks(), cfg, selectedMode, now, query.join(" "), await service().dependencyTasks());
+    const agenda = await taskAgenda(await store().tasks(), await service().dependencyTasks(), cfg, query.join(" "), selectedMode, now);
     const visible = agenda.filter((group) => group.tasks.length > 0);
     if (!visible.length) { console.log("（没有匹配的任务）"); return; }
     for (const group of agenda) {

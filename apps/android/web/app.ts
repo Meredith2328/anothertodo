@@ -14,6 +14,10 @@ import { dependencyCandidates, planDependencies, blockedDependencies, dependency
 import { dateKey, weekDays, monthDays, completedByDate, quadrant } from '../../../src/core/calendar.js';
 import { AutoSave } from './autosave.js';
 import type { MapViewState } from './dependency-map.js';
+import { recommend } from '../../../src/app/recommendation.js';
+import { taskAgenda } from '../../../src/app/task-view.js';
+import { projectAgenda } from '../../../src/core/projects.js';
+import { recommendationTemplates, runRecommendation } from '../../../src/core/recommendation.js';
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const result = document.getElementById(id);
@@ -26,6 +30,7 @@ let config = await loadConfig();
 let tasks = await store.tasks();
 let page = 'tasks';
 let taskView = 'list';
+let focusPrevious: string[] = [];
 const mapState: MapViewState = { zoom: 1, showIndependent: false };
 let disposeMap: (() => void) | undefined;
 let renderRevision = 0;
@@ -119,10 +124,35 @@ const closeDialog = async (): Promise<void> => {
   try { await activeEditor?.flush(); activeEditor = undefined; dialog.close(); }
   catch (error) { showError(error); }
 };
-const act = async (operation: () => Promise<unknown>, message = '已保存', undo = true): Promise<void> => {
+const act = async (operation: () => Promise<unknown>, message = '已保存', undo = true, animateId?: string): Promise<void> => {
   if (busy) return;
   busy = true; document.body.classList.add('busy');
-  try { await store.run(operation, undo); dialog.close(); selected.clear(); await refresh(); notify(message); }
+  try {
+    const outgoing = animateId ? document.querySelector<HTMLElement>(`article[data-id="${CSS.escape(animateId)}"]`) : undefined;
+    const position = outgoing ? [...document.querySelectorAll('#content article[data-id]')].indexOf(outgoing) : -1;
+    await store.run(operation, undo); dialog.close(); selected.clear();
+    if (outgoing) {
+      const title = outgoing.querySelector<HTMLElement>('.task-title')!;
+      title.style.backgroundImage = 'linear-gradient(currentColor,currentColor)'; title.style.backgroundRepeat = 'no-repeat'; title.style.backgroundPosition = 'left 55%';
+      await title.animate([{ backgroundSize: '0% 2px' }, { backgroundSize: '100% 2px' }], { duration: 240, fill: 'forwards', easing: 'ease-out' }).finished;
+      outgoing.classList.add('completion-outgoing');
+    }
+    const oldHeight = outgoing?.getBoundingClientRect().height ?? 0;
+    await refresh();
+    await pendingView;
+    if (outgoing) {
+      const incoming = document.querySelectorAll<HTMLElement>('#content article[data-id]')[position];
+      const container = incoming?.parentElement ?? document.querySelector('#content .task-list');
+      if (container) {
+        outgoing.style.height = `${oldHeight}px`; outgoing.style.overflow = 'hidden'; outgoing.setAttribute('aria-hidden', 'true'); outgoing.inert = true;
+        container.insertBefore(outgoing, incoming ?? null);
+        if (incoming) await incoming.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, fill: 'both' }).finished;
+        await outgoing.animate([{ height: `${oldHeight}px`, opacity: 1 }, { height: '0px', opacity: 0 }], { duration: 300, fill: 'forwards', easing: 'cubic-bezier(.22,.8,.3,1)' }).finished;
+        outgoing.remove();
+      }
+    }
+    notify(message);
+  }
   catch (error) { showError(error); store.reload(); await refresh(); }
   finally { busy = false; document.body.classList.remove('busy'); }
 };
@@ -151,7 +181,9 @@ const draft = (input: string): Task => {
 const addDialog = (parent?: string): void => {
   parentId = parent;
   const inputScreen = (text = ''): void => {
-    const content = open('添加任务'); content.append(el('p', '每一行会成为一个任务。日期、标签和依赖可以一起填写。', 'helper'));
+    const content = open('添加任务');
+    if (!parent) content.append(button(message('创建项目待办', 'Create project todo'), projectDialog));
+    content.append(el('p', '每一行会成为一个任务。日期、标签和依赖可以一起填写。', 'helper'));
     const input = textarea(content, '一行一个任务', text); input.rows = 6;
     input.placeholder = '整理资料\n写报告 after:整理资料 明天\n发邮件 在「写报告」之后';
     const count = el('p', '', 'status'); content.append(count);
@@ -204,7 +236,20 @@ const addDialog = (parent?: string): void => {
   };
   inputScreen();
 };
+const projectDialog = (): void => {
+  const content = open(message('创建项目待办', 'Create project todo'));
+  const title = field(content, message('项目标题', 'Project title'));
+  title.placeholder = '学习信息物理系统';
+  const steps = textarea(content, message('项目步骤，每行一个', 'Project steps, one per line'), ''); steps.rows = 7;
+  steps.placeholder = '学习第1章\n学习第2章\n学习第3章\n学习第4章\n学习第5章';
+  content.append(el('p', message('步骤按填写顺序建立前置依赖。列表展示项目和当前步骤；完成项目会同时完成剩余步骤。', 'Steps run in order. The list shows the project and its current step. Completing the project completes its remaining steps.'), 'helper'));
+  content.append(button(message('创建项目', 'Create project'), () => act(() => service.addProject(title.value, steps.value.split(/\r?\n/).map(line => line.trim()).filter(Boolean)), message('已经创建项目', 'Project created')), 'primary'));
+};
 const complete = async (ids: string[]): Promise<void> => {
+  if (busy) return;
+  if (ids.length === 1 && tasks.find(task => task.id === ids[0])?.kind === 'project') {
+    await act(() => service.complete(ids[0]!), '已完成项目', true, ids[0]); return;
+  }
   const children = tasks.filter(task => task.parent && ids.includes(task.parent) && ACTIVE_STATES.has(task.status) && !ids.includes(task.id));
   const execute = (cascade: boolean) => act(async () => {
     const queue = new Set(ids);
@@ -214,7 +259,7 @@ const complete = async (ids: string[]): Promise<void> => {
     }
     const ordered = dependencyOrder((await store.tasks()).filter(task => queue.has(task.id)));
     for (const task of ordered) if (ACTIVE_STATES.has(task.status)) await service.complete(task.id);
-  }, '已完成任务');
+  }, '已完成任务', true, ids.length === 1 ? ids[0] : undefined);
   if (children.length) {
     const content = open('完成任务'); content.append(el('p', message(`还有 ${children.length} 个未完成的子任务。`, `${children.length} subtasks are still open.`), 'helper'), button('连同子任务完成', () => execute(true), 'primary'), button('仅完成父任务', () => execute(false)));
   } else await execute(false);
@@ -376,7 +421,16 @@ const taskRow = (task: Task, depth = 0, archived = false): HTMLElement => {
   const circle = el('span', undefined, `circle${selected.has(task.id) || task.status === 'done' ? ' checked' : ''}`);
   if (selected.has(task.id) || task.status === 'done') circle.append(icon('check')); check.append(circle);
   const body = button('', () => selecting ? toggle(task.id) : archived ? restoreDialog(task.id) : editDialog(task), 'task-body');
-  body.append(rawEl('span', task.title, 'task-title')); const meta = el('span', undefined, 'task-meta'); body.append(meta);
+  const projectChild = depth > 0 && dependencyCatalog.some(parent => parent.id === task.parent && parent.kind === 'project');
+  body.append(rawEl('span', `${projectChild ? '- ' : ''}${task.title}`, 'task-title')); const meta = el('span', undefined, 'task-meta'); body.append(meta);
+  if (task.kind === 'project') {
+    const steps = dependencyCatalog.filter(child => child.parent === task.id);
+    meta.append(rawEl('span', message(`项目 · ${steps.filter(child => child.status === 'done').length}/${steps.length} 步骤`, `Project · ${steps.filter(child => child.status === 'done').length}/${steps.length} steps`), 'project-progress'));
+  }
+  if (taskView === 'focus' && task.parent) {
+    const parent = dependencyCatalog.find(item => item.id === task.parent);
+    if (parent) body.prepend(rawEl('span', parent.title, 'focus-project'));
+  }
   if (task.due) meta.append(el('span', `${formatDate(task, localNow().slice(0, 10), config.agenda.date_format)} ${task.due.slice(11, 16) !== '00:00' ? task.due.slice(11, 16) : ''}`, `task-date${isOverdue(task, localNow().slice(0, 10)) ? ' late' : ''}`));
   if (task.priority) meta.append(rawEl('span', task.priority, `pill ${config.priority.levels.indexOf(task.priority) === config.priority.levels.length - 1 ? 'high' : config.priority.levels.indexOf(task.priority) === 0 ? 'low' : 'medium'}`));
   if (task.project) meta.append(rawEl('span', task.project));
@@ -396,18 +450,19 @@ const showMap = (id?: string): void => {
   if (id) { mapState.selected = id; mapState.route = undefined; mapState.left = undefined; mapState.top = undefined; mapState.zoom = 1; }
   render(); window.scrollTo(0, 0);
 };
+let pendingView: Promise<void> = Promise.resolve();
 const render = (): void => {
   disposeMap?.(); disposeMap = undefined;
   const revision = ++renderRevision;
-  $('heading').textContent = tr(page === 'tasks' && taskView === 'map' ? '依赖地图' : { tasks: '任务', calendar: '日程', stats: '统计', more: '更多' }[page]!);
+  $('heading').textContent = page === 'tasks' && taskView === 'focus' ? 'GTD / Flashcard' : tr(page === 'tasks' && taskView === 'map' ? '依赖地图' : { tasks: '任务', calendar: '日程', stats: '统计', more: '更多' }[page]!);
   $('subtitle').textContent = new Intl.DateTimeFormat(isEnglish() ? 'en' : 'zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date());
   for (const [id, label] of [['undo', '撤销操作'], ['select', '选择任务'], ['add', '添加任务'], ['search', '搜索与查询'], ['clear-search', '清空搜索']]) $(id!).setAttribute('aria-label', tr(label!));
   $<HTMLInputElement>('search').placeholder = message('搜索任务，或输入 due:week #标签', 'Search tasks, or use due:week #tag');
   $('task-controls').hidden = page !== 'tasks'; $('add').hidden = page === 'more' || page === 'stats' || selecting || (page === 'tasks' && taskView === 'map');
-  $('select').hidden = page !== 'tasks' || taskView === 'map'; $('undo').hidden = page === 'more' || page === 'stats';
-  $('list-controls').hidden = taskView === 'map';
+  $('select').hidden = page !== 'tasks' || taskView !== 'list'; $('undo').hidden = page === 'more' || page === 'stats';
+  $('list-controls').hidden = taskView !== 'list';
   const taskViews = $('task-views'); taskViews.replaceChildren();
-  for (const [view, name] of [['list', '任务列表'], ['map', '依赖地图']]) {
+  for (const [view, name] of [['list', '任务列表'], ['focus', 'GTD'], ['map', '依赖地图']]) {
     const choice = button(name!, () => { taskView = view!; selecting = false; selected.clear(); render(); }, taskView === view ? 'active' : '');
     choice.setAttribute('aria-pressed', String(taskView === view)); taskViews.append(choice);
   }
@@ -422,6 +477,10 @@ const render = (): void => {
   if (page === 'stats') renderStats(content);
   else if (page === 'more') renderMore(content);
   else if (page === 'calendar') renderCalendar(content);
+  else if (taskView === 'focus') {
+    pendingView = renderFocus(content, revision);
+    void pendingView.catch(error => { if (revision === renderRevision) content.replaceChildren(el('p', String(error), 'error-box'), button('设置', settingsDialog)); });
+  }
   else if (taskView === 'map') {
     content.append(el('p', message('正在加载地图', 'Loading map'), 'status'));
     void import('./dependency-map.js').then(({ mountMap }) => {
@@ -438,23 +497,54 @@ const render = (): void => {
     if (needsReminder && (!permissions.exact || !permissions.notifications)) content.append(button('开启提醒权限', settingsDialog, 'menu-item'));
     try {
       const list = visible();
-      renderedTasks = filter === 'agenda' ? groups(list, config, config.priority.mode, localNow(), query, dependencyCatalog).flatMap(group => group.tasks) : list;
+      const agenda = projectAgenda(groups(list, config, config.priority.mode, localNow(), query, dependencyCatalog), dependencyCatalog);
+      renderedTasks = filter === 'agenda' ? agenda.flatMap(group => group.tasks) : list;
       $('count').textContent = message(`${renderedTasks.length} 个任务${selected.size ? ` · ${selected.size} 已选择` : ''}`, `${renderedTasks.length} tasks${selected.size ? ` · ${selected.size} selected` : ''}`);
       if (filter === 'agenda' || page === 'calendar') {
         let shown = 0;
-        for (const group of groups(list, config, config.priority.mode, localNow(), query, dependencyCatalog)) {
+        for (const group of agenda) {
           if (group.key === 'hidden') { content.append(button('查看等待任务', () => { filter = 'waiting'; page = 'tasks'; render(); })); continue; }
           const heading = el('h2', group.name, `group-title ${group.key}`); heading.append(el('span', String(group.tasks.length))); content.append(heading); const section = el('div', undefined, 'task-list'); content.append(section);
           for (const item of nestTasks(group.tasks)) { section.append(taskRow(item.task, item.depth)); shown++; }
         }
         if (!shown) empty(content);
       } else { const section = el('div', undefined, 'task-list'); content.append(section); for (const item of nestTasks(list)) section.append(taskRow(item.task, item.depth)); if (!list.length) empty(content); }
+      if (config.focus.list) {
+        content.replaceChildren(el('p', message('正在排列任务', 'Ordering tasks'), 'status'));
+        pendingView = taskAgenda(list, dependencyCatalog, config, query).then(ordered => {
+          if (revision !== renderRevision) return;
+          content.replaceChildren(); renderedTasks = ordered.flatMap(group => group.tasks);
+          for (const group of ordered) {
+            if (!group.tasks.length) continue;
+            content.append(el('h2', group.name, 'group-title'));
+            const section = el('div', undefined, 'task-list');
+            for (const item of nestTasks(group.tasks)) section.append(taskRow(item.task, item.depth));
+            content.append(section);
+          }
+        });
+        void pendingView.catch(error => { if (revision === renderRevision) content.replaceChildren(el('p', String(error), 'error-box')); });
+      } else pendingView = Promise.resolve();
     } catch (error) { content.append(el('p', error instanceof Error ? error.message : String(error), 'error-box')); }
   }
   const batch = $('batch'); batch.replaceChildren(); batch.hidden = !selecting;
   if (selecting) {
     batch.append(button('全选当前结果', () => { selected = new Set(renderedTasks.map(task => task.id)); render(); }), button('完成任务', () => complete([...selected])), button('等到明天', () => act(async () => { for (const id of selected) await service.deferUntilTomorrow(id); })), button('取消任务', () => act(async () => { for (const id of selected) await service.setStatus(id, 'cancelled'); })), button('重新打开', () => act(async () => { for (const id of selected) await service.reopen(id); })), button('推迟提醒', () => snoozeDialog([...selected])), button('删除任务', () => deleteTasks([...selected]), 'danger'), button('取消选择', () => { selecting = false; selected.clear(); render(); }));
   }
+};
+const renderFocus = async (content: HTMLElement, revision: number): Promise<void> => {
+  content.append(el('p', message('正在推荐当前可以执行的事项', 'Finding available actions'), 'status'));
+  const cards = await recommend(tasks, dependencyCatalog, config, { previous: focusPrevious });
+  if (revision !== renderRevision) return;
+  focusPrevious = cards.map(task => task.id); renderedTasks = cards;
+  content.replaceChildren();
+  const toolbar = el('div', undefined, 'focus-toolbar');
+  const templateLabel = { current: message('跟随当前排序', 'Current sorting'), levels: message('优先级', 'Priority'), urgency: message('紧急度', 'Urgency'), random: message('随机', 'Random'), custom: config.focus.script }[config.focus.template];
+  toolbar.append(el('p', message(`当前最多 ${config.focus.count} 件 · ${templateLabel}`, `Up to ${config.focus.count} actions · ${templateLabel}`), 'helper'), button('设置', settingsDialog));
+  if (config.focus.template === 'random') toolbar.append(button(message('重新推荐', 'Refresh recommendations'), () => { focusPrevious = []; render(); }));
+  content.append(toolbar);
+  const list = el('div', undefined, 'task-list focus-list'); content.append(list);
+  for (const task of cards) list.append(taskRow(task));
+  if (!cards.length) empty(content);
 };
 const empty = (content: HTMLElement): void => { const block = el('div', undefined, 'empty'); block.append(icon('tasks'), el('h2', tr('没有任务')), el('p', tr('可以安心休息一下'))); content.append(block); };
 const renderCalendar = (content: HTMLElement): void => {
@@ -618,12 +708,36 @@ const settingsDialog = (): void => {
   content.append(el('p', `系统通知：${permissions.notifications ? '已允许' : '需要开启'} · 精确提醒：${permissions.exact ? '已允许' : '需要开启'}`, 'status'), button('开启系统通知', () => { native('notificationPermission'); }), button('开启精确提醒', () => { native('alarmPermission'); }));
   const mode = selectField(content, '排序方式', [['levels', '优先级'], ['urgency', '紧急度']], config.priority.mode);
   const lang = selectField(content, '界面语言', [['zh', '中文'], ['en', 'English'], ['auto', '跟随系统']], config.ui.lang);
+  const focusSection = el('section', undefined, 'focus-settings'); content.append(focusSection);
+  focusSection.append(el('h3', 'GTD / Flashcard'));
+  const count = field(focusSection, message('同时显示事项数量', 'Visible actions'), String(config.focus.count), 'number'); count.min = '1'; count.max = '20';
+  const template = selectField(focusSection, message('推荐模板', 'Recommendation template'), [['current', '跟随当前排序'], ['levels', '优先级'], ['urgency', '紧急度'], ['random', '随机'], ['custom', '自定义脚本文件']], config.focus.template);
+  const scriptName = field(focusSection, message('脚本文件名称', 'Script filename'), config.focus.script || 'recommend.js');
+  let imported = config.focus.files.find(file => file.name === config.focus.script)?.source ?? '';
+  const scriptStatus = el('p', imported ? message('脚本文件已经导入', 'Script file imported') : message('导入包含 function recommend(tasks, context) 的 JavaScript 文件。', 'Import a JavaScript file defining function recommend(tasks, context).'), 'helper'); focusSection.append(scriptStatus);
+  focusSection.append(button(message('导入推荐脚本文件', 'Import recommendation script'), async () => {
+    try {
+      const file = await request<{ text: string }>('import', {});
+      await runRecommendation(file.text, tasks, dependencyCatalog, config);
+      imported = file.text; template.value = 'custom'; scriptStatus.textContent = message('脚本校验通过，保存配置后生效', 'Script validated. Save configuration to activate.');
+    } catch (error) { showError(error); }
+  }));
+  focusSection.append(button(message('导出推荐模板文件', 'Export recommendation template'), async () => {
+    const key = template.value === 'custom' ? 'current' : template.value as keyof typeof recommendationTemplates;
+    await request('export', { text: recommendationTemplates[key], filename: `${key}.js`, mime: 'text/javascript', share: false });
+  }));
+  const useList = selectField(focusSection, message('同时用于普通列表', 'Apply to task list'), [['false', '关闭'], ['true', '开启']], String(config.focus.list));
   const advanced = el('details'); advanced.append(el('summary', '高级配置')); content.append(advanced);
   const raw = textarea(advanced, '完整配置 TOML', store.state.config); raw.rows = 10;
   const hooks = textarea(advanced, '自定义通知方式', native<string>('hooksText')); hooks.placeholder = '{"企业通知":"https://example.com/webhook"}';
   advanced.append(el('p', '自定义通知方式填写名称与 HTTPS webhook 地址；提醒中填写对应名称即可发送任务 JSON。邮件提醒使用配置中的 email。', 'helper'));
   content.append(button('保存配置', () => act(async () => {
     const candidate = readConfig(raw.value); candidate.priority.mode = mode.value as 'levels' | 'urgency'; candidate.ui.lang = lang.value as 'zh' | 'en' | 'auto';
+    candidate.focus.count = Number(count.value); candidate.focus.template = template.value as typeof candidate.focus.template;
+    candidate.focus.script = scriptName.value.trim(); candidate.focus.list = useList.value === 'true';
+    if (imported) candidate.focus.files = [...candidate.focus.files.filter(file => file.name !== candidate.focus.script), { name: candidate.focus.script, source: imported }];
+    await recommend(tasks, dependencyCatalog, readConfig(configText(candidate)));
+    focusPrevious = [];
     const endpoints = JSON.parse(hooks.value || '{}') as Record<string, string>;
     if (typeof endpoints !== 'object' || endpoints === null || Array.isArray(endpoints)) throw new Error('通知方式需要 JSON 对象');
     for (const [name, url] of Object.entries(endpoints)) if (!name.trim() || typeof url !== 'string' || !url.startsWith('https://')) throw new Error('通知方式名称与 HTTPS 地址需要填写完整');

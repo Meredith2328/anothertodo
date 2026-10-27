@@ -86,7 +86,7 @@ export const GroupSeparator = ({ groupKey, name, count }: { groupKey: GroupKey; 
   );
 };
 
-export const TaskRow = ({ task, selected, marked = false, hovered = false, today, dateFormat, levels, titleWidth, depth = 0 }: {
+export const TaskRow = ({ task, selected, marked = false, hovered = false, today, dateFormat, levels, titleWidth, depth = 0, strikeProgress = 0 }: {
   task: Task;
   selected: boolean;
   marked?: boolean;
@@ -96,9 +96,10 @@ export const TaskRow = ({ task, selected, marked = false, hovered = false, today
   levels: string[];
   titleWidth: number;
   depth?: number;
+  strikeProgress?: number;
 }): React.ReactElement => {
   // 子任务缩进后可用的标题宽度也跟着变窄，否则会挤掉右边的列
-  const indent = depth > 0 ? `${"  ".repeat(depth - 1)}↳ ` : "";
+  const indent = depth > 0 ? `${"  ".repeat(depth - 1)}- ` : "";
   const check = marked ? "◉ " : "";
   const room = Math.max(4, titleWidth - displayWidth(indent) - displayWidth(check));
   const title = `${indent}${check}${truncateWithEllipsis(task.title, room)}`;
@@ -113,7 +114,7 @@ export const TaskRow = ({ task, selected, marked = false, hovered = false, today
   return (
     <Text {...highlight}>
       <Text color={date.color} bold={date.bold}>{padDisplay(date.text, DATE_W)}</Text>
-      <Text wrap="truncate">{padDisplay(title, titleWidth)}</Text>
+      <Text wrap="truncate"><Text strikethrough={strikeProgress > 0} {...(strikeProgress > 0 ? { color: C.good } : {})}>{[...padDisplay(title, titleWidth)].slice(0, Math.ceil([...title].length * strikeProgress)).join('')}</Text>{[...padDisplay(title, titleWidth)].slice(Math.ceil([...title].length * strikeProgress)).join('')}</Text>
       <Text color={priority.color} bold={priority.bold}>{padDisplay(priority.text, PRIORITY_W)}</Text>
       <Text color={status.color} bold={status.bold}>{padDisplay(status.text, STATUS_W)}</Text>
       {extras.map((segment, index) => <Text key={`${segment.text}-${index}`} color={segment.color}>{segment.text}</Text>)}
