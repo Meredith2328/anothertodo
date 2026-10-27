@@ -29,7 +29,7 @@ export const runRecommendation = async (source: string, tasks: Task[], catalog: 
   vm.runtime.setInterruptHandler(() => Date.now() > deadline);
   const payload = vm.newString(JSON.stringify(input));
   vm.setProp(vm.global, '__atd_input', payload); payload.dispose();
-  const result = vm.evalCode(`"use strict";\n${source}\n;const input = JSON.parse(__atd_input);\nconst output = recommend(input.tasks, input.context);\nif (!Array.isArray(output) || output.some(id => typeof id !== 'string')) throw new Error('recommend 必须返回任务编号数组');\nJSON.stringify(output);`, 'recommendation.js');
+  const result = vm.evalCode(`"use strict";\n${source}\n;(function () {\nconst input = JSON.parse(__atd_input);\nconst output = recommend(input.tasks, input.context);\nif (!Array.isArray(output) || output.some(id => typeof id !== 'string')) throw new Error('recommend 必须返回任务编号数组');\nreturn JSON.stringify(output);\n})();`, 'recommendation.js');
   if (result.error) {
     const error = vm.dump(result.error) as { message?: string };
     result.error.dispose();
