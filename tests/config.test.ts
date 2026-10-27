@@ -7,6 +7,16 @@ import { describe, expect, it } from "vitest";
 import { getConfigValue, loadConfig, setConfigValue } from "../src/core/config.js";
 
 describe("configuration atomicity", () => {
+  it('persists the startup view and rejects unsupported values before writing', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'atd-config-start-'));
+    expect((await loadConfig(dir)).ui.start_view).toBe('list');
+    await setConfigValue('ui.start_view', 'gtd', dir);
+    expect((await loadConfig(dir)).ui.start_view).toBe('gtd');
+    await expect(setConfigValue('ui.start_view', 'invalid', dir)).rejects.toThrow('不接受这个值');
+    expect((await loadConfig(dir)).ui.start_view).toBe('gtd');
+    await setConfigValue('ui.start_view', 'list', dir);
+    expect((await loadConfig(dir)).ui.start_view).toBe('list');
+  });
   it("serializes concurrent config writes under the shared data lock", async () => {
     const dir = await mkdtemp(join(tmpdir(), "atd-config-"));
     await loadConfig(dir);
@@ -70,6 +80,7 @@ describe("configuration atomicity", () => {
     await writeFile(join(dir, "config.toml"), "[ui]\nlang = \"en\"\n", "utf8");
     const config = await loadConfig(dir);
     expect(config.ui.lang).toBe("en");
+    expect(config.ui.start_view).toBe('list');
     expect(config.ui.mouse).toBe("hover");
   });
 });

@@ -14,6 +14,10 @@ TUI 输入 `:project 学习信息物理系统 | 学习第1章 | 学习第2章 | 
 
 ## GTD / Flashcard
 
+两端设置中的“启动页面”可以选择“任务列表”或“GTD / Flashcard”，下次启动生效。命令行执行 `atd config set ui.start_view gtd` 可以将 TUI 的启动页面设为 GTD，执行 `atd config set ui.start_view list` 恢复任务列表。现有配置缺少这个选项时使用任务列表。
+
+[TUI 启动设置](images/startup/tui-startup-settings.png) · [TUI 启动进入 GTD](images/startup/tui-startup-gtd.png) · [安卓启动设置](images/startup/android-startup-settings.png) · [安卓启动进入 GTD](images/startup/android-startup-gtd.png)
+
 TUI 使用 `:gtd` 或 `:flashcard` 进入，`:list` 返回普通清单。`:gtd 3` 设置同时显示三件事项。安卓点击任务页顶部的“GTD”，通过设置修改数量与推荐模板。命令行 `atd gtd` 输出同一推荐接口选择的事项。
 
 缺省同时显示最多两件事项。候选需要满足全部前置依赖，未来等待事项与暂停事项不会进入候选。项目存在步骤时，候选包含可执行步骤。项目名称作为步骤的上下文显示。

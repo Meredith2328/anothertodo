@@ -53,6 +53,30 @@ const tomorrow = (): string => {
 describe("stage 7 Ink TUI integration", () => {
   afterEach(() => cleanup());
 
+  it('opens the configured startup view and applies a changed preference on the next launch', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'atd-startup-'));
+    const store = new Store(dir);
+    const service = new ApplicationService(store);
+    for (const title of ['启动事项一', '启动事项二', '启动事项三']) await service.add(`${title} @none`);
+    await setConfigValue('ui.start_view', 'gtd', dir);
+    const signals = createSignals();
+    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={30} />);
+    await signals.ready(); await signals.data();
+    await expect.poll(() => app.lastFrame()).toContain('GTD / Flashcard');
+    await expect.poll(() => app.lastFrame()).toContain('启动事项二');
+    expect(app.lastFrame()).not.toContain('启动事项三');
+    expect(app.frames.some(frame => frame.includes('启动事项三'))).toBe(false);
+    await setConfigValue('ui.start_view', 'list', dir);
+    const refreshed = signals.mutation(); app.stdin.write('r'); await refreshed;
+    expect(app.lastFrame()).toContain('GTD / Flashcard');
+    app.unmount();
+    const nextSignals = createSignals();
+    const restarted = render(<TuiApp store={store} testSignals={nextSignals.signals} terminalRows={30} />);
+    await nextSignals.ready(); await nextSignals.data();
+    await expect.poll(() => restarted.lastFrame()).toContain('启动事项三');
+    expect(restarted.lastFrame()).not.toContain('GTD / Flashcard');
+  });
+
   it("adds through the real input/Enter path", async () => {
     const dir = await mkdtemp(join(tmpdir(), "atd-ink-"));
     const store = new Store(dir);

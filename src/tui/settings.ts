@@ -23,6 +23,7 @@ export const settingItems = (skins: Array<{ name: string; description: string }>
   { key: "agenda.date_format", section: "外观", label: "日期", hint: "t 键也能切", options: [{ value: "auto", label: "相对日期" }, { value: "md", label: "月/日" }, { value: "full", label: "完整日期" }], current: (config) => config.agenda.date_format },
   { key: "ui.animations", section: "外观", label: "完成动画", hint: "写入成功后原行打勾，再移到已完成", options: bool, current: (config) => String(config.ui.animations) },
   { key: "ui.mouse", section: "行为", label: "鼠标点击", hint: "关掉后终端原生的拖选复制可以用", options: bool, current: (config) => String(config.ui.mouse !== false) },
+  { key: 'ui.start_view', section: '行为', label: '启动页面', hint: '下次启动时打开任务列表或 GTD / Flashcard', options: [{ value: 'list', label: '任务列表' }, { value: 'gtd', label: 'GTD / Flashcard' }], current: config => config.ui.start_view },
   { key: "deps.blocked", section: "行为", label: "被挡住的后续任务", hint: "前置没做完时：淡字显示，或不上主屏（依赖图里仍能看到）", options: [{ value: "dim", label: "淡字显示" }, { value: "hide", label: "不上主屏" }], current: (config) => config.deps.blocked },
   { key: "priority.mode", section: "行为", label: "默认排序", hint: "1 / 2 键可临时切换", options: [{ value: "levels", label: "按档位" }, { value: "urgency", label: "按 urgency 打分" }], current: (config) => config.priority.mode },
   { key: "agenda.tie_break", section: "行为", label: "同级排序", hint: "日期和优先级都一样时谁在前；按标题时中文按拼音排", options: [{ value: "entry", label: "先加的在前" }, { value: "entry_desc", label: "后加的在前" }, { value: "title", label: "按标题" }], current: (config) => config.agenda.tie_break },
