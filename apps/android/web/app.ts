@@ -29,7 +29,7 @@ const service = new ApplicationService(store);
 let config = await loadConfig();
 let tasks = await store.tasks();
 let page = 'tasks';
-let taskView = 'list';
+let taskView = config.ui.start_view === 'gtd' ? 'focus' : 'list';
 let focusPrevious: string[] = [];
 const mapState: MapViewState = { zoom: 1, showIndependent: false };
 let disposeMap: (() => void) | undefined;
@@ -709,6 +709,7 @@ const settingsDialog = (): void => {
   content.append(el('p', `系统通知：${permissions.notifications ? '已允许' : '需要开启'} · 精确提醒：${permissions.exact ? '已允许' : '需要开启'}`, 'status'), button('开启系统通知', () => { native('notificationPermission'); }), button('开启精确提醒', () => { native('alarmPermission'); }));
   const mode = selectField(content, '排序方式', [['levels', '优先级'], ['urgency', '紧急度']], config.priority.mode);
   const lang = selectField(content, '界面语言', [['zh', '中文'], ['en', 'English'], ['auto', '跟随系统']], config.ui.lang);
+  const startView = selectField(content, message('启动页面', 'Startup view'), [['list', message('任务列表', 'Task list')], ['gtd', 'GTD / Flashcard']], config.ui.start_view);
   const focusSection = el('section', undefined, 'focus-settings'); content.append(focusSection);
   focusSection.append(el('h3', 'GTD / Flashcard'));
   const count = field(focusSection, message('同时显示事项数量', 'Visible actions'), String(config.focus.count), 'number'); count.min = '1'; count.max = '20';
@@ -734,6 +735,7 @@ const settingsDialog = (): void => {
   advanced.append(el('p', '自定义通知方式填写名称与 HTTPS webhook 地址；提醒中填写对应名称即可发送任务 JSON。邮件提醒使用配置中的 email。', 'helper'));
   content.append(button('保存配置', () => act(async () => {
     const candidate = readConfig(raw.value); candidate.priority.mode = mode.value as 'levels' | 'urgency'; candidate.ui.lang = lang.value as 'zh' | 'en' | 'auto';
+    candidate.ui.start_view = startView.value as typeof candidate.ui.start_view;
     candidate.focus.count = Number(count.value); candidate.focus.template = template.value as typeof candidate.focus.template;
     candidate.focus.script = scriptName.value.trim(); candidate.focus.list = useList.value === 'true';
     if (imported) candidate.focus.files = [...candidate.focus.files.filter(file => file.name !== candidate.focus.script), { name: candidate.focus.script, source: imported }];

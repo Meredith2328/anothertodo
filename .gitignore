@@ -22,6 +22,21 @@ shot-*.svg
 # 本地环境
 .venv/
 venv/
+/.env
+/.env.*
+!/.env.example
+/.atd/
+/tasks.jsonl
+/archive.jsonl
+/undo.jsonl
+/redo.jsonl
+/config.toml
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+signing-password.txt
 
 # 编辑器
 .vscode/

@@ -42,6 +42,8 @@ list = false
 interval_seconds = 30
 
 [ui]
+# 启动页面：list 任务列表 / gtd 信息流；下次启动生效。
+start_view = "list"
 # auto 跟随系统语言（认不出来按中文）；可写成 "zh" 或 "en" 固定界面语言。
 # 只影响界面文案，一行输入语法和查询语法两种语言下都一样。
 lang = "auto"

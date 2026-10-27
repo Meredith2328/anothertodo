@@ -163,12 +163,12 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   const [state, dispatch] = useReducer(tuiReducer, undefined, () => initialTuiState());
   const [clock, setClock] = useState(() => new Date());
   const [actionSequence, setActionSequence] = useState(0);
-  const [focusView, setFocusView] = useState(false);
+  const [focusView, setFocusView] = useState<boolean>();
   const [orderedGroups, setOrderedGroups] = useState<ReturnType<typeof groups>>([]);
   const [focusCards, setFocusCards] = useState<Task[]>([]);
   const focusPrevious = useRef<string[]>([]);
   useEffect(() => {
-    if (!config) return;
+    if (!config || focusView === undefined) return;
     let cancelled = false;
     void (async () => {
       if (focusView) {
@@ -236,7 +236,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   // 每组内部按父子相邻重排后再摊平：显示顺序和选中索引必须用同一份顺序，
   // 否则按 j/k 选中的行和高亮的行会错开
   const activeGroups = useMemo(() => {
-    if (!config) return [];
+    if (!config || focusView === undefined) return [];
     const scoped = state.project === undefined ? tasks : tasks.filter((task) => task.project === state.project);
     return (focusView ? [{ key: 'nodate' as const, name: `GTD / Flashcard · 最多 ${config.focus.count} 件`, style: 'green', tasks: focusCards }]
       : config.focus.list ? orderedGroups : projectAgenda(viewGroups(scoped, config, state.sortMode, clock, state.query, state.view, state.showUnscheduled), dependencyCatalog))
@@ -265,7 +265,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   // 只记录真正画在当前清单的行；外部完成不凭空把其他项目/历史塞进原位置。
   completionPlacements.current = new Map(activeGroups.flatMap((group) => group.nested.map(({ task, depth }, position) =>
     [task.id, { groupKey: group.key, name: group.name, position, depth, context: completionContext }] as const)));
-  const completedTasks = useMemo(() => config ? filterTasks(scopedTasks, state.query, viewWindow(config, clock).today, [...config.priority.levels])
+  const completedTasks = useMemo(() => config && focusView !== undefined ? filterTasks(scopedTasks, state.query, viewWindow(config, clock).today, [...config.priority.levels])
     .filter((task) => task.status === "done" && !focusView && (!task.parent || !tasks.some(parent => parent.id === task.parent && parent.kind === 'project') || completedExpanded || activeFinishedQuery(state.query)))
     .sort((a, b) => (b.end ?? b.modified).localeCompare(a.end ?? a.modified) || a.id.localeCompare(b.id)) : [],
   [config, tasks, state.project, state.query, clock, focusView, completedExpanded]);
@@ -384,6 +384,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   useEffect(() => {
     if (!config || configInitRef.current) return;
     configInitRef.current = true;
+    setFocusView(config.ui.start_view === 'gtd');
     dispatch({ type: "sort", mode: config.priority.mode });
     dispatch({ type: "dateFormat", format: config.agenda.date_format });
     dispatch({ type: "view", view: config.agenda.view });

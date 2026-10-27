@@ -1,0 +1,52 @@
+import { chromium } from 'playwright';
+import { execFileSync } from 'node:child_process';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { setTimeout as sleep } from 'node:timers/promises';
+import assert from 'node:assert/strict';
+
+const adb = (...args) => execFileSync('adb', args, { encoding: 'utf8' }).trim();
+const pkg = 'io.anothertodo.mobile';
+const output = 'test-results/startup';
+await mkdir(output, { recursive: true });
+const stayOn = adb('shell', 'settings', 'get', 'global', 'stay_on_while_plugged_in');
+adb('shell', 'svc', 'power', 'stayon', 'true'); adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP'); adb('shell', 'wm', 'dismiss-keyguard');
+let browser, page;
+const launch = async () => {
+  adb('shell', 'am', 'start', '-W', '-n', `${pkg}/.MainActivity`); await sleep(2500);
+  const pid = adb('shell', 'pidof', pkg); adb('forward', 'tcp:9240', `localabstract:webview_devtools_remote_${pid}`);
+  browser = await chromium.connectOverCDP('http://127.0.0.1:9240'); page = browser.contexts()[0].pages()[0];
+  await page.waitForFunction(() => typeof window.nativeBack === 'function');
+};
+const restart = async () => { await browser.close(); adb('shell', 'am', 'force-stop', pkg); await launch(); };
+const idle = () => page.waitForFunction(() => !document.body.classList.contains('busy'));
+const shot = name => { adb('shell', 'screencap', '-p', `/sdcard/atd-${name}.png`); adb('pull', `/sdcard/atd-${name}.png`, `${output}/${name}.png`); };
+adb('shell', 'pm', 'clear', pkg);
+try {
+  await launch();
+  assert.equal(await page.getByRole('button', { name: '任务列表', exact: true }).getAttribute('aria-pressed'), 'true');
+  await page.getByRole('button', { name: '添加任务', exact: true }).click();
+  await page.getByLabel('一行一个任务').fill('整理示例资料 @none\n阅读示例书籍 @none\n准备示例报告 @none');
+  await page.getByRole('button', { name: '检查任务', exact: true }).click();
+  await page.getByRole('button', { name: '添加 3 个任务', exact: true }).click(); await idle();
+  await page.getByRole('button', { name: '更多', exact: true }).click();
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByLabel('启动页面').selectOption('gtd'); await page.getByLabel('启动页面').scrollIntoViewIfNeeded();
+  shot('android-startup-settings');
+  await page.getByRole('button', { name: '保存配置', exact: true }).click(); await idle();
+  await restart();
+  await page.locator('.focus-list article').first().waitFor();
+  assert.equal(await page.getByRole('button', { name: 'GTD', exact: true }).getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('.focus-list article').count(), 2); shot('android-startup-gtd');
+  await page.getByRole('button', { name: '任务列表', exact: true }).click();
+  await restart(); await page.locator('.focus-list article').first().waitFor();
+  assert.equal(await page.getByRole('button', { name: 'GTD', exact: true }).getAttribute('aria-pressed'), 'true');
+  await page.locator('.focus-toolbar').getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByLabel('启动页面').selectOption('list');
+  await page.getByRole('button', { name: '保存配置', exact: true }).click(); await idle();
+  assert.equal(await page.getByRole('button', { name: 'GTD', exact: true }).getAttribute('aria-pressed'), 'true');
+  await restart();
+  assert.equal(await page.getByRole('button', { name: '任务列表', exact: true }).getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('#content article').count(), 3);
+  await writeFile(`${output}/report.json`, JSON.stringify({ checks: ['default list', 'GTD preference persistence', 'cold start with two GTD actions', 'manual navigation preserves startup preference', 'setting takes effect on next launch', 'list preference persistence'] }, null, 2));
+  console.log('Android 启动页面与重启持久化验证通过');
+} finally { await browser?.close(); adb('shell', 'settings', 'put', 'global', 'stay_on_while_plugged_in', stayOn); }

@@ -122,6 +122,7 @@ export const ConfigSchema = z.object({
     interval_seconds: z.number().int().positive(),
   }),
   ui: z.object({
+    start_view: z.enum(['list', 'gtd']).default('list'),
     // auto 跟随环境变量（认不出来按中文）；只影响界面文案，不影响输入与查询语法
     lang: z.enum(["auto", "zh", "en"]).default("auto"),
     // 皮肤名：内置的 classic / raised / dracula …，或 ~/.atd/skins/ 下的自定义皮肤
