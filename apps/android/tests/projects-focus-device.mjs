@@ -1,0 +1,118 @@
+import { chromium } from 'playwright';
+import { XMLParser } from 'fast-xml-parser';
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { setTimeout as sleep } from 'node:timers/promises';
+
+const adb = (...args) => execFileSync('adb', args, { encoding: 'utf8' }).trim();
+const pkg = 'io.anothertodo.mobile';
+const output = 'test-results/projects-focus';
+await mkdir(output, { recursive: true });
+const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '' });
+const nodes = value => {
+  if (!value || typeof value !== 'object') return [];
+  if (Array.isArray(value)) return value.flatMap(nodes);
+  return [...(value.bounds ? [value] : []), ...Object.values(value).filter(item => typeof item === 'object').flatMap(nodes)];
+};
+const tap = async predicate => {
+  for (let attempt = 0; attempt < 15; attempt++) {
+    adb('shell', 'uiautomator', 'dump', '/sdcard/atd-projects.xml');
+    const node = nodes(parser.parse(adb('shell', 'cat', '/sdcard/atd-projects.xml'))).find(predicate);
+    if (node) {
+      const [left, top, right, bottom] = node.bounds.match(/\d+/g).map(Number);
+      adb('shell', 'input', 'tap', String(Math.floor((left + right) / 2)), String(Math.floor((top + bottom) / 2))); return;
+    }
+    await sleep(250);
+  }
+  throw new Error('系统文件选择器中没有找到脚本文件');
+};
+adb('shell', 'pm', 'clear', pkg);
+adb('shell', 'pm', 'grant', pkg, 'android.permission.POST_NOTIFICATIONS');
+adb('shell', 'appops', 'set', pkg, 'SCHEDULE_EXACT_ALARM', 'allow');
+adb('shell', 'am', 'start', '-W', '-n', `${pkg}/.MainActivity`);
+const pid = adb('shell', 'pidof', pkg);
+adb('forward', 'tcp:9234', `localabstract:webview_devtools_remote_${pid}`);
+const browser = await chromium.connectOverCDP('http://127.0.0.1:9234');
+const page = browser.contexts()[0].pages()[0];
+const errors = [];
+page.on('pageerror', error => errors.push(error.message));
+const snapshot = () => page.evaluate(() => JSON.parse(Native.invoke('load', '{}')).value.state);
+const shot = name => page.screenshot({ path: `${output}/${name}.png` });
+const settled = () => page.waitForFunction(() => !document.body.classList.contains('busy'));
+const add = async text => {
+  await page.getByRole('button', { name: '添加任务', exact: true }).click();
+  await page.getByLabel('一行一个任务').fill(text);
+  await page.getByRole('button', { name: '检查任务', exact: true }).click();
+  await page.getByRole('button', { name: /^添加 \d+ 个任务$/ }).click();
+  await page.locator('dialog[open]').waitFor({ state: 'hidden' }); await settled();
+};
+try {
+  await page.getByRole('button', { name: '添加任务', exact: true }).click();
+  await page.getByRole('button', { name: '创建项目待办', exact: true }).click();
+  await page.getByLabel('项目标题').fill('学习信息物理系统');
+  await page.getByLabel('项目步骤，每行一个').fill(Array.from({ length: 5 }, (_, i) => `学习信息物理系统的第${i + 1}章`).join('\n'));
+  await page.getByRole('button', { name: '创建项目', exact: true }).click(); await settled();
+  await page.getByText('- 学习信息物理系统的第1章', { exact: true }).waitFor();
+  assert.equal(await page.locator('#content article').count(), 2);
+  await shot('android-project');
+  await page.getByRole('button', { name: '完成 学习信息物理系统的第1章', exact: true }).click();
+  await page.locator('.completion-outgoing').waitFor();
+  await shot('android-project-animation');
+  await settled();
+  await page.getByText('- 学习信息物理系统的第2章', { exact: true }).waitFor();
+  await shot('android-project-next');
+  let state = await snapshot();
+  assert.equal(state.tasks.find(task => task.title.endsWith('第1章')).status, 'done');
+  assert.equal(state.tasks.find(task => task.title.endsWith('第2章')).status, 'todo');
+  await add('缴纳学费 今天 高 @none\n整理读书笔记 中 @none\n散步 低 @none\n等待签收 ~2099-01-01 @none\n提交报告 after:整理读书笔记 @none');
+  await page.getByRole('button', { name: 'GTD', exact: true }).click();
+  await page.locator('.focus-list article').first().waitFor();
+  assert.equal(await page.locator('.focus-list article').count(), 2);
+  assert.equal(await page.locator('.focus-list').getByText('提交报告', { exact: true }).count(), 0);
+  assert.equal(await page.locator('.focus-list').getByText('等待签收', { exact: true }).count(), 0);
+  await shot('android-gtd');
+  const firstId = await page.locator('.focus-list article').first().getAttribute('data-id');
+  await page.locator('.focus-list .task-check').first().click(); await settled();
+  await page.waitForFunction(id => !document.querySelector(`.focus-list article[data-id="${id}"]`), firstId);
+  assert.equal(await page.locator('.focus-list article').count(), 2);
+  await shot('android-gtd-next');
+  await page.locator('.focus-toolbar').getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByLabel('同时显示事项数量').fill('3');
+  await page.getByLabel('推荐模板').selectOption('random');
+  await page.getByRole('button', { name: '保存配置', exact: true }).click(); await settled();
+  assert.equal(await page.locator('.focus-list article').count(), 3);
+  const stable = await page.locator('.focus-list article').evaluateAll(rows => rows.map(row => row.dataset.id));
+  await page.getByRole('button', { name: '统计', exact: true }).click();
+  await page.getByRole('button', { name: '任务', exact: true }).click();
+  await page.locator('.focus-list article').first().waitFor();
+  assert.deepEqual(await page.locator('.focus-list article').evaluateAll(rows => rows.map(row => row.dataset.id)), stable);
+  const source = 'function recommend(tasks, context) {\n  return tasks.filter(task => task.title.includes("章") || task.title.includes("笔记")).sort((a, b) => b.title < a.title ? -1 : 1).map(task => task.id);\n}\n';
+  await writeFile(`${output}/reading.js`, source);
+  adb('push', `${output}/reading.js`, '/sdcard/Download/atd-reading.js');
+  adb('shell', 'am', 'broadcast', '-a', 'android.intent.action.MEDIA_SCANNER_SCAN_FILE', '-d', 'file:///sdcard/Download/atd-reading.js');
+  await page.locator('.focus-toolbar').getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByLabel('脚本文件名称').fill('reading.js');
+  await page.getByRole('button', { name: '导入推荐脚本文件', exact: true }).click();
+  await tap(node => node['content-desc'] === 'Show roots');
+  await tap(node => node.text === 'Downloads');
+  await tap(node => node.text === 'atd-reading.js');
+  await page.getByText('脚本校验通过，保存配置后生效', { exact: true }).waitFor();
+  await shot('android-script-settings');
+  await page.getByRole('button', { name: '保存配置', exact: true }).click(); await settled();
+  await page.waitForFunction(() => document.querySelector('.focus-toolbar').textContent.includes('reading.js'));
+  assert.ok((await page.locator('.focus-list .task-title').allTextContents()).every(title => /章|笔记/.test(title)));
+  await shot('android-script-result');
+  state = await snapshot();
+  assert.ok(state.config.includes(source.split('\n')[0]));
+  await page.getByRole('button', { name: '任务列表', exact: true }).click();
+  await page.getByRole('button', { name: '完成 学习信息物理系统', exact: true }).click(); await settled();
+  state = await snapshot();
+  const project = state.tasks.find(task => task.kind === 'project');
+  assert.equal(project.status, 'done'); assert.ok(state.tasks.filter(task => task.parent === project.id).every(task => task.status === 'done'));
+  await page.getByRole('button', { name: '撤销操作', exact: true }).click(); await settled();
+  state = await snapshot(); assert.equal(state.tasks.find(task => task.id === project.id).status, 'todo');
+  assert.equal(errors.length, 0, errors.join('\n'));
+  await writeFile(`${output}/report.json`, JSON.stringify({ checks: ['project creation', 'sequential dependency', 'completion animation', 'chapter advance', 'focus limit', 'blocked and waiting exclusion', 'stream replenishment', 'configurable count', 'stable random cards', 'native script file import', 'custom recommendation', 'project completion', 'atomic undo'], errors }, null, 2));
+  console.log('Android 项目、GTD 与脚本文件验收通过');
+} finally { await browser.close(); }

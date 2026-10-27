@@ -59,6 +59,7 @@ export const TaskSchema = z.object({
   tags: z.array(z.string().min(1)).default([]),
   project: z.string().min(1).optional(),
   parent: z.string().min(1).optional(),
+  kind: z.literal("project").optional(),
   dependsOn: z.array(IdSchema).optional(),
   wait: z.string().min(1).optional(),
   notes: z.string().default(""),
@@ -88,6 +89,13 @@ const UrgencyConfigSchema = z.object({
 });
 
 export const ConfigSchema = z.object({
+  focus: z.object({
+    count: z.number().int().min(1).max(20).default(2),
+    template: z.enum(["current", "levels", "urgency", "random", "custom"]).default("current"),
+    script: z.string().default(""),
+    files: z.array(z.object({ name: z.string().min(1), source: z.string().min(1) })).default([]),
+    list: z.boolean().default(false),
+  }).default({}),
   priority: z.object({
     mode: z.enum(["levels", "urgency"]),
     levels: z.array(z.string().min(1)).min(1),

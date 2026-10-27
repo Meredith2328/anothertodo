@@ -27,6 +27,12 @@ waiting_penalty = 3.0
 week_days = 7
 date_format = "auto"
 
+[focus]
+count = 2
+template = "current"
+script = ""
+list = false
+
 [watch]
 interval_seconds = 30
 

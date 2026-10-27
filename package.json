@@ -42,8 +42,10 @@
     "@types/nodemailer": "^8.0.1",
     "@types/proper-lockfile": "^4.1.4",
     "@types/react": "^18.3.12",
+    "@xterm/xterm": "^6.0.0",
     "eslint": "^9.17.0",
     "ink-testing-library": "^4.0.0",
+    "node-pty": "^1.1.0",
     "postject": "1.0.0-alpha.6",
     "tsup": "^8.3.5",
     "tsx": "^4.19.2",
@@ -53,12 +55,14 @@
   },
   "dependencies": {
     "@iarna/toml": "^3.0.0",
+    "@jitl/quickjs-singlefile-browser-release-sync": "0.32.0",
     "commander": "^13.1.0",
     "execa": "^9.5.2",
     "fuse.js": "^7.5.0",
     "ink": "^5.1.0",
     "nodemailer": "^9.0.5",
     "proper-lockfile": "^4.1.2",
+    "quickjs-emscripten-core": "0.32.0",
     "react": "^18.3.1",
     "zod": "^3.24.1"
   }

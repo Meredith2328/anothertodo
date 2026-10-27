@@ -142,7 +142,7 @@ export const WELCOME_ROWS: ReadonlyArray<readonly [string, string]> = [
   ["直接打字", "添加任务：`后天 买牛奶 很急 @18:30`，回车即存"],
   ["j / k", "在任务列表上下移动光标"],
   ["d", "完成选中的任务"],
-  [": 命令", "如 `:mode urgency` 切换排序、`:undo` 撤销"],
+    [": 命令", "如 `:gtd` 信息流、`:list` 清单、`:undo` 撤销"],
   ["? / F1", "随时打开完整快捷键帮助"],
   ["q / 双击 Esc", "退出"],
 ];

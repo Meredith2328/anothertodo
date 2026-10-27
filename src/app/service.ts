@@ -47,6 +47,24 @@ export class ApplicationService {
     return this.store.dependencyTasks();
   }
 
+  async addProject(input: string, steps: string[], now = localNow()): Promise<Task> {
+    const config = await this.config();
+    const parsed = [input, ...steps].map(line => parse(line, now, config.priority.levels));
+    if (!steps.length || parsed.some(item => !item.title)) throw new Error('项目标题和每个步骤都需要填写');
+    if (parsed.some(item => item.recur)) throw new Error('项目步骤请使用独立任务，重复规则用于普通待办');
+    const rootId = newId();
+    const drafts = parsed.map((item, index) => {
+      const task = parseTask({ ...item, id: index === 0 ? rootId : newId(), status: initialStatus(item.wait, now.slice(0, 10)), entry: utcNow(), modified: utcNow(), ...(index === 0 ? { kind: 'project' } : { parent: rootId }), reminders: item.reminders.map(({ relative: _relative, ...reminder }) => reminder) });
+      return task;
+    });
+    for (let index = 2; index < drafts.length; index++) drafts[index]!.dependsOn = [drafts[index - 1]!.id];
+    const existing = await this.tasks();
+    const changes = planDependencies(drafts, parsed.map(item => item.dependencies), await this.dependencyTasks());
+    if (changes.some(task => !existing.some(item => item.id === task.id) && !drafts.some(item => item.id === task.id))) throw new Error('请先恢复归档中的依赖任务');
+    await this.store.saveMany(changes.map(task => { const before = existing.find(item => item.id === task.id); return before ? { task, before } : { task }; }));
+    return (await this.store.find(rootId))!;
+  }
+
   async addBatch(inputs: string[], now = localNow(), selections: (string | undefined)[][] = [], parent?: string, reservedIds: string[] = []): Promise<Task[]> {
     const config = await this.config();
     const parsedInputs = inputs.map(input => parse(input, now, [...config.priority.levels]));
@@ -83,17 +101,14 @@ export class ApplicationService {
   }
 
   async setStatus(idOrPrefix: string, status: TaskStatus): Promise<Task> {
+    if (status === 'done') return (await this.complete(idOrPrefix)).task;
     const task = await this.store.find(idOrPrefix);
     if (!task) throw new Error(`找不到任务：${idOrPrefix}`);
     // 重复设成同一个状态没有意义，尤其是 done——静默刷新 end 会把真正的完成时间冲掉
     if (task.status === status) throw new Error(`跳过：${task.title}（已经是${STATUS_LABELS[status]}）`);
     const before = cloneTask(task);
-    if (status === 'done') {
-      const catalog = await this.dependencyTasks(); const blocked = blockedDependencies(task, catalog);
-      if (blocked.length) throw new Error(`依赖尚未完成：${blocked.map(id => catalog.find(item => item.id === id)?.title ?? id).join('、')}`);
-    }
     task.status = status;
-    if (status === "done" || status === "cancelled") task.end = utcNow();
+    if (status === "cancelled") task.end = utcNow();
     else delete task.end;
     // 从等待里放出来就该把 wait 一起清掉，否则它会立刻又被折叠回去
     if (status === "todo" || status === "meeting") delete task.wait;
@@ -116,11 +131,20 @@ export class ApplicationService {
     const openChildren = (await this.children(target.id)).filter((child) => ACTIVE_STATES.has(child.status));
     if (target.status === 'done') throw new Error(`跳过：${target.title}（已经是已完成）`);
     const all = await this.tasks(); const ids = new Set([target.id]);
-    if (options.cascade) {
+    const cascade = options.cascade || target.kind === 'project';
+    if (cascade) {
       let previous = -1;
       while (previous !== ids.size) { previous = ids.size; for (const task of all) if (task.parent && ids.has(task.parent) && ACTIVE_STATES.has(task.status)) ids.add(task.id); }
     }
     const catalog = await this.dependencyTasks();
+    let added = true;
+    while (added) {
+      added = false;
+      for (const project of all.filter(task => task.kind === 'project' && ACTIVE_STATES.has(task.status) && !ids.has(task.id))) {
+        const children = catalog.filter(task => task.parent === project.id);
+        if (children.some(child => ids.has(child.id)) && children.every(child => child.status === 'done' || ids.has(child.id))) { ids.add(project.id); added = true; }
+      }
+    }
     const finished = all.filter(task => ids.has(task.id)).map(task => ({ ...cloneTask(task), status: 'done', end: utcNow() }));
     const resulting = [...catalog.filter(task => !ids.has(task.id)), ...finished];
     for (const task of finished) {
@@ -133,7 +157,7 @@ export class ApplicationService {
     const task = saved.find(item => item.id === target.id)!;
     const nextId = occurrences.get(target.id)?.id;
     const next = nextId ? saved.find(item => item.id === nextId) : undefined;
-    return { task, ...(next ? { next } : {}), cascaded: saved.filter(item => ids.has(item.id) && item.id !== target.id), openChildren: options.cascade ? [] : openChildren };
+    return { task, ...(next ? { next } : {}), cascaded: saved.filter(item => ids.has(item.id) && item.id !== target.id), openChildren: cascade ? [] : openChildren };
   }
 
   /**

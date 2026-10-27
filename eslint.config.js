@@ -2,7 +2,7 @@ import eslint from "@eslint/js";
 import tseslint from "typescript-eslint";
 
 export default [
-  { ignores: ["dist/**", "dist-node/**", "dist-sea/**", "node_modules/**", "tests/**", "apps/android/build/**", "apps/android/.local/**", "apps/android/test-results/**", "apps/android/tests/**"] },
+  { ignores: ["dist/**", "dist-node/**", "dist-sea/**", "node_modules/**", "tests/**", "work/**", "apps/android/build/**", "apps/android/.local/**", "apps/android/test-results/**", "apps/android/tests/**"] },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {

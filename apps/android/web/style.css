@@ -256,3 +256,12 @@ summary { min-height: 44px; cursor: pointer; font-size: 15px; font-weight: 550; 
   .view-switch { flex-wrap: wrap; }
   .calendar-toolbar { grid-template-columns: 54px 1fr 54px; }
 }
+/* 项目与信息流沿用任务列表的阅读尺寸。 */
+.focus-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin:16px 0 22px; }
+.focus-toolbar p { flex:1; }
+.focus-list .task-card { min-height:142px; align-items:center; }
+.focus-list .task-title { font-size:22px; line-height:1.6; }
+.focus-project { display:block; font-size:13px; color:var(--muted); margin-bottom:8px; }
+.focus-settings { border-top:1px solid #9996; margin-top:24px; padding-top:12px; }
+.project-progress { color:#46794a; }
+.completion-outgoing { pointer-events:none; opacity:.7; }

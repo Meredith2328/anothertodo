@@ -11,6 +11,7 @@ await build({
   inject: [resolve(mobile, 'buffer.ts')],
   define: { 'process.env': '{}', 'global': 'globalThis' },
   plugins: [{ name: 'android-adapters', setup(builder) {
+    builder.onResolve({ filter: /recommendation-script\.js$/ }, () => ({ path: resolve(mobile, 'recommendation-script.ts') }));
     builder.onResolve({ filter: /config\.js$/ }, args => args.importer.includes('src/core/') || args.importer.includes('src\\core\\') || args.path.includes('core/config') ? ({ path: resolve(mobile, 'config.ts') }) : undefined);
     builder.onResolve({ filter: /sync\/sync\.js$/ }, () => ({ path: resolve(mobile, 'sync.ts') }));
     builder.onResolve({ filter: /reminders\/watcher\.js$/ }, () => ({ path: resolve(mobile, 'reminders.ts') }));
