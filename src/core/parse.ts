@@ -1,13 +1,15 @@
 import { ReminderSchema, RecurSchema, type Recur, type Reminder } from "../contracts.js";
 import { t, weekdayName } from "./i18n.js";
+import { extractDependencies, type DependencyRequest } from './dependencies.js';
 
 export type ParsedReminder = Omit<Reminder, "dead"> & { dead?: boolean; relative: boolean };
 /** edit 时可以显式清空的字段名 */
-export type ParsedClear = "due" | "priority" | "project" | "parent" | "deps" | "wait" | "tags" | "notes" | "recur" | "reminders";
+export type ParsedClear = "due" | "priority" | "project" | "parent" | "deps" | "wait" | "tags" | "notes" | "recur" | "reminders" | "dependencies";
 /** `in:在做` 这类写法能直接落到的状态分组 */
 export type ParsedStatus = "todo" | "doing" | "waiting" | "paused";
 export type Parsed = {
   title: string;
+  dependencies: DependencyRequest[];
   due?: string;
   dueHasTime: boolean;
   /** 时间段的结束时刻，如 `14:00-15:00` / `下午两点到三点` 里的后一个时间 */
@@ -301,6 +303,7 @@ const CLEAR_ALIASES: Record<string, ParsedClear> = {
   note: "notes", notes: "notes", 备注: "notes",
   recur: "recur", repeat: "recur", 重复: "recur",
   reminder: "reminders", reminders: "reminders", 提醒: "reminders",
+  dependencies: 'dependencies', depends: 'dependencies',
 };
 
 const STATUS_ALIASES: Record<string, ParsedStatus> = {
@@ -316,6 +319,7 @@ const RECUR_CN_WEEKDAY: Record<string, number> = { 一: 0, 二: 1, 三: 2, 四: 
 const CLEAR_LABELS: Record<ParsedClear, string> = {
   due: "日期", priority: "优先级", project: "项目", parent: "父任务", deps: "前置",
   wait: "等待", tags: "标签", notes: "备注", recur: "重复", reminders: "提醒",
+  dependencies: '依赖',
 };
 
 /**
@@ -399,7 +403,7 @@ export const recurToInput = (recur: Recur): string => {
 };
 
 export const parse = (text: string, now = localNow(), levels = ["低", "中", "高"]): Parsed => {
-  const parsed: Parsed = { title: "", dueHasTime: false, tags: [], removeTags: [], reminders: [], clears: new Set(), remindersOptedOut: false };
+  const parsed: Parsed = { title: "", dependencies: [], dueHasTime: false, tags: [], removeTags: [], reminders: [], clears: new Set(), remindersOptedOut: false };
   let source = text.trim();
   if (!source) return parsed;
   const today = now.slice(0, 10);
@@ -507,6 +511,10 @@ export const parse = (text: string, now = localNow(), levels = ["低", "中", "�
     source = `${source.slice(0, reminderMatch.index!)} ${source.slice(reminderMatch.index! + reminderMatch[0].length)}`;
   }
 
+  const extracted = extractDependencies(source, reference => {
+    const found = scanDate(reference, today); return !!found && found.start === 0 && found.end === reference.length;
+  });
+  source = extracted.source; parsed.dependencies = extracted.dependencies;
   // 时间段先于日期剥离：`1:05-2:10` 里的 `05-2` 会被日期规则误认成 5 月 2 日
   const rangeFound = scanTimeRange(source);
   let untilTime: string | undefined;
@@ -564,6 +572,7 @@ export const preview = (text: string, now = localNow(), levels = ["低", "中", 
   if (p.recur) parts.push(`↻${describeRecur(p.recur)}`);
   for (const reminder of p.reminders) parts.push(`⏰${reminder.at.replace("T", " ")}(${reminder.hooks.join(",")})`);
   if (p.parent) parts.push(`父:${p.parent}`);
+  for (const dependency of p.dependencies) parts.push(`${dependency.direction === 'after' ? '依赖' : '先于'}:${dependency.reference}`);
   if (p.deps) parts.push(`前置:${p.deps.join(",")}`);
   if (p.status) parts.push(`→${STATUS_INPUT[p.status]}`);
   if (p.notes) parts.push(`备注:${p.notes.length > 20 ? `${p.notes.slice(0, 20)}…` : p.notes}`);

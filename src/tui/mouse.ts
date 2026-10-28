@@ -6,8 +6,17 @@ import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
 import type { ReadableOptions } from "node:stream";
 
-export type MouseKind = "press" | "release" | "move" | "wheel-up" | "wheel-down";
+export type MouseKind = "press" | "release" | "wheel-up" | "wheel-down" | "move";
 export type MouseEvent = { kind: MouseKind; button: number; x: number; y: number };
+
+/**
+ * 鼠标跟踪档位 → SGR 模式号。
+ * - hover：1003 上报所有移动，悬浮高亮要靠它
+ * - drag：1002 只在按住时上报移动，事件量小得多，代价是没有纯悬浮高亮
+ * - click：1000 只报按下/释放，点击和滚轮照常可用
+ */
+export type MouseTracking = "hover" | "drag" | "click";
+const TRACKING_MODE: Record<MouseTracking, string> = { hover: "1003", drag: "1002", click: "1000" };
 
 const ESC = "\x1b";
 const PREFIX = "\x1b[<";
@@ -48,12 +57,14 @@ const parseMouseSequence = (sequence: string): MouseEvent | undefined => {
   if (current < 0 || parts.length !== 2) return undefined;
   const code = parts[0] ?? 0;
   const button = code & 3;
+  const x = parts[1] ?? 0;
   if (code & 64) {
-    return { kind: code & 1 ? "wheel-down" : "wheel-up", button, x: parts[1] ?? 0, y: current };
+    return { kind: code & 1 ? "wheel-down" : "wheel-up", button, x, y: current };
   }
-  // 32 位是「移动」：按住拖动（1002）或纯悬停（1003）时终端都带这个位
-  if (code & 32) return { kind: "move", button, x: parts[1] ?? 0, y: current };
-  return { kind: flag === "M" ? "press" : "release", button, x: parts[1] ?? 0, y: current };
+  // bit 5（32）= 移动上报（1003 模式）。按住拖动和纯悬浮都走这里，
+  // 上层只关心位置，所以统一成 move。
+  if (code & 32) return { kind: "move", button, x, y: current };
+  return { kind: flag === "M" ? "press" : "release", button, x, y: current };
 };
 
 // 在 buffer 头部找完整的鼠标序列，返回 [序列, 剩余]；没有完整序列返回 undefined
@@ -145,13 +156,17 @@ export const subscribeMouse = (listener: (event: MouseEvent) => void): (() => vo
   return () => { bus.removeListener("mouse", listener); };
 };
 
-// 当前生效的桥：设置页切「鼠标点击」时直接找它开关上报
 let activeBridge: MouseBridge | undefined;
 export const setMouseTracking = (on: boolean): void => { activeBridge?.setTracking(on); };
 
-export const createMouseBridge = (stdin: NodeJS.ReadStream & { fd: number }, stdout: NodeJS.WriteStream): MouseBridge => {
+export const createMouseBridge = (
+  stdin: NodeJS.ReadStream & { fd: number },
+  stdout: NodeJS.WriteStream,
+  trackingMode: MouseTracking = "hover",
+): MouseBridge => {
   const stream = new ProxyStdin(stdin);
   const events = new EventEmitter();
+  const mode = TRACKING_MODE[trackingMode];
   let pending = "";
   let enabled = false;
   let tracking = false;
@@ -159,7 +174,7 @@ export const createMouseBridge = (stdin: NodeJS.ReadStream & { fd: number }, std
     if (on === tracking) return;
     tracking = on;
     // 1002 = 点击/释放 + 滚轮 + 按住时的移动；1006 = SGR 扩展编码（Windows Terminal / xterm 通用）
-    stdout.write(on ? "\x1b[?1002h\x1b[?1006h" : "\x1b[?1002l\x1b[?1006l");
+    stdout.write(on ? `\x1b[?${mode}h\x1b[?1006h` : `\x1b[?${mode}l\x1b[?1006l`);
   };
 
   const onReadable = (): void => {
@@ -168,9 +183,14 @@ export const createMouseBridge = (stdin: NodeJS.ReadStream & { fd: number }, std
       const { chunks, events: parsed, pending: next } = splitMouseData(chunk, pending);
       pending = next;
       for (const part of chunks) if (part) stream.push(part);
-      // 直接发到模块总线：TuiApp 只订阅 subscribeMouse，不经过 bridge.subscribe，
-      // 以前只在 subscribe() 里接力到总线，没人调它，点击解析出来就丢了
-      for (const event of parsed) { events.emit("mouse", event); bus.emit("mouse", event); }
+      // 同时发给本地订阅者和模块总线。TuiApp 走 subscribeMouse（总线），
+      // 所以这里必须无条件转发——以前只在调用方调了 bridge.subscribe() 时
+      // 才建立到总线的中继，而 cli.ts 从没调过，导致真实终端里鼠标全程失效
+      // （测试直接 emitMouse 打总线，所以一路绿灯没暴露）。
+      for (const event of parsed) {
+        events.emit("mouse", event);
+        bus.emit("mouse", event);
+      }
     }
   };
 

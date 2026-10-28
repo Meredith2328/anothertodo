@@ -10,10 +10,11 @@ import { addLocalMinutes, parseCompatibleDateTime } from "../core/time.js";
 import { readJsonlDetailed } from "./jsonl.js";
 import { pathsFor, type Paths } from "./paths.js";
 import { atomicWriteText, withDataLock } from "./lock.js";
+import { validateDependencies, blockedDependencies } from '../core/dependencies.js';
 
 type JsonObject = Record<string, unknown>;
 /** batch 相同的相邻记录是同一次操作（比如完成任务顺带派生了下一次），撤销 / 重做时一起走 */
-type UndoRecord = { before: JsonObject | null; after: JsonObject | null; ts: string; batch?: string };
+type UndoRecord = { before: JsonObject | null; after: JsonObject | null; ts: string; batch?: string; changes?: Array<{ before: JsonObject | null; after: JsonObject }> };
 type AddRequest = { id: string; payloadHash: string };
 type RequestReceipt = { requestId: string; payloadHash: string; task: Task; committed: boolean; beforeHash: string };
 const objectsHash = (objects: JsonObject[]): string => createHash("sha256").update(JSON.stringify(objects)).digest("hex");
@@ -145,6 +146,10 @@ export class Store {
     }
     return [...latest.values()].filter((obj) => obj.deleted !== true).map(parseTask);
   }
+  async dependencyTasks(): Promise<Task[]> {
+    const catalog = new Map([...(await this.archived()), ...(await this.rawObjects())].map(record => [String(record.id), record]));
+    return [...catalog.values()].filter(record => record.deleted !== true).map(parseTask);
+  }
 
   async get(id: string): Promise<Task | undefined> {
     return (await this.tasks()).find((task) => task.id === id);
@@ -222,6 +227,7 @@ export class Store {
       const task = parseTask({ ...draft, id, entry: draft.entry || utcNow(), modified: existing && Date.parse(existing.modified) >= Date.now() ? new Date(Date.parse(existing.modified) + 1).toISOString() : utcNow() });
       const objects = originalObjects.filter((obj) => obj.id !== task.id);
       objects.push(TaskSchema.parse(task));
+      validateDependencies(objects.filter(obj => obj.deleted !== true).map(parseTask));
       if (request) {
         receipts.push({ requestId: request.id, payloadHash: request.payloadHash, task, committed: false, beforeHash: objectsHash(originalObjects) });
         await atomicWriteText(requestPath, JSON.stringify(receipts) + "\n");
@@ -232,6 +238,33 @@ export class Store {
       if (existing) emit("task.updated", { before: cloneTask(before ?? existing), after: cloneTask(task) });
       else emit("task.created", { task: cloneTask(task) });
       return task;
+    });
+  }
+
+  async saveMany(entries: Array<{ task: Task; before?: Task }>): Promise<Task[]> {
+    return this.withLock(async emit => {
+      const objects = await this.rawObjects(); this.assertTasksWritable();
+      const latest = new Map(objects.map(obj => [String(obj.id), obj]));
+      const changes: Array<{ before: JsonObject | null; after: JsonObject }> = [];
+      const saved: Task[] = [];
+      for (const entry of entries) {
+        const existing = latest.get(entry.task.id);
+        if (entry.before && (!existing || existing.deleted === true || existing.modified !== entry.before.modified)) throw new ConcurrentModificationError(entry.task.id);
+        if (!entry.before && existing) throw new Error(`任务编号已存在：${entry.task.id}`);
+        const task = parseTask({ ...entry.task, modified: utcNow(), entry: entry.task.entry || utcNow() });
+        changes.push({ before: entry.before ? cloneTask(entry.before) : null, after: task });
+        latest.set(task.id, task); saved.push(task);
+      }
+      validateDependencies([...latest.values()].filter(obj => obj.deleted !== true).map(parseTask));
+      await atomicWrite(this.paths.tasks, [...latest.values()].map(jsonLine));
+      const batch = this.currentBatch ?? randomUUID();
+      await appendFile(this.paths.undo, changes.map(change => JSON.stringify({ ...change, ts: utcNow(), batch } satisfies UndoRecord) + '\n').join(''), 'utf8');
+      await atomicWriteText(this.paths.redo, '');
+      for (const change of changes) {
+        if (change.before) emit('task.updated', { before: parseTask(change.before), after: parseTask(change.after) });
+        else emit('task.created', { task: parseTask(change.after) });
+      }
+      return saved;
     });
   }
 
@@ -259,6 +292,7 @@ export class Store {
       if (!current) return undefined;
       const task = parseTask(current);
       if (task.status !== "todo" && task.status !== "doing" && task.status !== "waiting" && task.status !== "meeting") return undefined;
+      if (blockedDependencies(task, [...objects.filter(obj => obj.deleted !== true), ...(await this.archived()).filter(obj => obj.deleted !== true)].map(parseTask)).length) return undefined;
       const reminder = task.reminders.find((item) => item.id === reminderId);
       if (!reminder || reminder.fired || reminder.dead) return undefined;
       const reminderAt = parseCompatibleDateTime(reminder.at);
@@ -353,7 +387,7 @@ export class Store {
       const last = JSON.parse(lines.at(-1) ?? "") as UndoRecord;
       let count = 1;
       if (last.batch !== undefined) while (count < lines.length && (JSON.parse(lines[lines.length - 1 - count]!) as UndoRecord).batch === last.batch) count += 1;
-      const records = lines.slice(-count).map((line) => JSON.parse(line) as UndoRecord).reverse();
+      const records = lines.slice(-count).map((line) => JSON.parse(line) as UndoRecord).flatMap(record => record.changes ? record.changes.map(change => ({ ...change, ts: record.ts, batch: record.batch ?? last.batch ?? 'batch' })) : [record]).reverse();
       let objects = await this.rawObjects();
       this.assertTasksWritable();
       const produced: UndoRecord[] = [];
@@ -391,7 +425,17 @@ export class Store {
         produced.push({ before: current, after: written, ts: utcNow(), ...(last.batch ? { batch: last.batch } : {}) });
       }
       await atomicWrite(this.paths.tasks, objects.map(jsonLine));
-      await atomicWrite(fromPath, lines.slice(0, -count));
+      const history = lines.slice(0, -count).map(line => JSON.parse(line) as UndoRecord);
+      for (const record of records) {
+        if (!record.before || !record.after) continue;
+        const restored = objects.find(object => object.id === record.after!.id);
+        for (let index = history.length - 1; index >= 0; index--) {
+          const previous = history[index]!;
+          const after = previous.changes?.find(change => change.after.id === record.after!.id)?.after ?? (previous.after?.id === record.after.id ? previous.after : undefined);
+          if (after) { if (after.modified === record.before.modified) after.modified = restored!.modified; break; }
+        }
+      }
+      await atomicWrite(fromPath, history.map(jsonLine));
       await appendFile(toPath, produced.map((record) => `${jsonLine(record)}\n`).join(""), "utf8");
       for (const publish of events) publish();
       // 一次操作可能带出好几条（完成 + 派生下一次），以用户直接操作的那条为主，其余合成计数

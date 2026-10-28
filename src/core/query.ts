@@ -49,7 +49,7 @@ const parseFilterValue = (raw: string, today: string): DateValue => {
 };
 
 /** has: 支持的字段名；写错时直接报错，而不是静默返回空结果 */
-const HAS_FIELDS = new Set(["due", "time", "wait", "notes", "note", "reminder", "reminders", "recur", "repeat", "project", "proj", "tag", "tags", "parent", "priority"]);
+const HAS_FIELDS = new Set(["due", "time", "wait", "notes", "note", "reminder", "reminders", "recur", "repeat", "project", "proj", "tag", "tags", "parent", "priority", 'dependencies', 'depends']);
 
 const hasField = (task: Task, field: string): boolean => {
   switch (field) {
@@ -62,6 +62,7 @@ const hasField = (task: Task, field: string): boolean => {
     case "project": case "proj": return task.project !== undefined;
     case "tag": case "tags": return task.tags.length > 0;
     case "parent": return task.parent !== undefined;
+    case 'dependencies': case 'depends': return !!task.dependsOn?.length;
     case "priority": return task.priority !== undefined;
     default: return false;
   }

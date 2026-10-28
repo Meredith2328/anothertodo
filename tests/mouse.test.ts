@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
-
-import { footerKeyRanges } from "../src/tui/app.js";
 import { PassThrough } from "node:stream";
 
+import { footerKeyRanges } from "../src/tui/app.js";
 import { createMouseBridge, splitMouseData, subscribeMouse, type MouseEvent } from "../src/tui/mouse.js";
 
 describe("footer key hit ranges", () => {
@@ -71,6 +70,159 @@ describe("mouse SGR sequence parsing", () => {
   });
 });
 
+// 这一组必须走真实桥接层，不能用 emitMouse。TuiApp 通过 subscribeMouse（模块
+// 总线）收事件，而桥接层曾经只在调用方调了 bridge.subscribe() 时才把事件中继
+// 到总线——cli.ts 从没调过，于是真实终端里点击、滚轮全都没反应，而所有测试都
+// 直接 emitMouse 打总线，一路绿灯没暴露。这里从「写入 stdin 的字节」验到
+// 「TuiApp 侧收到事件」，把整条链路钉住。
+describe("mouse bridge end-to-end (no emitMouse shortcut)", () => {
+  const makeBridge = (tracking?: "hover" | "drag" | "click") => {
+    const stdin = new PassThrough() as unknown as NodeJS.ReadStream & { fd: number };
+    Object.assign(stdin, {
+      isTTY: true,
+      setRawMode: () => stdin,
+      ref: () => stdin,
+      unref: () => stdin,
+    });
+    const written: string[] = [];
+    const stdout = { write: (value: string) => { written.push(value); return true; } } as unknown as NodeJS.WriteStream;
+    return { stdin, stdout, written, bridge: createMouseBridge(stdin, stdout, tracking) };
+  };
+
+  it("delivers a real SGR click to subscribeMouse listeners", async () => {
+    const { stdin, bridge } = makeBridge();
+    const seen: MouseEvent[] = [];
+    const stop = subscribeMouse((event) => seen.push(event));
+    bridge.enable();
+    // Footer 上点 "? 帮助" 键帽
+    stdin.write("\x1b[<0;6;24M");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    bridge.disable();
+    stop();
+    expect(seen).toEqual([{ kind: "press", button: 0, x: 6, y: 24 }]);
+  });
+
+  it("delivers wheel events and keeps normal keys flowing to Ink", async () => {
+    const { stdin, bridge } = makeBridge();
+    const seen: MouseEvent[] = [];
+    const stop = subscribeMouse((event) => seen.push(event));
+    const forwarded: string[] = [];
+    bridge.stream.on("data", (chunk: string) => forwarded.push(String(chunk)));
+    bridge.enable();
+    stdin.write("j\x1b[<64;1;1Mk");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    bridge.disable();
+    stop();
+    expect(seen).toEqual([{ kind: "wheel-up", button: 0, x: 1, y: 1 }]);
+    // 鼠标序列被剥掉，按键原样送给 Ink
+    expect(forwarded.join("")).toBe("jk");
+  });
+
+  it("enables and disables SGR tracking on the terminal", () => {
+    const { bridge, written } = makeBridge();
+    bridge.enable();
+    // 默认 hover 档 = 1003（悬浮高亮需要「任意移动都上报」）
+    expect(written.join("")).toContain("\x1b[?1003h");
+    expect(written.join("")).toContain("\x1b[?1006h");
+    bridge.disable();
+    expect(written.join("")).toContain("\x1b[?1003l");
+  });
+
+  it("reports pointer movement as move events (hover needs 1003)", async () => {
+    const { stdin, bridge } = makeBridge();
+    const seen: MouseEvent[] = [];
+    const stop = subscribeMouse((event) => seen.push(event));
+    bridge.enable();
+    // bit 5（32）= 移动上报；35 = 32|3 表示按住拖动，32 是纯悬浮
+    stdin.write("\x1b[<32;10;7M");
+    stdin.write("\x1b[<35;11;8M");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    bridge.disable();
+    stop();
+    expect(seen).toEqual([
+      { kind: "move", button: 0, x: 10, y: 7 },
+      { kind: "move", button: 3, x: 11, y: 8 },
+    ]);
+  });
+});
+
+// 三档都要能用，不能只验「写出的序列不一样」。降档只减少终端上报的移动事件，
+// 点击和滚轮在任何一档都必须照常工作——否则用户为了省 CPU 降档就点不动了。
+describe("mouse tracking levels (ui.mouse)", () => {
+  const makeBridge = (tracking: "hover" | "drag" | "click") => {
+    const stdin = new PassThrough() as unknown as NodeJS.ReadStream & { fd: number };
+    Object.assign(stdin, { isTTY: true, setRawMode: () => stdin, ref: () => stdin, unref: () => stdin });
+    const written: string[] = [];
+    const stdout = { write: (value: string) => { written.push(value); return true; } } as unknown as NodeJS.WriteStream;
+    return { stdin, written, bridge: createMouseBridge(stdin, stdout, tracking) };
+  };
+
+  const drain = async (): Promise<void> => { await new Promise((resolve) => setTimeout(resolve, 20)); };
+
+  it("picks the right SGR mode per level and turns the same one off", () => {
+    for (const [level, mode] of [["hover", "1003"], ["drag", "1002"], ["click", "1000"]] as const) {
+      const { bridge, written } = makeBridge(level);
+      bridge.enable();
+      expect(written.join("")).toContain(`\x1b[?${mode}h`);
+      // 只开这一档，别把另外两档也打开
+      for (const other of ["1000", "1002", "1003"].filter((value) => value !== mode)) {
+        expect(written.join("")).not.toContain(`\x1b[?${other}h`);
+      }
+      bridge.disable();
+      expect(written.join("")).toContain(`\x1b[?${mode}l`);
+    }
+  });
+
+  it("keeps clicks and wheel working on every level", async () => {
+    for (const level of ["hover", "drag", "click"] as const) {
+      const { stdin, bridge } = makeBridge(level);
+      const seen: MouseEvent[] = [];
+      const stop = subscribeMouse((event) => seen.push(event));
+      bridge.enable();
+      stdin.write("\x1b[<0;6;24M");   // 按下
+      stdin.write("\x1b[<0;6;24m");   // 松手
+      stdin.write("\x1b[<64;1;1M");   // 滚轮上
+      await drain();
+      bridge.disable();
+      stop();
+      expect(seen, `${level} 档的点击与滚轮`).toEqual([
+        { kind: "press", button: 0, x: 6, y: 24 },
+        { kind: "release", button: 0, x: 6, y: 24 },
+        { kind: "wheel-up", button: 0, x: 1, y: 1 },
+      ]);
+    }
+  });
+
+  it("still parses move events if the terminal sends them on a lower level", async () => {
+    // 解析层不按档位过滤：档位只决定「请终端报不报」。终端若因为别的原因
+    // 送来了移动序列（比如别的程序开过 1003 没关干净），照样能解析，
+    // 上层收到 move 只会更新悬浮高亮，不会误触发动作。
+    for (const level of ["drag", "click"] as const) {
+      const { stdin, bridge } = makeBridge(level);
+      const seen: MouseEvent[] = [];
+      const stop = subscribeMouse((event) => seen.push(event));
+      bridge.enable();
+      stdin.write("\x1b[<32;3;4M");
+      await drain();
+      bridge.disable();
+      stop();
+      expect(seen, `${level} 档收到移动序列`).toEqual([{ kind: "move", button: 0, x: 3, y: 4 }]);
+    }
+  });
+
+  it("normal keys still reach Ink on every level", async () => {
+    for (const level of ["hover", "drag", "click"] as const) {
+      const { stdin, bridge } = makeBridge(level);
+      const forwarded: string[] = [];
+      bridge.stream.on("data", (chunk: string) => forwarded.push(String(chunk)));
+      bridge.enable();
+      stdin.write("j\x1b[<0;1;1Mk");
+      await drain();
+      bridge.disable();
+      expect(forwarded.join(""), `${level} 档的按键透传`).toBe("jk");
+    }
+  });
+});
 describe("mouse bridge wiring", () => {
   it("delivers clicks from real stdin to subscribeMouse without anyone calling bridge.subscribe", async () => {
     // TuiApp 只用 subscribeMouse；以前事件只在 bridge.subscribe() 里转发，真实终端点击全丢

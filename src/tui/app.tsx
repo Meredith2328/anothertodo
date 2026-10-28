@@ -14,6 +14,10 @@ import { setConfigValue } from "../core/config.js";
 import type { Config, Task } from "../contracts.js";
 import { scanDate } from "../core/parse.js";
 import { ACTIVE_STATES, localNow } from "../core/task.js";
+import { projectAgenda } from '../core/projects.js';
+import { dependencyIds } from '../core/dependencies.js';
+import { recommend } from '../app/recommendation.js';
+import { taskAgenda } from '../app/task-view.js';
 import { taskToInput } from "../core/task-ops.js";
 import { Store } from "../storage/store.js";
 import { initialTuiState, tuiReducer, type TuiState } from "./state.js";
@@ -154,10 +158,29 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   const service = useMemo(() => new ApplicationService(store), [store]);
   const [config, setConfig] = useState<Config>();
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [dependencyCatalog, setDependencyCatalog] = useState<Task[]>([]);
   const [dataRevision, setDataRevision] = useState(0);
   const [state, dispatch] = useReducer(tuiReducer, undefined, () => initialTuiState());
   const [clock, setClock] = useState(() => new Date());
   const [actionSequence, setActionSequence] = useState(0);
+  const [focusView, setFocusView] = useState<boolean>();
+  const [orderedGroups, setOrderedGroups] = useState<ReturnType<typeof groups>>([]);
+  const [focusCards, setFocusCards] = useState<Task[]>([]);
+  const focusPrevious = useRef<string[]>([]);
+  useEffect(() => {
+    if (!config || focusView === undefined) return;
+    let cancelled = false;
+    void (async () => {
+      if (focusView) {
+        const cards = await recommend(filterTasks(tasks, state.query, nowLocal().slice(0, 10), config.priority.levels), dependencyCatalog, config, { previous: focusPrevious.current, mode: state.sortMode }, store.paths.dir);
+        if (!cancelled) { focusPrevious.current = cards.map(task => task.id); setFocusCards(cards); }
+      } else if (config.focus.list) {
+        const agenda = await taskAgenda(tasks, dependencyCatalog, config, state.query, state.sortMode, nowLocal(), store.paths.dir);
+        if (!cancelled) setOrderedGroups(agenda);
+      }
+    })().catch(error => { if (!cancelled) { setFocusCards([]); setOrderedGroups([]); dispatch({ type: 'flash', message: error instanceof Error ? error.message : String(error) }); } });
+    return () => { cancelled = true; };
+  }, [config, tasks, dependencyCatalog, focusView, state.query, state.sortMode, store]);
   const [graphIndex, setGraphIndex] = useState(0);
   const [pressedButton, setPressedButton] = useState<FooterButton>();
   const [hoveredButton, setHoveredButton] = useState<FooterButton>();
@@ -213,13 +236,14 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   // 每组内部按父子相邻重排后再摊平：显示顺序和选中索引必须用同一份顺序，
   // 否则按 j/k 选中的行和高亮的行会错开
   const activeGroups = useMemo(() => {
-    if (!config) return [];
+    if (!config || focusView === undefined) return [];
     const scoped = state.project === undefined ? tasks : tasks.filter((task) => task.project === state.project);
-    return viewGroups(scoped, config, state.sortMode, clock, state.query, state.view, state.showUnscheduled)
+    return (focusView ? [{ key: 'nodate' as const, name: `GTD / Flashcard · 最多 ${config.focus.count} 件`, style: 'green', tasks: focusCards }]
+      : config.focus.list ? orderedGroups : projectAgenda(viewGroups(scoped, config, state.sortMode, clock, state.query, state.view, state.showUnscheduled), dependencyCatalog))
       .map((group) => ({ ...group, tasks: group.tasks.filter((task) => task.status !== "done") }))
       .filter((group) => group.tasks.length > 0)
       .map((group) => ({ ...group, nested: nestTasks(group.tasks), tasks: nestTasks(group.tasks).map((item) => item.task) }));
-  }, [config, state.project, state.query, state.sortMode, state.view, state.showUnscheduled, tasks, clock]);
+  }, [config, state.project, state.query, state.sortMode, state.view, state.showUnscheduled, tasks, clock, dependencyCatalog, focusView, focusCards, orderedGroups]);
   const scopedTasks = state.project === undefined ? tasks : tasks.filter((task) => task.project === state.project);
   const counts = config ? viewCounts(scopedTasks, config, clock, state.query, state.view) : { unscheduled: 0, outside: 0 };
   const window = config ? viewWindow(config, clock) : undefined;
@@ -233,18 +257,18 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
       .map((task) => ({
         task,
         checked: depsPicked.includes(task.id),
-        disabled: wouldCycle(tasks, task.id, [...(task.deps ?? []), depsOwner.id]) ? "会成环" : undefined,
+        disabled: wouldCycle(tasks, task.id, [...dependencyIds(task), depsOwner.id]) ? "会成环" : undefined,
       }));
   }, [depsOwner, depsPicked, tasks]);
-  const completionContext = JSON.stringify([state.view, state.showUnscheduled, state.query, state.project, state.sortMode]);
+  const completionContext = JSON.stringify([focusView, state.view, state.showUnscheduled, state.query, state.project, state.sortMode]);
   const currentFeedback = feedback.filter((item) => item.context === completionContext && tasks.some((task) => task.id === item.task.id && task.status === "done"));
   // 只记录真正画在当前清单的行；外部完成不凭空把其他项目/历史塞进原位置。
   completionPlacements.current = new Map(activeGroups.flatMap((group) => group.nested.map(({ task, depth }, position) =>
     [task.id, { groupKey: group.key, name: group.name, position, depth, context: completionContext }] as const)));
-  const completedTasks = useMemo(() => config ? filterTasks(scopedTasks, state.query, viewWindow(config, clock).today, [...config.priority.levels])
-    .filter((task) => task.status === "done")
+  const completedTasks = useMemo(() => config && focusView !== undefined ? filterTasks(scopedTasks, state.query, viewWindow(config, clock).today, [...config.priority.levels])
+    .filter((task) => task.status === "done" && !focusView && (!task.parent || !tasks.some(parent => parent.id === task.parent && parent.kind === 'project') || completedExpanded || activeFinishedQuery(state.query)))
     .sort((a, b) => (b.end ?? b.modified).localeCompare(a.end ?? a.modified) || a.id.localeCompare(b.id)) : [],
-  [config, tasks, state.project, state.query, clock]);
+  [config, tasks, state.project, state.query, clock, focusView, completedExpanded]);
   const completedShown = completedTasks.filter((task) => !currentFeedback.some((item) => item.task.id === task.id))
     .filter((task) => completedExpanded || recentCompleted.slice(0, 3).includes(task.id) || activeFinishedQuery(state.query));
   const visibleKey = [...flatten(activeGroups), ...completedShown].map((task) => `${task.id}:${task.modified}`).join("|");
@@ -281,8 +305,8 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   const detailTask = detailId === undefined ? undefined : tasks.find((task) => task.id === detailId);
   const detailChildren = useMemo(() => detailTask ? tasks.filter((task) => task.parent === detailTask.id) : [], [detailTask, tasks]);
   const detailParent = detailTask?.parent === undefined ? undefined : tasks.find((task) => task.id === detailTask.parent);
-  const detailDeps = useMemo(() => detailTask ? tasks.filter((task) => detailTask.deps?.includes(task.id)) : [], [detailTask, tasks]);
-  const detailDependents = useMemo(() => detailTask ? tasks.filter((task) => task.deps?.includes(detailTask.id)) : [], [detailTask, tasks]);
+  const detailDeps = useMemo(() => detailTask ? tasks.filter((task) => dependencyIds(detailTask).includes(task.id)) : [], [detailTask, tasks]);
+  const detailDependents = useMemo(() => detailTask ? tasks.filter((task) => dependencyIds(task).includes(detailTask.id)) : [], [detailTask, tasks]);
   const stateRef = useRef(state);
   const configRef = useRef(config);
   const selectedRef = useRef(selected);
@@ -323,6 +347,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
       setFeedbackClock(Date.now());
       setFeedback((items) => [...items.filter((item) => doneIds.has(item.task.id) && !completed.some((task) => task.id === item.task.id)), ...additions]);
       setConfig(nextConfig);
+      setDependencyCatalog(await service.dependencyTasks());
       setTasks(nextTasks.map((task) => pendingCompletions.current.has(task.id) ? previous?.get(task.id) ?? task : task));
       setDataRevision((revision) => revision + 1);
     });
@@ -359,11 +384,12 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
   useEffect(() => {
     if (!config || configInitRef.current) return;
     configInitRef.current = true;
+    setFocusView(config.ui.start_view === 'gtd');
     dispatch({ type: "sort", mode: config.priority.mode });
     dispatch({ type: "dateFormat", format: config.agenda.date_format });
     dispatch({ type: "view", view: config.agenda.view });
   }, [config]);
-  useEffect(() => { if (config) setMouseTracking(config.ui.mouse); }, [config]);
+  useEffect(() => { if (config) setMouseTracking(config.ui.mouse !== false); }, [config]);
   // 首次运行弹上手引导（按任意键关闭，之后不再弹）；测试默认跳过
   useEffect(() => {
     if (!welcome) return;
@@ -423,8 +449,25 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
         else if (command === "sync") dispatch({ type: "flash", message: await service.sync() });
         else if (command === "mode urgency") { dispatch({ type: "sort", mode: "urgency" }); dispatch({ type: "flash", message: "排序模式：urgency" }); }
         else if (command === "mode levels") { dispatch({ type: "sort", mode: "levels" }); dispatch({ type: "flash", message: "排序模式：档位" }); }
-        else if (command === "list") { dispatch({ type: "query", value: "" }); dispatch({ type: "flash", message: "已清除过滤" }); }
-        else if (command.startsWith("list ")) { dispatch({ type: "query", value: command.slice(5) }); dispatch({ type: "flash", message: `过滤：${command.slice(5)}` }); }
+        else if (verb === 'gtd' || verb === 'flashcard') {
+          if (rest[0]) await setConfigValue('focus.count', rest[0], store.paths.dir);
+          focusPrevious.current = []; setFocusView(true); dispatch({ type: 'select', index: 0 });
+        }
+        else if (verb === 'recommend') {
+          await setConfigValue('focus.template', rest[0] ?? '', store.paths.dir); focusPrevious.current = [];
+        }
+        else if (verb === 'script') {
+          await setConfigValue('focus.script', rest.join(' '), store.paths.dir);
+          await setConfigValue('focus.template', 'custom', store.paths.dir); focusPrevious.current = [];
+        }
+        else if (verb === 'script-list') await setConfigValue('focus.list', String(rest[0] === 'on'), store.paths.dir);
+        else if (verb === 'project') {
+          const [title, ...steps] = command.slice(8).split('|').map(part => part.trim());
+          await service.addProject(title ?? '', steps);
+          dispatch({ type: 'flash', message: `已经创建项目：${title}` });
+        }
+        else if (command === "list") { setFocusView(false); dispatch({ type: "query", value: "" }); dispatch({ type: "flash", message: "任务列表" }); }
+        else if (command.startsWith("list ")) { setFocusView(false); dispatch({ type: "query", value: command.slice(5) }); dispatch({ type: "flash", message: `过滤：${command.slice(5)}` }); }
         else if (command.startsWith("archive")) { const days = command.split(/\s+/u)[1]; dispatch({ type: "flash", message: `归档了 ${await service.archive(days ? Number(days) : 14)} 行` }); }
         else if (verb === "cancel" || verb === "meeting" || verb === "todo" || verb === "doing" || verb === "pause") {
           if (!ids.length) dispatch({ type: "flash", message: "先选中一条任务" });
@@ -526,7 +569,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
 
   // 打开后续任务选择列表：已经在等它的任务预先勾上
   const openDeps = useCallback((owner: Task): void => {
-    setDepsPicked(tasks.filter((task) => task.deps?.includes(owner.id)).map((task) => task.id));
+    setDepsPicked(tasks.filter((task) => dependencyIds(task).includes(owner.id)).map((task) => task.id));
     setDepsIndex(0);
     dispatch({ type: "mode", mode: { kind: "deps", taskId: owner.id } });
   }, [tasks]);
@@ -618,15 +661,16 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     if (action.type === "shortcut") {
       if (action.name === "6") { setCompletedExpanded((expanded) => !expanded); return; }
       if (["3", "4", "5", "f", "b"].includes(action.name)) {
+        setFocusView(false);
         const next = action.name === "f" ? VIEW_ORDER[(VIEW_ORDER.indexOf(currentState.view) + 1) % VIEW_ORDER.length]! : action.name === "b" ? currentState.view : VIEW_ORDER[Number(action.name) - 3]!;
         switchView(next, action.name === "b" ? !currentState.showUnscheduled : currentState.showUnscheduled);
         return;
       }
       if (action.name === "search") { dispatch({ type: "mode", mode: { kind: "search" } }); dispatch({ type: "input", value: "/" }); return; }
       if (action.name === "help") { dispatch({ type: "mode", mode: { kind: "help" } }); return; }
-      if (action.name === "1") { dispatch({ type: "sort", mode: "levels" }); dispatch({ type: "flash", message: "档位排序" }); return; }
-      if (action.name === "2") { dispatch({ type: "sort", mode: "urgency" }); dispatch({ type: "flash", message: "urgency 排序" }); return; }
-      if (action.name === "r") { runMutation(async () => { await refresh(); return "已刷新"; }); return; }
+      if (action.name === "1") { focusPrevious.current = []; dispatch({ type: "sort", mode: "levels" }); dispatch({ type: "flash", message: "档位排序" }); return; }
+      if (action.name === "2") { focusPrevious.current = []; dispatch({ type: "sort", mode: "urgency" }); dispatch({ type: "flash", message: "urgency 排序" }); return; }
+      if (action.name === "r") { focusPrevious.current = []; runMutation(async () => { await refresh(); return "已刷新"; }); return; }
       if (action.name === "t") {
         const order: Array<"auto" | "md" | "full"> = ["auto", "md", "full"];
         const next = order[(order.indexOf(currentState.dateFormat) + 1) % order.length] ?? "auto";
@@ -675,7 +719,7 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
         if (action.name === "graph.x") {
           if (!line.via) { dispatch({ type: "flash", message: "这一行是起点，没有可删的边" }); return; }
           const via = line.via;
-          runMutation(async () => { await service.setDeps(line.task.id, (line.task.deps ?? []).filter((id) => id !== via.id)); return `已删掉：${via.title} → ${line.task.title}`; });
+          runMutation(async () => { await service.setDeps(line.task.id, dependencyIds(line.task).filter((id) => id !== via.id)); return `已删掉：${via.title} → ${line.task.title}`; });
           return;
         }
         // 回车：回到清单并把光标放到那一条上；它不在当前视图里就先切回全部
@@ -855,7 +899,11 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     const onFooter = rows !== undefined && event.y > rows - footerHeight();
     const footerAt = onFooter ? footerKeyRanges().find((range) => event.x >= range.start && event.x <= range.end) : undefined;
     // 悬停：鼠标移到按钮上提亮（终端只在按住拖动时上报移动，普通终端悬停不一定有效果）
-    if (event.kind === "move") { setHoveredButton(footerAt?.name); return; }
+    if (event.kind === "move") {
+      setHoveredButton(footerAt?.name);
+      const line = currentLines[event.y - firstRowRef.current + start];
+      dispatch({ type: 'hover', target: line?.kind === 'task' ? { kind: 'task', index: line.index } : { kind: 'none' } }); return;
+    }
     const footerHit = event.kind === "press" ? footerAt : undefined;
     if (footerHit) setPressedButton(footerHit.name);
     const modal = currentState.mode.kind;
@@ -923,6 +971,21 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     // 滚轮：滚动选中行
     if (event.kind === "wheel-up" || event.kind === "wheel-down") {
       dispatch({ type: "select", index: currentState.selectedIndex + (event.kind === "wheel-up" ? -3 : 3) });
+      return;
+    }
+    // 把坐标翻成「悬停在什么上面」：先看是不是 Footer 行，再看是不是任务行
+    const hoverAt = (x: number, y: number): { kind: "none" } | { kind: "footer"; name: string } | { kind: "task"; index: number } => {
+      if (rows !== undefined && y === rows) {
+        const hit = footerKeyRanges().find((range) => x >= range.start && x <= range.end);
+        return hit ? { kind: "footer", name: hit.name } : { kind: "none" };
+      }
+      const line = currentLines[y - firstTaskRow + start];
+      return line && line.kind === "task" ? { kind: "task", index: line.index } : { kind: "none" };
+    };
+    // 松手：清掉「按下去」的视觉，位置本身仍算悬浮
+    if (event.kind === "release") {
+      dispatch({ type: "pressFooter" });
+      dispatch({ type: "hover", target: hoverAt(event.x, event.y) });
       return;
     }
     if (event.kind !== "press") return;
@@ -1011,7 +1074,10 @@ export const TuiApp = ({ store, testSignals, welcome = false, terminalRows }: Tu
     <Box flexDirection="column" {...(rows !== undefined ? { height: rows } : {})}>
       <Banner columns={columns} rows={rows} mode={layout.banner} />
       <TopBar query={state.query} sortMode={state.sortMode} tasks={tasks} clock={clock} timezone={config?.agenda.timezone} marked={state.marked.length} projects={projects} project={state.project} showTitle={bannerRows(columns, rows, layout.banner) === 0} columns={columns} />
-      <ViewBar view={state.view} showUnscheduled={state.showUnscheduled} counts={counts} window={window} columns={columns} />
+      {focusView ? <Box flexDirection="column" width={contentWidth(columns)} marginLeft={contentLeft(columns)} paddingLeft={1} paddingRight={1}>
+        <Text bold color={C.accent}>GTD / Flashcard</Text>
+        <Text color={C.dim}>{`最多 ${config?.focus.count ?? 2} 件 · d 完成 · :list 返回清单 · :gtd 数量 修改数量`}</Text>
+      </Box> : <ViewBar view={state.view} showUnscheduled={state.showUnscheduled} counts={counts} window={window} columns={columns} />}
       {layout.cards
         ? <Box flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden" width={contentWidth(columns)} marginLeft={contentLeft(columns)} paddingLeft={1} paddingRight={1}>{body}</Box>
         : (

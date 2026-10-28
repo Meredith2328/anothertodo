@@ -2,6 +2,11 @@
 import packageInfo from "../package.json" with { type: "json" };
 import { Command } from "commander";
 import { pathToFileURL } from "node:url";
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { resolve, dirname } from 'node:path';
+import { recommend } from './app/recommendation.js';
+import { recommendationTemplates } from './core/recommendation.js';
+import { taskAgenda } from './app/task-view.js';
 
 import { ApplicationService } from "./app/service.js";
 import { viewGroups, viewCounts, viewWindow, wallNow, type AgendaView } from "./core/views.js";
@@ -77,6 +82,33 @@ export const buildProgram = (): Command => {
 `);
   program.showHelpAfterError();
 
+  program.command('project').description('创建按顺序推进的项目待办').argument('<title>').argument('<steps...>', '每个参数对应一个步骤').action(async (title: string, steps: string[]) => {
+    const task = await service().addProject(title, steps);
+    console.log(`项目 ${task.id} ${task.title}（${steps.length} 个步骤）`);
+  });
+  program.command('gtd').alias('flashcard').description('查看当前可执行事项的信息流；TUI 中使用 :gtd').option('-n, --count <number>', '显示数量').action(async (options: { count?: string }) => {
+    const cfg = await loadConfig();
+    if (options.count) { await setConfigValue('focus.count', options.count); cfg.focus.count = Number(options.count); }
+    const cards = await recommend(await service().tasks(), await service().dependencyTasks(), cfg);
+    for (const task of cards) console.log(`${task.id} ${task.title}`);
+    if (!cards.length) console.log('当前没有可执行事项');
+  });
+  const scripts = program.command('script').description('管理独立推荐脚本文件');
+  scripts.command('template').argument('<name>', 'current / levels / urgency / random').argument('<file>', '输出文件，路径相对于数据目录').action(async (name: string, file: string) => {
+    if (!(name in recommendationTemplates)) throw new Error('模板名称需要是 current、levels、urgency 或 random');
+    const path = resolve(dataDir(), file); await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, recommendationTemplates[name as keyof typeof recommendationTemplates], { flag: 'wx' });
+    console.log(path);
+  });
+  scripts.command('use').argument('<file>', '路径相对于数据目录').option('--list', '同时应用于普通列表').action(async (file: string, options: { list?: boolean }) => {
+    const cfg = await loadConfig(); cfg.focus.template = 'custom'; cfg.focus.script = file;
+    await readFile(resolve(dataDir(), file), 'utf8');
+    await recommend(await service().tasks(), await service().dependencyTasks(), cfg);
+    await setConfigValue('focus.script', file); await setConfigValue('focus.template', 'custom');
+    if (options.list) await setConfigValue('focus.list', 'true');
+    console.log(`已经启用推荐脚本：${file}`);
+  });
+
   // 三个吃「一行输入」的命令都要放过未知选项：输入里可能以 `-due` 这类
   // 清空指令开头，commander 默认会把它当命令行选项拒掉
   program.command("add").description("新增任务，可一次给多条输入").argument("<inputs...>", "一行输入，例如「明天 下午3点 写周报 高 #工作」").option("--json", "输出逐项结构化结果").option("--request-id <id>", "单条新增请求的重试去重键").allowUnknownOption().action(async (inputs: string[], options: WriteOptions & { requestId?: string }) => {
@@ -101,7 +133,7 @@ export const buildProgram = (): Command => {
     if (!["all", "recent", "hour"].includes(view) || !["levels", "urgency"].includes(selectedMode)) throw new OperationError("INVALID_ARGUMENT", "view 用 all/recent/hour，mode 用 levels/urgency");
     const all = await store().tasks();
     const blocked = blockedIds(all);
-    const agenda = viewGroups(all, cfg, selectedMode, clock, query.join(" "), view, options.includeUnscheduled);
+    const agenda = view === 'all' ? await taskAgenda(all, await service().dependencyTasks(), cfg, query.join(' '), selectedMode, now) : viewGroups(all, cfg, selectedMode, clock, query.join(" "), view, options.includeUnscheduled);
     if (options.json) {
       console.log(JSON.stringify({ schemaVersion: 1, command: "list", ok: true, view, window: viewWindow(cfg, clock), counts: viewCounts(all, cfg, clock, query.join(" "), view), groups: agenda.map((group) => ({ ...group, tasks: nestTasks(group.tasks).map((item) => item.task) })) }));
       return;
@@ -193,6 +225,7 @@ export const buildProgram = (): Command => {
     if (options.json === true) { console.log(JSON.stringify(current, null, 2)); return; }
     const application = service();
     const children = await application.children(current.id);
+    const catalog = await application.dependencyTasks();
     const parent = current.parent === undefined ? undefined : await store().find(current.parent);
     const all = await store().tasks();
     const rows: Array<[string, string]> = [
@@ -206,6 +239,7 @@ export const buildProgram = (): Command => {
       [t("field.deps"), current.deps?.length ? current.deps.map((depId) => { const dep = all.find((item) => item.id === depId); return `${depId}${dep ? ` ${dep.title}${dep.status === "done" || dep.status === "cancelled" ? " ✓" : ""}` : t("value.missing")}`; }).join("、") : t("value.none")],
       [t("field.dependents"), (() => { const next = all.filter((item) => item.deps?.includes(current.id)); return next.length ? next.map((item) => `${item.id} ${item.title}`).join("、") : t("value.none"); })()],
       [t("field.subtasks"), children.length ? children.map((child) => `${child.id} ${child.title}`).join("、") : t("value.none")],
+      [t('field.dependencies'), (current.dependsOn ?? []).map(id => `${id} ${catalog.find(task => task.id === id)?.title ?? t('value.missing')}`).join('、') || t('value.none')],
       [t("field.entry"), current.entry.replace("T", " ").slice(0, 16)],
       [t("field.end"), current.end ? current.end.replace("T", " ").slice(0, 16) : t("value.none")],
     ];
@@ -316,7 +350,11 @@ export const main = async (argv = process.argv.slice(2)): Promise<number> => {
   if (!argv.length) {
     const [{ render }, React, { TuiApp }, { createMouseBridge }] = await Promise.all([import("ink"), import("react"), import("./tui/app.js"), import("./tui/mouse.js")]);
     const interactive = process.stdin.isTTY === true;
-    const bridge = interactive ? createMouseBridge(process.stdin as NodeJS.ReadStream & { fd: number }, process.stdout) : undefined;
+    // 读取鼠标上报方式，布尔配置通过设置页面控制开关。
+    let tracking: "hover" | "drag" | "click" = "hover";
+    const mouseSetting = (await loadConfig()).ui.mouse;
+    tracking = typeof mouseSetting === 'string' ? mouseSetting : 'hover';
+    const bridge = interactive ? createMouseBridge(process.stdin as NodeJS.ReadStream & { fd: number }, process.stdout, tracking) : undefined;
     // 备用屏幕：TUI 独占整屏，退出后恢复终端原内容；鼠标坐标也与
     // 渲染行号精确对齐（每帧从 1,1 重绘）
     if (interactive) process.stdout.write("\x1b[?1049h");

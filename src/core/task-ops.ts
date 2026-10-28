@@ -18,7 +18,7 @@ export const applyParsedUpdate = (task: Task, parsed: Parsed): Task => {
   if (parsed.removeTags.length) task.tags = task.tags.filter((tag) => !parsed.removeTags.includes(tag));
   if (parsed.project !== undefined) task.project = parsed.project;
   if (parsed.parent !== undefined) task.parent = parsed.parent;
-  if (parsed.deps !== undefined) task.deps = [...parsed.deps];
+  if (parsed.deps !== undefined) { task.deps = [...parsed.deps]; delete task.dependsOn; }
   if (parsed.status !== undefined && parsed.status !== task.status) {
     task.status = parsed.status;
     delete task.end;
@@ -34,12 +34,13 @@ export const applyParsedUpdate = (task: Task, parsed: Parsed): Task => {
     else if (field === "priority") delete task.priority;
     else if (field === "project") delete task.project;
     else if (field === "parent") delete task.parent;
-    else if (field === "deps") delete task.deps;
+    else if (field === "deps") { delete task.deps; delete task.dependsOn; }
     else if (field === "wait") delete task.wait;
     else if (field === "tags") task.tags = [];
     else if (field === "notes") task.notes = "";
     else if (field === "recur") delete task.recur;
     else if (field === "reminders") task.reminders = [];
+    else if (field === 'dependencies') { delete task.deps; task.dependsOn = []; }
   }
   return task;
 };
@@ -51,6 +52,7 @@ export const taskToInput = (task: Task): string => {
   if (task.project) parts.push(`proj:${task.project}`);
   parts.push(...task.tags.map((tag) => `#${tag}`));
   if (task.parent) parts.push(`^${task.parent}`);
+  for (const dependency of task.dependsOn ?? []) parts.push(`after:${dependency}`);
   if (task.deps?.length) parts.push(`after:${task.deps.join(",")}`);
   // 等待带日期时由 `~日期` 表达；其余分组状态要写出来，否则编辑一次就回到待办
   if (task.status === "doing" || task.status === "paused" || (task.status === "waiting" && !task.wait)) parts.push(`in:${STATUS_INPUT[task.status]}`);

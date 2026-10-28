@@ -6,16 +6,17 @@ import { describeRecur } from "./parse.js";
 import { compileQuery, match } from "./query.js";
 import { sortKey, urgency, type SortMode, compareTuple } from "./priority.js";
 import { hiddenByWait, isOverdue, localDate, ACTIVE_STATES } from "./task.js";
+import { blockedDependencies } from './dependencies.js';
 
 /**
  * 分组的 key 是稳定标识，name 只是给人看的字。
  * 上层判断分组用 key，不要去匹配 name——否则换个语言就全失效。
  */
-export type GroupKey = "doing" | "overdue" | "today" | "upcoming" | "later" | "waiting" | "paused" | "nodate" | "finished" | "blocked";
+export type GroupKey = "doing" | "overdue" | "today" | "upcoming" | "later" | "waiting" | "paused" | "nodate" | "finished" | "blocked" | "hidden";
 export type Group = { key: GroupKey; name: string; style: string; tasks: Task[] };
 const sort = (tasks: Task[], mode: SortMode, config: Config, now: string): Task[] => [...tasks].sort((a, b) => compareTuple(sortKey(a, mode, config, now), sortKey(b, mode, config, now)));
 
-export const groups = (allTasks: Task[], config: Config, mode: SortMode = config.priority.mode, now = new Date().toISOString().slice(0, 16), query = ""): Group[] => {
+export const groups = (allTasks: Task[], config: Config, mode: SortMode = config.priority.mode, now = new Date().toISOString().slice(0, 16), query = "", catalog: Task[] = allTasks): Group[] => {
   const today = now.slice(0, 10);
   const predicates = query ? compileQuery(query, today, configLevels(config)) : [];
   const tasks = predicates.length ? allTasks.filter((task) => match(task, predicates, today)) : [...allTasks];
@@ -24,7 +25,7 @@ export const groups = (allTasks: Task[], config: Config, mode: SortMode = config
   const horizonDate = horizon.toISOString().slice(0, 10);
   // 前置没做完的后续任务：按配置要么淡字留在原分组，要么只在末尾计数（依赖图里仍可见）。
   // 阻塞要按全部任务算——查询滤掉了前置，不代表前置已经做完
-  const blocked = blockedIds(allTasks);
+  const blocked = new Set(catalog.filter(task => blockedDependencies(task, catalog).length).map(task => task.id));
   const hiddenIds = new Set<string>();
   const blockedHidden = config.deps.blocked === "hide" ? tasks.filter((task) => blocked.has(task.id)) : [];
   for (const task of blockedHidden) hiddenIds.add(task.id);

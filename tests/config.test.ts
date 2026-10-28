@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,6 +7,16 @@ import { describe, expect, it } from "vitest";
 import { getConfigValue, loadConfig, setConfigValue } from "../src/core/config.js";
 
 describe("configuration atomicity", () => {
+  it('persists the startup view and rejects unsupported values before writing', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'atd-config-start-'));
+    expect((await loadConfig(dir)).ui.start_view).toBe('list');
+    await setConfigValue('ui.start_view', 'gtd', dir);
+    expect((await loadConfig(dir)).ui.start_view).toBe('gtd');
+    await expect(setConfigValue('ui.start_view', 'invalid', dir)).rejects.toThrow('不接受这个值');
+    expect((await loadConfig(dir)).ui.start_view).toBe('gtd');
+    await setConfigValue('ui.start_view', 'list', dir);
+    expect((await loadConfig(dir)).ui.start_view).toBe('list');
+  });
   it("serializes concurrent config writes under the shared data lock", async () => {
     const dir = await mkdtemp(join(tmpdir(), "atd-config-"));
     await loadConfig(dir);
@@ -48,5 +58,29 @@ describe("configuration atomicity", () => {
     const config = await loadConfig(dir);
     expect(config.priority.mode).toBe("levels");
     expect(await readFile(join(dir, "config.toml"), "utf8")).not.toContain("priorty");
+  });
+
+  it("exposes ui.mouse with hover as the default and rejects unknown levels", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atd-config-mouse-"));
+    // 默认档是 hover（上报所有移动，悬浮高亮可用）
+    expect((await loadConfig(dir)).ui.mouse).toBe("hover");
+    for (const level of ["drag", "click", "hover"] as const) {
+      await setConfigValue("ui.mouse", level, dir);
+      expect((await loadConfig(dir)).ui.mouse).toBe(level);
+      expect(await getConfigValue("ui.mouse", dir)).toBe(level);
+    }
+    await expect(setConfigValue("ui.mouse", "1003", dir)).rejects.toThrow("不接受这个值");
+    // 被拒之后仍是上一次设置成功的值
+    expect((await loadConfig(dir)).ui.mouse).toBe("hover");
+  });
+
+  it("keeps reading configs written before ui.mouse existed", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atd-config-old-"));
+    // 老配置文件的 [ui] 段只有 lang，缺 mouse 时要落到默认值而不是解析失败
+    await writeFile(join(dir, "config.toml"), "[ui]\nlang = \"en\"\n", "utf8");
+    const config = await loadConfig(dir);
+    expect(config.ui.lang).toBe("en");
+    expect(config.ui.start_view).toBe('list');
+    expect(config.ui.mouse).toBe("hover");
   });
 });
