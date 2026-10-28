@@ -70,6 +70,7 @@ const MESSAGES: Catalog = {
   "field.wait": ["等待到", "Wait until"],
   "field.recur": ["重复", "Repeat"],
   "field.parent": ["父任务", "Parent"],
+  'field.dependencies': ['依赖任务', 'Prerequisites'],
   "field.deps": ["前置", "After"],
   "field.dependents": ["后续", "Unlocks"],
   "field.subtasks": ["子任务", "Subtasks"],

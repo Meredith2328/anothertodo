@@ -102,6 +102,33 @@ atd preview "后天 下午2点半 复盘 特急"           # 先看解析结果�
 
 不写提醒时，有截止时间的任务会自动补一个 toast：距截止超过 24 小时提前 1 天，否则提前 15 分钟；写 `@none`、`@off` 或 `no reminders` 可关闭。
 
+## 项目待办与 GTD
+
+使用 `atd project "学习一本书" "学习第1章" "学习第2章"` 创建顺序项目，列表展示项目和当前可执行步骤。完成步骤后展示下一步骤，完成项目会同时完成剩余步骤。TUI 输入 `:gtd` 进入最多显示两件事项的信息流，`:gtd 3` 修改数量，`:list` 返回清单；安卓点击任务页的 GTD。
+
+推荐支持现有排序、紧急度、随机以及用户新增的 JavaScript 配置脚本文件。使用 `atd script template urgency recommendations/reading.js` 创建模板，编辑后通过 `atd script use recommendations/reading.js --list` 同时用于 GTD 与普通列表。安卓可以导入同一脚本文件。
+
+接口说明、配置、共享实现与实际效果截图见 [项目待办与 GTD](docs/projects-gtd.md)。
+
+两端设置中的“启动页面”可以选择任务列表或 GTD，修改后在下次启动时生效。终端也可以执行 `atd config set ui.start_view gtd` 设置默认进入 GTD。
+
+## 任务依赖
+
+在输入中描述执行顺序，会识别任务标题或编号并保存依赖关系：
+
+```bash
+atd add "整理资料" "整理资料之后写报告" "发邮件 after:写报告"
+atd add "检查附件 before:提交材料"
+atd edit a1b2 "after:整理资料"
+atd edit a1b2 "-dependencies"
+```
+
+支持 `之前 / 之后 / 以前 / 以后 / 完成后`、`before / after / following / depends on / prior to` 等写法。包含空格的名称可以使用引号，例如 `write report after "collect data"`。唯一匹配会直接建立关系，多个候选会明确列出编号，Android 检查页可以点击选择。任务只有在所有依赖完成后才能完成；循环依赖会拒绝保存。
+
+批量输入可以引用同一批中的后续任务，整批添加与关系更新使用同一个事务。`dependsOn` 保存稳定任务编号，并随 JSONL 导出与 Git 同步。`has:dependencies` 可以查询带依赖的任务；任务详情展示前置任务，归档中的已完成任务仍能满足依赖。
+
+Android 任务页提供依赖地图，以菱形关卡和分支道路显示完成进度、当前可以执行的任务和等待节点。地图支持路线切换、拖动、缩放与定位，点击节点可以查看前置与后续任务，或者进入自动保存的任务详情。地图包含归档中的依赖记录，独立任务可以选择显示。
+
 ## 提醒
 
 ```bash
@@ -168,7 +195,19 @@ atd sync          # commit + fetch + rebase + push
 
 `atd config set` 支持任意层级的 key，比如 `atd config set priority.urgency.overdue 20`；拼错的 key 和类型不对的值会当场报错，不会写坏配置文件。界面语言用 `[ui] lang` 配置：`auto`（默认，跟随 `ATD_LANG` / `LC_ALL` / `LANG`，认不出来按中文）、`zh`、`en`，`atd config set ui.lang en` 即可切换。切到 `en` 后议程分组名、日期列、重复规则描述、字段名表都是英文；一行输入语法和查询语法两种语言下完全一样。
 
+鼠标行为用 `[ui] mouse` 配置，三档：
+
+| 档位 | 效果 |
+|---|---|
+| `hover`（默认） | 上报所有移动，悬浮到任务行和底部按钮上会高亮 |
+| `drag` | 只在按住时上报移动，没有纯悬浮高亮，事件量小很多 |
+| `click` | 只上报按下 / 释放 |
+
+点击和滚轮在三档下都照常可用，降档只是让终端少报移动事件。鼠标在终端里划动时 `hover` 档会持续产生事件，嫌费 CPU 就 `atd config set ui.mouse drag`。
+
 ## 开发与打包
+
+Android 手机版本的操作、提醒、数据备份、Git 同步与 APK 构建说明见 [Android 文档](apps/android/README.md)。
 
 ```bash
 npm test                 # 运行测试套件

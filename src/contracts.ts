@@ -62,7 +62,9 @@ export const TaskSchema = z.object({
   tags: z.array(z.string().min(1)).default([]),
   project: z.string().min(1).optional(),
   parent: z.string().min(1).optional(),
-  // 前置任务 id：这些任务都完成（done/cancelled）之前，本任务算「被阻塞」。
+  kind: z.literal("project").optional(),
+  dependsOn: z.array(IdSchema).optional(),
+  // 前置任务 id：全部前置完成后才可以执行本任务。
   // 可选而不是默认空数组，免得每条老任务写回时都多出一个 "deps":[]
   deps: z.array(IdSchema).optional(),
   wait: z.string().min(1).optional(),
@@ -93,6 +95,13 @@ const UrgencyConfigSchema = z.object({
 });
 
 export const ConfigSchema = z.object({
+  focus: z.object({
+    count: z.number().int().min(1).max(20).default(2),
+    template: z.enum(["current", "levels", "urgency", "random", "custom"]).default("current"),
+    script: z.string().default(""),
+    files: z.array(z.object({ name: z.string().min(1), source: z.string().min(1) })).default([]),
+    list: z.boolean().default(false),
+  }).prefault({}),
   priority: z.object({
     mode: z.enum(["levels", "urgency"]),
     levels: z.array(z.string().min(1)).min(1),
@@ -113,12 +122,13 @@ export const ConfigSchema = z.object({
     interval_seconds: z.number().int().positive(),
   }),
   ui: z.object({
+    start_view: z.enum(['list', 'gtd']).default('list'),
     // auto 跟随环境变量（认不出来按中文）；只影响界面文案，不影响输入与查询语法
     lang: z.enum(["auto", "zh", "en"]).default("auto"),
     // 皮肤名：内置的 classic / raised / dracula …，或 ~/.atd/skins/ 下的自定义皮肤
     skin: z.string().min(1).default("classic"),
     // 鼠标点击：关掉后终端原生的选中复制就能用了
-    mouse: z.boolean().default(true),
+    mouse: z.union([z.boolean(), z.enum(['hover', 'drag', 'click'])]).default('hover'),
     // 完成任务时的划线动画
     animations: z.boolean().default(true),
     // cards：按分组分块、靠留白分隔的卡片式清单；table：带边框和表头的表格
@@ -128,7 +138,7 @@ export const ConfigSchema = z.object({
     density: z.enum(["comfortable", "compact"]).default("comfortable"),
     // 顶部横幅：line 一行标题；small 两行小字；full 六行像素字
     banner: z.enum(["line", "small", "full"]).default("line"),
-  }).default({ lang: "auto", skin: "classic", mouse: true, animations: true, layout: "cards", density: "comfortable", banner: "line" }),
+  }).prefault({ lang: "auto", skin: "classic", mouse: 'hover', animations: true, layout: "cards", density: "comfortable", banner: "line" }),
   deps: z.object({
     // 被前置任务挡住的后续任务：dim 在主屏淡字显示，hide 不上主屏（依赖图页仍可见）
     blocked: z.enum(["dim", "hide"]).default("dim"),

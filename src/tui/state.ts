@@ -38,6 +38,10 @@ export type TuiState = {
   dateFormat: "auto" | "md" | "full";
   exitArmedAt?: number;
   mutation: MutationState;
+  /** 鼠标悬停位置（纯视觉） */
+  hover: HoverTarget;
+  /** 正被按住的 Footer 按钮名，给「按下去」的反馈用 */
+  pressedFooter?: string;
 };
 
 export type MutationState =
@@ -46,7 +50,18 @@ export type MutationState =
   | { kind: "success"; id: string }
   | { kind: "error"; id: string; message: string };
 
-export const initialTuiState = (sortMode: "levels" | "urgency" = "levels"): TuiState => ({ view: "all", showUnscheduled: false, mode: { kind: "list" }, input: "", inputCursor: 0, query: "", selectedIndex: 0, marked: [], sortMode, dateFormat: "auto", mutation: { kind: "idle" } });
+/**
+ * 鼠标当前悬停在哪。纯视觉状态，不参与任何业务判断。
+ * - footer：悬停在底部某个按钮上（name 对应 footerKeyRanges）
+ * - task：悬停在某个任务行上（index 与 selectedIndex 同一套编号）
+ * pressed 记「按下但还没松手」的按钮，用来做按下去的反馈。
+ */
+export type HoverTarget =
+  | { kind: "none" }
+  | { kind: "footer"; name: string }
+  | { kind: "task"; index: number };
+
+export const initialTuiState = (sortMode: "levels" | "urgency" = "levels"): TuiState => ({ view: "all", showUnscheduled: false, mode: { kind: "list" }, input: "", inputCursor: 0, query: "", selectedIndex: 0, marked: [], sortMode, dateFormat: "auto", mutation: { kind: "idle" }, hover: { kind: "none" } });
 
 export type TuiAction =
   | { type: "view"; view: AgendaView; showUnscheduled?: boolean }
@@ -62,6 +77,8 @@ export type TuiAction =
   | { type: "sort"; mode: "levels" | "urgency" }
   | { type: "dateFormat"; format: "auto" | "md" | "full" }
   | { type: "armExit"; at: number }
+  | { type: "hover"; target: HoverTarget }
+  | { type: "pressFooter"; name?: string }
   | { type: "mutationStart"; id: string }
   | { type: "mutationSuccess"; id: string }
   | { type: "mutationError"; id: string; message: string };
@@ -92,7 +109,19 @@ export const tuiReducer = (state: TuiState, action: TuiAction): TuiState => {
     case "flash": { if (action.message === undefined) { const next = { ...state }; delete next.flashMessage; return next; } return { ...state, flashMessage: action.message }; }
     case "sort": return { ...state, sortMode: action.mode };
     case "dateFormat": return { ...state, dateFormat: action.format };
-    case "armExit": return { ...state, exitArmedAt: action.at, flashMessage: "再按一次 Esc 退出（q 也可）" };
+    case "armExit": return { ...state, exitArmedAt: action.at, flashMessage: "再按一次 Esc 退出（Q 也可）" };
+    case "hover": {
+      // 悬浮每移动一格都会触发，同一个目标就原样返回，避免无谓重渲染
+      const current = state.hover;
+      const same = current.kind === action.target.kind
+        && (current.kind !== "footer" || current.name === (action.target as { name: string }).name)
+        && (current.kind !== "task" || current.index === (action.target as { index: number }).index);
+      return same ? state : { ...state, hover: action.target };
+    }
+    case "pressFooter": {
+      if (action.name === undefined) { const next = { ...state }; delete next.pressedFooter; return next; }
+      return { ...state, pressedFooter: action.name };
+    }
     case "mutationStart": return { ...state, mutation: { kind: "running", id: action.id } };
     case "mutationSuccess": return { ...state, mutation: { kind: "success", id: action.id } };
     case "mutationError": return { ...state, mutation: { kind: "error", id: action.id, message: action.message }, flashMessage: action.message };

@@ -103,16 +103,18 @@ const HelpRows = ({ entries, keysWidth }: {
 export const helpLines = (rows: number | undefined): number => rows === undefined || rows >= FULL_HELP_LINES + 2 ? FULL_HELP_LINES : COMPACT_HELP_LINES;
 
 export const HelpModal = ({ rows }: { rows?: number | undefined }): React.ReactElement => {
+  // 终端放得下完整版（含新增的留白行）就用完整版；矮终端自动切紧凑版，
   // 保证弹窗永远完整可见。高度未知（测试/管道）时保持完整版。
   const full = helpLines(rows) === FULL_HELP_LINES;
   return (
     <Dialog rows={rows} totalLines={helpLines(rows)} title="atd 帮助" subtitle="按任意键关闭">
       {full ? HELP_SECTIONS.map(([section, entries]) => (
         <React.Fragment key={section}>
+          <Text> </Text>
           <Text bold color={C.warn}>{section}</Text>
           <HelpRows entries={entries} keysWidth={34} />
         </React.Fragment>
-      )) : <HelpRows entries={COMPACT_HELP_ROWS} keysWidth={10} />}
+      )) : <><Text> </Text><HelpRows entries={COMPACT_HELP_ROWS} keysWidth={10} /></>}
     </Dialog>
   );
 };
@@ -144,6 +146,7 @@ const detailParts = (task: Task, subtasks: Task[], parent: Task | undefined, dep
     [t("field.tags"), task.tags.length ? task.tags.map((tag) => `#${tag}`).join(" ") : t("value.none")],
     [t("field.wait"), task.wait ?? t("value.none")],
     [t("field.recur"), task.recur ? describeRecur(task.recur) : t("value.none")],
+    [t('field.dependencies'), task.dependsOn?.join('、') || t('value.none')],
   ];
   if (parent) fields.push([t("field.parent"), `${parent.id} ${parent.title}`]);
   const doneMark = (item: Task): string => item.status === "done" || item.status === "cancelled" ? "✓" : "·";

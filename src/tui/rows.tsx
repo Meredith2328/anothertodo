@@ -62,6 +62,7 @@ const extrasSegments = (task: Task): Array<{ text: string; color: string }> => {
   for (const tag of task.tags) segments.push({ text: `#${tag} `, color: C.tag });
   if (task.recur) segments.push({ text: `↻${describeRecur(task.recur)} `, color: C.proj });
   if (task.notes.trim()) segments.push({ text: "✎ ", color: C.dim });
+  if (task.dependsOn?.length) segments.push({ text: `依赖:${task.dependsOn.join(',')} `, color: C.yellow });
   const reminder = task.reminders.find((item) => !item.fired);
   // 不用 ⏰：Ink 排版时把它当 1 格、终端却画成 2 格，整行多出一格就会折行
   if (reminder) segments.push({ text: `◷${reminder.at.slice(5, 16).replace("T", " ")}`, color: C.yellow });
@@ -148,7 +149,7 @@ export const CardRow = ({ task, selected, marked = false, blocked = false, compl
   /** 刚被操作过、位置变了的行：短暂高亮一下让眼睛跟得上 */
   moved?: boolean;
 }): React.ReactElement => {
-  const indent = depth > 0 ? `${"  ".repeat(depth - 1)}↳ ` : "";
+  const indent = depth > 0 ? `${"  ".repeat(depth - 1)}- ` : "";
   const priority = priorityCell(task, levels);
   const dot = completing !== undefined || task.status === "done" ? "✓" : marked ? "◉" : blocked ? "⊘" : priority.text ? "●" : "○";
   const dotColor = completing !== undefined || task.status === "done" ? C.good : marked ? C.hot : blocked ? C.dimmer : priority.text ? priority.color : C.dimmer;
@@ -217,9 +218,10 @@ export const TaskRow = ({ task, selected, marked = false, blocked = false, compl
   levels: string[];
   cols: Columns;
   depth?: number;
+  strikeProgress?: number;
 }): React.ReactElement => {
   // 子任务缩进后可用的标题宽度也跟着变窄，否则会挤掉右边的列
-  const indent = depth > 0 ? `${"  ".repeat(depth - 1)}↳ ` : "";
+  const indent = depth > 0 ? `${"  ".repeat(depth - 1)}- ` : "";
   const mark = completing !== undefined || task.status === "done" ? "✓ " : `${marked ? "◉ " : ""}${blocked ? "⊘ " : ""}`;
   // 标题后面留一格空，免得和紧急度列粘在一起
   const room = Math.max(2, cols.title - displayWidth(indent) - displayWidth(mark) - 1);

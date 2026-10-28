@@ -32,10 +32,18 @@ tie_break = "entry"
 view = "all"
 timezone = "Asia/Shanghai"
 
+[focus]
+count = 2
+template = "current"
+script = ""
+list = false
+
 [watch]
 interval_seconds = 30
 
 [ui]
+# 启动页面：list 任务列表 / gtd 信息流；下次启动生效。
+start_view = "list"
 # auto 跟随系统语言（认不出来按中文）；可写成 "zh" 或 "en" 固定界面语言。
 # 只影响界面文案，一行输入语法和查询语法两种语言下都一样。
 lang = "auto"
@@ -43,7 +51,7 @@ lang = "auto"
 # atd skin list 看全部，atd skin template 我的皮肤 生成可改的模板
 skin = "classic"
 # 鼠标点击：false 时不接管鼠标，终端里可以直接拖选复制文字
-mouse = true
+mouse = "hover"
 # 完成任务时的划线小动画
 animations = true
 # 清单样式：cards 卡片式（分组靠留白分隔，默认）/ table 带边框表头的表格
@@ -73,7 +81,7 @@ const defaultConfig = (): Config => ConfigSchema.parse({
   priority: { mode: "levels", levels: ["低", "中", "高"], urgency: { overdue: 12, due_today: 8, due_week_decay: 8, per_level: 3, age_per_day: 0.05, age_cap: 2, waiting_penalty: 3 } },
   agenda: { week_days: 7, date_format: "auto", tie_break: "entry" },
   watch: { interval_seconds: 30 },
-  ui: { lang: "auto", skin: "classic", mouse: true, animations: true, layout: "cards", density: "comfortable", banner: "line" },
+  ui: { lang: "auto", skin: "classic", mouse: 'hover', animations: true, layout: "cards", density: "comfortable", banner: "line" },
   deps: { blocked: "dim" },
   email: { host: "", port: 465, ssl: true, user: "", password: "", from: "", to: "" },
 });

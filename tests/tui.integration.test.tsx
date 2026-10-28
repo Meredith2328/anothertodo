@@ -11,7 +11,7 @@ import { readFile } from "node:fs/promises";
 import { loadConfig, setConfigValue } from "../src/core/config.js";
 import { parseTask } from "../src/core/task.js";
 import { Store } from "../src/storage/store.js";
-import { TuiApp, type TuiTestSignals } from "../src/tui/app.js";
+import { TuiApp, footerKeyRanges, type TuiTestSignals } from "../src/tui/app.js";
 import { emitMouse } from "../src/tui/mouse.js";
 
 async function withTimeout<T>(promise: Promise<T>, label: string, timeoutMs = 3000): Promise<T> {
@@ -52,6 +52,30 @@ const tomorrow = (): string => {
 
 describe("stage 7 Ink TUI integration", () => {
   afterEach(() => cleanup());
+
+  it('opens the configured startup view and applies a changed preference on the next launch', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'atd-startup-'));
+    const store = new Store(dir);
+    const service = new ApplicationService(store);
+    for (const title of ['启动事项一', '启动事项二', '启动事项三']) await service.add(`${title} @none`);
+    await setConfigValue('ui.start_view', 'gtd', dir);
+    const signals = createSignals();
+    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={30} />);
+    await signals.ready(); await signals.data();
+    await expect.poll(() => app.lastFrame()).toContain('GTD / Flashcard');
+    await expect.poll(() => app.lastFrame()).toContain('启动事项二');
+    expect(app.lastFrame()).not.toContain('启动事项三');
+    expect(app.frames.some(frame => frame.includes('启动事项三'))).toBe(false);
+    await setConfigValue('ui.start_view', 'list', dir);
+    const refreshed = signals.mutation(); app.stdin.write('r'); await refreshed;
+    expect(app.lastFrame()).toContain('GTD / Flashcard');
+    app.unmount();
+    const nextSignals = createSignals();
+    const restarted = render(<TuiApp store={store} testSignals={nextSignals.signals} terminalRows={30} />);
+    await nextSignals.ready(); await nextSignals.data();
+    await expect.poll(() => restarted.lastFrame()).toContain('启动事项三');
+    expect(restarted.lastFrame()).not.toContain('GTD / Flashcard');
+  });
 
   it("adds through the real input/Enter path", async () => {
     const dir = await mkdtemp(join(tmpdir(), "atd-ink-"));
@@ -372,6 +396,39 @@ describe("footer mouse interaction", () => {
     app.stdin.write("o");
     expect((await reopenMutation).kind).toBe("success");
     expect((await store.get("00000081"))?.status).toBe("todo");
+  });
+
+  it("highlights the hovered task row without changing the selection", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atd-ink-"));
+    const store = new Store(dir);
+    for (const id of ["00000091", "00000092"]) {
+      await store.save(parseTask({ id, title: `悬浮${id.slice(-1)}`, status: "todo", tags: [], reminders: [], entry: "2026-08-20T10:00:00Z", modified: "2026-08-20T10:00:00Z" }));
+    }
+    const signals = createSignals();
+    const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={30} />);
+    await signals.ready(); await signals.data();
+    emitMouse({ kind: 'move', button: 0, x: 20, y: 6 });
+    await new Promise(resolve => setTimeout(resolve, 60));
+    expect((await store.get('00000091'))?.status).toBe('todo');
+    expect((await store.get('00000092'))?.status).toBe('todo');
+    const mutation = signals.mutation(); app.stdin.write('d'); await mutation;
+    expect((await store.get('00000091'))?.status).toBe('done');
+    expect((await store.get('00000092'))?.status).toBe('todo');
+  });
+
+  it('completes a task through the footer after pointer movement', async () => {
+    const store = new Store(await mkdtemp(join(tmpdir(), 'atd-ink-')));
+    await store.save(parseTask({ id: '00000093', title: '按下反馈', status: 'todo' }));
+    const signals = createSignals(); const app = render(<TuiApp store={store} testSignals={signals.signals} terminalRows={24} />);
+    await signals.ready(); await signals.data();
+    const range = footerKeyRanges().find(range => range.name === 'done')!;
+    emitMouse({ kind: 'move', button: 0, x: range.start, y: 24 });
+    await new Promise(resolve => setTimeout(resolve, 40));
+    expect((await store.get('00000093'))?.status).toBe('todo');
+    const mutation = signals.mutation(); emitMouse({ kind: 'press', button: 0, x: range.start, y: 24 });
+    expect((await mutation).kind).toBe('success');
+    emitMouse({ kind: 'release', button: 0, x: range.start, y: 24 });
+    expect((await store.get('00000093'))?.status).toBe('done');
   });
 
   it("picks follow-up tasks with a, space and Enter", async () => {

@@ -20,7 +20,7 @@ export type ButtonLook = {
   highlight: string; shadow: string; pressedBg: string;
 };
 
-export const C: Palette = {
+export const C: Palette & { label: string; labelBright: string; hotKey: string; hoverRow: string } = {
   accent: "#56d4dd", // 青：主色/横幅/今天
   hot: "#ff6188", // 粉红：最高档/重点
   warn: "#fc9867", // 橙：次高档
@@ -35,6 +35,14 @@ export const C: Palette = {
   border: "#3b3b58",
   flash: "#ffd866",
   select: "#26264a",
+  /** 正文级文字：比 dim 亮，用在 Footer 标签这类"要看清但不抢戏"的地方 */
+  label: "#c8ccd4",
+  /** 悬浮时的标签色，比 label 再亮一档 */
+  labelBright: "#f2f4f8",
+  /** 悬浮时的键帽底色：比 accent 更亮，制造"抬起来"的感觉 */
+  hotKey: "#8ef2fa",
+  /** 悬浮在任务行上的底色：比 select 浅，和"选中"区分开 */
+  hoverRow: "#1b1b33",
 };
 
 export const SKIN: { name: string; border: BorderStyle; button: ButtonLook } = {
@@ -55,7 +63,7 @@ export const applyPalette = (palette: Palette, banner: string[]): void => {
   Object.assign(C, palette);
   Object.assign(GROUP_COLOR, {
     doing: C.yellow, overdue: C.overdue, today: C.accent, upcoming: C.future, later: C.dim,
-    waiting: C.tag, paused: C.dim, nodate: C.dim, finished: C.dimmer, blocked: C.dimmer,
+    waiting: C.tag, paused: C.dim, nodate: C.dim, finished: C.dimmer, blocked: C.dimmer, hidden: C.dimmer,
   } satisfies Record<GroupKey, string>);
   for (const key of Object.keys(STATUS_COLOR)) delete STATUS_COLOR[key];
   Object.assign(STATUS_COLOR, { doing: C.yellow, waiting: C.tag, paused: C.dim, meeting: C.proj, done: C.dimmer, cancelled: C.dimmer });
@@ -93,9 +101,7 @@ export const BANNER_LINE = "ANOTHER TODO";
 // 帮助按“区域”组织：清单区（默认焦点）/ 输入区 / 两区通用
 export const HELP_SECTIONS: ReadonlyArray<readonly [string, ReadonlyArray<readonly [string, string]>]> = [
   ["清单区（默认焦点，光标在任务列表）", [
-    ["j k ↑ ↓", "移动选择"],
-    ["PgUp / PgDn", "上下翻一页"],
-    ["g / G", "跳到最上 / 最下"],
+    ["j k ↑ ↓ / PgUp PgDn / g G", "移动选择 / 上下翻页 / 跳到首末"],
     ["l / →", "看详情（备注、提醒、父子任务）"],
     ["d / x", "完成 / 删除（删除会先问一句）"],
     ["c / o", "取消任务 / 重新打开 done、cancelled"],
@@ -115,7 +121,7 @@ export const HELP_SECTIONS: ReadonlyArray<readonly [string, ReadonlyArray<readon
     ["Enter", "提交：添加 / 命令 / 搜索 / 编辑保存"],
     ["Tab", "补全 #标签 和 proj:项目"],
     ["Esc", "清空输入并回到清单区"],
-    [": xx", "命令模式（在清单区按 : 也会进这里）"],
+    [": xx", ":gtd 信息流 · :list 清单 · :script 文件名 自定义推荐"],
     ["/ xx", "搜索过滤（同上）"],
   ]],
   ["区域切换", [
@@ -133,9 +139,10 @@ export const HELP_SECTIONS: ReadonlyArray<readonly [string, ReadonlyArray<readon
   ]],
 ];
 
-// 完整帮助的总行数（边框 2 + 上下留白 2 + 标题 1 + 每节 1 行节名 + 条目），用于判断能否整页放下
+// 完整帮助的总行数，用于判断能否整页放下、以及垂直居中的留白量。
+// 组成：边框 2 + 上下内边距 2 + 标题 1 + 每节（空行 1 + 节名 1 + 条目 n）
 export const FULL_HELP_LINES =
-  5 + HELP_SECTIONS.reduce((lines, [, entries]) => lines + 1 + entries.length, 0);
+  5 + HELP_SECTIONS.reduce((lines, [, entries]) => lines + 2 + entries.length, 0);
 
 // 紧凑帮助（终端高度不足以放下完整版时使用）：几行讲完全部高频操作，
 // 加边框和标题后任何常规终端都放得下。
@@ -151,14 +158,14 @@ export const COMPACT_HELP_ROWS: ReadonlyArray<readonly [string, string]> = [
   ["退出", "q / Q / Ctrl+Q / 双击 Esc；打 d/x/q 开头标题先按 i"],
 ];
 
-// 紧凑帮助总行数（边框 2 + 上下留白 2 + 标题 1 + 条目）
-export const COMPACT_HELP_LINES = 5 + COMPACT_HELP_ROWS.length;
+// 紧凑帮助总行数（边框 2 + 上下内边距 2 + 标题 1 + 标题后空行 1 + 条目）
+export const COMPACT_HELP_LINES = 6 + COMPACT_HELP_ROWS.length;
 
 export const WELCOME_ROWS: ReadonlyArray<readonly [string, string]> = [
   ["直接打字", "添加任务：`后天 买牛奶 很急 @18:30`，回车即存"],
   ["j / k", "在任务列表上下移动光标"],
   ["d", "完成选中的任务"],
-  [": 命令", "如 `:mode urgency` 切换排序、`:undo` 撤销"],
+    [": 命令", "如 `:gtd` 信息流、`:list` 清单、`:undo` 撤销"],
   ["? / F1", "随时打开完整快捷键帮助"],
   ["q / 双击 Esc", "退出"],
 ];

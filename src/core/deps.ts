@@ -1,21 +1,22 @@
 import type { Task } from "../contracts.js";
 import { ACTIVE_STATES } from "./task.js";
+import { blockedDependencies, dependencyIds } from './dependencies.js';
 
 /**
  * 任务之间的前置依赖（DAG）。边存在后续任务的 `deps` 字段里：
  * 「领取身份证.deps = [申请身份证.id]」读作「申请身份证做完才能领取身份证」。
- * 前置 done 或 cancelled 都算不再挡路；前置被删掉或归档了也不挡路，
- * 否则后续任务会被一条看不见的记录永远卡住。
+ * 全部前置完成后才可以执行后续任务。目录包含归档中的完成记录，
+ * 缺失的前置记录保留阻塞状态。
  */
 const FINISHED = new Set(["done", "cancelled"]);
 
 export const openDeps = (task: Task, byId: Map<string, Task>): Task[] =>
-  (task.deps ?? []).flatMap((id) => { const dep = byId.get(id); return dep && !FINISHED.has(dep.status) ? [dep] : []; });
+  blockedDependencies(task, [...byId.values()]).flatMap(id => { const dep = byId.get(id); return dep ? [dep] : []; });
 
 /** 还开着、但有前置没做完的任务 */
 export const blockedIds = (tasks: Task[]): Set<string> => {
   const byId = new Map(tasks.map((task) => [task.id, task]));
-  return new Set(tasks.filter((task) => ACTIVE_STATES.has(task.status) && openDeps(task, byId).length > 0).map((task) => task.id));
+  return new Set(tasks.filter((task) => ACTIVE_STATES.has(task.status) && blockedDependencies(task, tasks).length > 0).map((task) => task.id));
 };
 
 /** 给 id 设上这些前置后会不会成环：顺着前置往上走，走回 id 就是环 */
@@ -28,7 +29,7 @@ export const wouldCycle = (tasks: Task[], id: string, deps: string[]): boolean =
     if (current === id) return true;
     if (seen.has(current)) continue;
     seen.add(current);
-    stack.push(...(byId.get(current)?.deps ?? []));
+    const task = byId.get(current); if (task) stack.push(...dependencyIds(task));
   }
   return false;
 };
@@ -36,7 +37,7 @@ export const wouldCycle = (tasks: Task[], id: string, deps: string[]): boolean =
 /** done 掉 id 之后，因此不再被挡住的后续任务 */
 export const unblockedBy = (tasks: Task[], id: string): Task[] => {
   const byId = new Map(tasks.map((task) => [task.id, task]));
-  return tasks.filter((task) => ACTIVE_STATES.has(task.status) && (task.deps ?? []).includes(id) && openDeps(task, byId).length === 0);
+  return tasks.filter((task) => ACTIVE_STATES.has(task.status) && dependencyIds(task).includes(id) && blockedDependencies(task, tasks).length === 0);
 };
 
 export type GraphMark = "done" | "ready" | "blocked";
@@ -69,7 +70,7 @@ export const waitLabel = (task: Task, tasks: Task[], today: string): string => {
  */
 export const dependencyGraph = (tasks: Task[]): GraphLine[] => {
   const byId = new Map(tasks.map((task) => [task.id, task]));
-  const depsOf = (task: Task): Task[] => (task.deps ?? []).flatMap((id) => { const dep = byId.get(id); return dep && dep.id !== task.id ? [dep] : []; });
+  const depsOf = (task: Task): Task[] => dependencyIds(task).flatMap((id) => { const dep = byId.get(id); return dep && dep.id !== task.id ? [dep] : []; });
   const dependents = new Map<string, Task[]>();
   for (const task of tasks) for (const dep of depsOf(task)) dependents.set(dep.id, [...(dependents.get(dep.id) ?? []), task]);
   const inGraph = tasks.filter((task) => depsOf(task).length > 0 || dependents.has(task.id));
