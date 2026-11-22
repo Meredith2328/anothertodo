@@ -1,6 +1,9 @@
 name = "anothertodo-formal"
 version = "0.1.0"
-defaultTargets = ["SyncMerge"]
+defaultTargets = ["SyncMerge", "CIGate"]
 
 [[lean_lib]]
 name = "SyncMerge"
+
+[[lean_lib]]
+name = "CIGate"

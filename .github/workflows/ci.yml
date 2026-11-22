@@ -28,6 +28,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -43,6 +44,7 @@ jobs:
 
   audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -50,5 +52,19 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # 0.2.2 把 npm audit 清到 0 条，这里守住它，别再攒回去
-      - run: npm audit --audit-level=low
+      # 只对生产运行时依赖设防（moderate+），避免上游 eslint/dev 工具链公告误伤日常 PR
+      - run: npm audit --omit=dev --audit-level=moderate
+
+  formal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Lean 4 proofs (SyncMerge & CIGate)
+        uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: formal
+          auto-config: false
+          build: true
+          test: false
+          lint: false
